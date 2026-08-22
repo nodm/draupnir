@@ -1,0 +1,30 @@
+{
+  "name": "ingestion",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "ingestion/src",
+  "projectType": "application",
+  "tags": ["scope:ingestion", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/ingestion",
+        "main": "ingestion/src/handler.ts",
+        "tsConfig": "ingestion/tsconfig.lib.json",
+        "assets": ["ingestion/*.md"],
+        "platform": "node",
+        "format": ["cjs"],
+        "external": ["@aws-sdk/*"],
+        "generatePackageJson": true
+      }
+    },
+    "bdd": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cucumber-js features/**/*.feature --require features/step_definitions/**/*.cjs",
+        "cwd": "ingestion"
+      }
+    }
+  }
+}
