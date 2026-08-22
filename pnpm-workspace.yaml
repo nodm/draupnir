@@ -1,0 +1,8 @@
+packages:
+  - '*'
+
+allowBuilds:
+  esbuild: true
+  nx: true
+  protobufjs: true
+  unrs-resolver: false
