@@ -81,9 +81,9 @@
   order: pnpm install, `nx affected -t lint`, `nx affected -t build`,
   `nx affected -t test`, verifying each step is a separate job step that fails the run on
   non-zero exit
-- [ ] 8.2 Open a trivial PR (e.g. a comment-only change to a stub file) and verify the
+- [x] 8.2 Open a trivial PR (e.g. a comment-only change to a stub file) and verify the
   workflow run completes green
-- [ ] 8.3 Push the temporary disallowed import from 3.2 on a branch, verify the CI lint
+- [x] 8.3 Push the temporary disallowed import from 3.2 on a branch, verify the CI lint
   step fails, then confirm removing it restores a green run
 - [x] 8.4 Verify `ci.yml` never invokes `infra`'s `preview`, `up`, or `destroy` targets —
   CI stays side-effect-free with respect to any cloud account
