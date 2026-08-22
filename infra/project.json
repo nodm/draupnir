@@ -1,0 +1,30 @@
+{
+  "name": "infra",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "infra",
+  "projectType": "application",
+  "tags": ["scope:infra", "type:app"],
+  "targets": {
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi preview",
+        "cwd": "infra"
+      }
+    },
+    "up": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi up --yes",
+        "cwd": "infra"
+      }
+    },
+    "destroy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pulumi destroy --yes",
+        "cwd": "infra"
+      }
+    }
+  }
+}
