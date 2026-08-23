@@ -1,10 +1,10 @@
 # mcp
 
-This library was generated with [Nx](https://nx.dev).
+This is the MCP Lambda application (API Gateway-triggered), scaffolded with [Nx](https://nx.dev).
 
 ## Building
 
-Run `nx build mcp` to build the library.
+Run `nx build mcp` to bundle the Lambda handler.
 
 ## Running unit tests
 

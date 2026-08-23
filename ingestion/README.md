@@ -1,10 +1,10 @@
 # ingestion
 
-This library was generated with [Nx](https://nx.dev).
+This is the ingestion Lambda application (SQS-triggered), scaffolded with [Nx](https://nx.dev).
 
 ## Building
 
-Run `nx build ingestion` to build the library.
+Run `nx build ingestion` to bundle the Lambda handler.
 
 ## Running unit tests
 
