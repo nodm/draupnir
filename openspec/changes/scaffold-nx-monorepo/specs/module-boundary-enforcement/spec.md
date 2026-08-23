@@ -1,8 +1,8 @@
 ## Purpose
 
 Enforces the scope tag matrix at lint time so a cross-boundary import — including from a
-future `scope:web` package into `scope:ingestion` internals — is caught before review
-instead of at runtime or by convention.
+future `scope:web` package into `scope:ingestion` — is caught before review instead of at
+runtime or by convention.
 
 ## ADDED Requirements
 
@@ -10,8 +10,11 @@ instead of at runtime or by convention.
 The workspace SHALL configure `@nx/enforce-module-boundaries` so that: `scope:infra` may
 depend on `scope:shared`; `scope:ingestion` and `scope:mcp` may each depend on
 `scope:shared`; `scope:ingestion` and `scope:mcp` SHALL NOT depend on each other; and any
-project tagged `scope:web` SHALL NOT depend on `scope:ingestion` internals (a package
-export explicitly marked public is exempt).
+project tagged `scope:web` SHALL NOT depend on `scope:ingestion` at all (only on
+`scope:shared`). `depConstraints` gates dependencies at the whole-project level, not per
+export, so there is no "public export exempt" carve-out for any of these pairs — anything
+a `type:app` Lambda project needs to share with another app belongs in `scope:shared`,
+not in an exported surface of the app itself.
 
 #### Scenario: Disallowed import fails lint
 - **WHEN** a file in a project tagged `scope:mcp` imports directly from a file inside the
@@ -20,8 +23,8 @@ export explicitly marked public is exempt).
   `enforce-module-boundaries` violation
 
 #### Scenario: Web-to-ingestion import fails lint
-- **WHEN** a project tagged `scope:web` imports an internal (non-exported) module from the
-  `ingestion` project
+- **WHEN** a project tagged `scope:web` imports from the `ingestion` project, including its
+  public entry point
 - **THEN** lint fails with an `enforce-module-boundaries` violation, even though no
   `scope:web` project exists yet in this change
 

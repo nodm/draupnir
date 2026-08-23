@@ -19,9 +19,9 @@ later.
     generator scaffolds it; no official `@nx/pulumi` plugin exists).
 - Configure `@nx/enforce-module-boundaries` with a tag matrix that allows `infra` to depend
   on `shared`, allows `ingestion`/`mcp` to depend on `shared`, and blocks `ingestion` ↔ `mcp`
-  cross-imports and any `scope:web` → `scope:ingestion` internal import (no `web` project
-  exists yet in phase 1 — the rule is defined so the boundary is enforced the moment one
-  lands).
+  cross-imports and any `scope:web` → `scope:ingestion` import at all, public entry point
+  included (no `web` project exists yet in phase 1 — the rule is defined so the boundary is
+  enforced the moment one lands).
 - Configure per-function esbuild bundling for `ingestion` and `mcp`, with `@aws-sdk/*`
   marked external (present in the Lambda Node.js runtime already) — neither stock nx
   generator produces this, it's hand-configured on top.
