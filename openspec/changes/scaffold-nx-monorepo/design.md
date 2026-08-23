@@ -16,8 +16,8 @@ Vitest, Cucumber, and a CI workflow.
 **Goals:**
 - Nx workspace that recognizes pnpm workspaces natively (`nx init` in "integrated" mode
   against existing `package.json`).
-- One tag matrix, defined once in `nx.json`, that every current and future project is
-  checked against.
+- One tag matrix, defined once in the root `eslint.config.mjs`, that every current and
+  future project is checked against.
 - Stub projects that build/test/lint green with zero business logic, so phase-1 work adds
   code inside an already-passing pipeline rather than fixing tooling and features at once.
 - `ingestion` and `mcp` scaffolded as the Lambda-handler shape their ADRs already commit
@@ -131,10 +131,10 @@ without producing an output nothing reads. `infra/tsconfig.json`'s `moduleResolu
 
 ## Risks / Trade-offs
 
-- [Tag matrix defined once in `nx.json` but not yet exercised by real cross-package
-  imports] → Mitigation: the spec's dummy cross-boundary import scenario (module-boundary-
-  enforcement) is exercised manually as part of this change's acceptance, not left
-  theoretical.
+- [Tag matrix defined once in the root `eslint.config.mjs` but not yet exercised by real
+  cross-package imports] → Mitigation: the spec's dummy cross-boundary import scenario
+  (module-boundary-enforcement) is exercised manually as part of this change's acceptance,
+  not left theoretical.
 - [Cucumber has no first-party nx executor, so the `bdd` target is a hand-rolled
   `run-commands` wrapper] → Mitigation: keep it a thin passthrough to `cucumber-js`; if nx
   ships an official executor later, swapping it in is a one-target change.
