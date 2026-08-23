@@ -1,0 +1,9 @@
+{
+  "name": "ingestion",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "./handler.cjs",
+  "types": "./src/handler.d.ts",
+  "dependencies": {}
+}

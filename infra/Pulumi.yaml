@@ -1,0 +1,3 @@
+name: draupnir-infra
+runtime: nodejs
+description: Draupnir infrastructure (Pulumi TypeScript, no resources yet)

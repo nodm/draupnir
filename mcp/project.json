@@ -1,0 +1,23 @@
+{
+  "name": "mcp",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "mcp/src",
+  "projectType": "application",
+  "tags": ["scope:mcp", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/mcp",
+        "main": "mcp/src/handler.ts",
+        "tsConfig": "mcp/tsconfig.lib.json",
+        "assets": ["mcp/*.md"],
+        "platform": "node",
+        "format": ["cjs"],
+        "external": ["@aws-sdk/*"],
+        "generatePackageJson": true
+      }
+    }
+  }
+}
