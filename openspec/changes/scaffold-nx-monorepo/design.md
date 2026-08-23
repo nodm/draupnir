@@ -118,6 +118,17 @@ them. The Pulumi program itself declares zero resources: no VPC/subnet/NAT gatew
 (ADR-0003 keeps Lambda off Aurora's VPC entirely), no S3 bucket or SQS queue (ADR-0004's
 ingestion storage/queue is the statement-ingestion change's job, not this scaffold's).
 
+**`infra`'s `build` target is a type-check (`tsc --noEmit`), not a compile-to-`dist`
+step.** Pulumi's `nodejs` runtime reads `index.ts` directly via its own `ts-node`
+integration (driven by `Pulumi.yaml` + `infra/tsconfig.json`) — nothing ever consumes a
+compiled `dist/infra` output the way `ingestion`/`mcp`'s esbuild bundles or `shared`'s
+`@nx/js:tsc` output are consumed. A `tsc --noEmit` `run-commands` target gets `infra`
+covered by `nx affected -t build` (so a broken Pulumi program fails CI, not just `preview`)
+without producing an output nothing reads. `infra/tsconfig.json`'s `moduleResolution` is
+`node16`, not the legacy `node`/`node10` value — that option is deprecated as of TypeScript
+6 and errors under `--noEmit` (`tsc --noEmit` surfaced this; `pulumi preview`'s own
+`ts-node` path hadn't).
+
 ## Risks / Trade-offs
 
 - [Tag matrix defined once in `nx.json` but not yet exercised by real cross-package
