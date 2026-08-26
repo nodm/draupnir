@@ -9,3 +9,6 @@ dist
 .nx/workspace-data
 .nx/migrate-runs
 vitest.config.*.timestamp*
+.nx/polygraph
+.claude/worktrees
+.claude/settings.local.json
