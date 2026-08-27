@@ -62,13 +62,15 @@ Both users and both EU banks' data originate in the EU. GDPR's substantive rules
 (lawful basis, data minimization, retention, breach notification) apply regardless
 of which AWS region is picked — region choice is not what makes a system
 GDPR-compliant. What region choice *does* affect: keeping data at rest and
-processing inside the EU sidesteps the entire "adequacy decision" / Standard
-Contractual Clauses analysis for **international transfers** that a non-EU region
-would introduce, and reads plainly on paper if this app is ever explained to a bank,
-a regulator, or a future consulting client. **Frankfurt and Stockholm are both
-inside the EU** — this axis does not distinguish between them; it only rules out
-non-EU regions, which were never a real contender given no other requirement points
-there.
+processing inside the EU avoids the **international-transfer** question for the
+resources this ADR controls directly — no adequacy-decision/Standard Contractual
+Clauses analysis is needed just to pick a region, the way it would be for a non-EU
+region. This is not a complete legal safe harbor, though: an EU region alone doesn't
+eliminate transfer exposure if a subprocessor or AWS support path ever accesses the
+data remotely from a third country — that's a real, separate question this ADR
+doesn't resolve, just doesn't make worse. **Frankfurt and Stockholm are both inside
+the EU** — this axis does not distinguish between them; it only rules out non-EU
+regions, which were never a real contender given no other requirement points there.
 
 ### 2. Service and feature availability — verified, not assumed
 
@@ -91,13 +93,22 @@ ADR-0003's working assumption:
   `inbound-smtp` endpoint**, i.e. both support email receiving today.
   ([AWS General Reference: SES endpoints](https://docs.aws.amazon.com/general/latest/gr/ses.html#ses_inbound_endpoints))
   This resolves ADR-0004's open item: region choice does not force SES into a
-  different region from the rest of the stack. Worth noting for the data-access
-  design, though: SES's own docs state *"with the exception of Amazon S3 buckets,
-  all of the AWS resources that you use for receiving email with SES have to be in
-  the same AWS Region as the SES endpoint"* — so whichever region wins, the SQS
-  queue, DLQ, and ingestion Lambda from ADR-0004 must live in that same region (S3
-  is the one resource SES lets live elsewhere, but there's no reason to split it out
-  here).
+  different region from the rest of the stack. Worth getting the *mechanism* right
+  for the data-access design, though, since ADR-0004's receipt rule uses an S3
+  action only — no SNS or Lambda action on the rule itself. SES's own same-region
+  rule (*"with the exception of Amazon S3 buckets, all of the AWS resources that you
+  use for receiving email with SES have to be in the same AWS Region as the SES
+  endpoint"*) binds only the resources a receipt rule *directly* references, which
+  here is nothing but the S3 bucket — and even that bucket only needs to sit in
+  *some* region where SES receiving is available, not necessarily the same one as
+  the rule set itself, per the S3-action docs.
+  ([AWS: S3 action, region note](https://docs.aws.amazon.com/ses/latest/dg/receiving-email-action-s3.html))
+  The reason the SQS queue and ingestion Lambda from ADR-0004 still end up pinned to
+  `eu-north-1` isn't SES's rule at all — it's two separate, ordinary same-region
+  requirements downstream: an S3 bucket's event notifications can only target an SQS
+  queue in the same region, and an SQS event-source mapping can only invoke a Lambda
+  function in the same region. Same practical outcome (everything co-located), for a
+  different, more accurate reason.
   ([AWS: Email receiving region constraint](https://docs.aws.amazon.com/ses/latest/dg/regions.html#region-receive-email))
 
 **Net result: no feature-availability gap between the two candidates as of
@@ -195,9 +206,11 @@ Items.
 - This **confirms** ADR-0003's working assumption rather than overturning it, but on
   the basis of this ADR's direct verification (SES receiving parity, current Data
   API availability, actual latency/cost numbers) — not by inheriting it unchecked.
-- SES's same-region constraint (section 2) means the SQS queue, DLQ, and ingestion
-  Lambda from ADR-0004 must stay in `eu-north-1` alongside SES itself; only the S3
-  buckets could technically live elsewhere, and there's no reason to split them out.
+- The S3-event-notification and SQS-event-source-mapping same-region requirements
+  (section 2) mean the SQS queue, DLQ, and ingestion Lambda from ADR-0004 must stay
+  in `eu-north-1` alongside the S3 buckets — not because SES itself requires it
+  (its receipt rule only touches S3 directly), but as an ordinary consequence of how
+  S3 and SQS event sourcing work regionally.
 
 ## Options Considered
 
@@ -232,21 +245,26 @@ Items.
   would be exam-completeness for its own sake, not decision-relevant — the same
   "problem doesn't apply, don't solve it anyway" reasoning ADR-0003 and ADR-0004
   both already applied to RDS Proxy and SNS respectively.
-- **Why the SES same-region constraint matters even though it didn't change the
-  region pick**: it did resolve a real unknown from ADR-0004 (parity was not
-  guaranteed, and the historical Data API gap shows region parity for newer AWS
-  features cannot be assumed). It also constrains future IaC: nothing in
-  ADR-0001–4's design can casually move SQS/Lambda to a "cheaper" or "closer" region
-  independent of SES without breaking receiving — worth stating explicitly so it
-  isn't rediscovered the hard way during Pulumi work.
+- **Why the SES receiving check mattered even though it didn't change the region
+  pick**: it resolved a real unknown from ADR-0004 (parity was not guaranteed, and
+  the historical Data API gap shows region parity for newer AWS features cannot be
+  assumed). It also surfaced a design detail worth stating precisely: the pipeline's
+  same-region requirement comes from S3→SQS event notifications and the SQS→Lambda
+  event-source mapping, not from SES's own same-region rule (which, given
+  ADR-0004's S3-only receipt-rule action, doesn't reach SQS or Lambda at all). Same
+  practical constraint on future IaC — nothing can casually move SQS/Lambda to a
+  "cheaper" or "closer" region independent of the rest of the pipeline — but
+  attributed to the right mechanism, so it isn't rediscovered the hard way (or
+  fixed by touching the wrong resource) during Pulumi work.
 
 ## Consequences
 
 - Pulumi's `prod` stack targets `eu-north-1` for every resource from ADR-0001–4;
   no per-service region overrides.
-- The SES receiving constraint (SNS/KMS/Lambda/SQS must share SES's region; only S3
-  is exempted) is now a documented constraint on the ingestion pipeline's IaC, not
-  an implicit assumption.
+- The ingestion pipeline's same-region requirement is now documented with its actual
+  mechanism (S3 event notifications → SQS, SQS event-source mapping → Lambda, both
+  ordinary regional constraints — not a direct SES rule on SQS/Lambda, since the
+  receipt rule's only direct action is the S3 delivery), not an implicit assumption.
 - Exact Aurora Serverless v2 ACU-hour and Lambda GB-second prices for `eu-north-1`
   were not pinned to specific dollar figures in this ADR — AWS doesn't publish a
   clean diffable regional table, and third-party benchmark figures (tecRacer) are
@@ -270,7 +288,8 @@ Items.
       wherever Cognito itself runs, no regional gap between candidates.
 - [x] Resolve ADR-0004's open item on SES email-receiving region parity —
       confirmed both eu-central-1 and eu-north-1 support SES receiving today; the
-      same-region constraint on SNS/KMS/Lambda/SQS (S3 exempted) is now documented.
+      pipeline's actual same-region mechanism (S3→SQS event notifications, SQS→Lambda
+      event-source mapping — not a direct SES rule on SQS/Lambda) is now documented.
 - [ ] Set the Pulumi provider/stack region config to `eu-north-1` for the `prod`
       stack before provisioning any ADR-0001–4 resources.
 - [ ] Pull current Aurora Serverless v2 ACU-hour and Lambda GB-second pricing for
