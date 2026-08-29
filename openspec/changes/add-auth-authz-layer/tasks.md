@@ -7,7 +7,9 @@
       bootstrapped — see [infra/README.md](../../../infra/README.md)), not
       the local file backend/passphrase this note originally assumed:
       `pulumi login s3://nodm-pulumi-state/draupnir && pulumi stack init prod
-      --secrets-provider="awskms://alias/nodm-pulumi-state"` from `infra/`.
+    --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"`
+      from `infra/` — the `?region=` query parameter is required since this
+      command runs before `aws:region` (task 0.2) is set on the stack.
 - [ ] 0.2 Set the AWS region to eu-north-1 (ADR-0005) on the `prod`
       stack config and verify `pulumi config get aws:region` returns
       eu-north-1 — depends on 0.1 (needs the `prod` stack to exist first)
@@ -18,7 +20,7 @@
       `infra/lib/provider.ts`; code-driven, not manual `pulumi config set`,
       so `Environment` is always correct for whichever stack is deployed
       (`prod`, `dev`, ...) with no per-stack manual step. Live `pulumi
-    preview` verification still needs 0.1 (stack passphrase) first.
+    preview` verification still needs 0.1 (stack login + init) first.
 
 ## 1. Cognito User Pool (`infra`)
 

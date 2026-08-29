@@ -33,7 +33,7 @@ third-party SaaS.
    required: managed state storage, encrypted secrets (key managed server-side,
    no passphrase/KMS to configure), deployment history, web UI.
 2. **Self-managed S3 backend, shared across projects** — `pulumi login
-   s3://<bucket>/<project>/<stack>`, one bucket in this AWS account reused across
+s3://<bucket>/<project>/<stack>`, one bucket in this AWS account reused across
    all of Dmytro's Pulumi projects, not just this one.
 3. **Local file backend** — `pulumi login file://~` (Pulumi's default with no
    login at all). State lives as files under `~/.pulumi`.
@@ -52,9 +52,13 @@ not a bare passphrase.**
   eu-north-1), reused by future projects under their own prefix. If that bucket
   name is already taken globally when actually created, fall back to
   `nodm-pulumi-state-<account-id>` (account ID suffix guarantees uniqueness).
-- `pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state"` —
+- `pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"` —
   a dedicated, shared personal-projects KMS key (alias `nodm-pulumi-state`)
-  encrypts stack secrets. Passphrase was rejected: a self-managed passphrase that's lost makes
+  encrypts stack secrets. The `?region=eu-north-1` query parameter is required,
+  not optional decoration: this command runs before any stack config (including
+  `aws:region` from ADR-0005) exists, so without it the alias resolves against
+  whatever region the local AWS SDK defaults to on that machine — which can
+  differ from where the key actually lives. Passphrase was rejected: a self-managed passphrase that's lost makes
   every encrypted secret in every stack's state unrecoverable, with no recovery
   path. KMS moves that custody risk onto a resource that can be backed up,
   IAM-controlled, and (per AWS docs) is deletion-protected with a mandatory
@@ -63,11 +67,11 @@ not a bare passphrase.**
 
 ## Options Considered
 
-| Option | Setup | Durability | Ops burden | Cost | Notes |
-|---|---|---|---|---|---|
-| **Self-managed S3 + KMS — chosen** | One-time bucket + KMS key provisioning, reused by all future projects | As durable as the bucket is configured (versioning) | Owns bucket/key IAM, KMS key backup | ~€1/mo (KMS key flat fee; S3 storage/requests round to $0 at this scale) | Fully owned, no third-party SaaS dependency |
-| Pulumi Cloud, Individual | `pulumi login`, no infra | Managed by Pulumi, off-machine | None | Free (single user) | Third-party SaaS holds state; loses appeal once "I own it" is a stated preference |
-| Local file (`file://~`) | None — Pulumi's default | Single machine, no backup unless `~/.pulumi` is backed up separately | None enforced | Free | Losing the machine/directory loses state with no recovery path |
+| Option                             | Setup                                                                 | Durability                                                           | Ops burden                          | Cost                                                                     | Notes                                                                             |
+| ---------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| **Self-managed S3 + KMS — chosen** | One-time bucket + KMS key provisioning, reused by all future projects | As durable as the bucket is configured (versioning)                  | Owns bucket/key IAM, KMS key backup | ~€1/mo (KMS key flat fee; S3 storage/requests round to $0 at this scale) | Fully owned, no third-party SaaS dependency                                       |
+| Pulumi Cloud, Individual           | `pulumi login`, no infra                                              | Managed by Pulumi, off-machine                                       | None                                | Free (single user)                                                       | Third-party SaaS holds state; loses appeal once "I own it" is a stated preference |
+| Local file (`file://~`)            | None — Pulumi's default                                               | Single machine, no backup unless `~/.pulumi` is backed up separately | None enforced                       | Free                                                                     | Losing the machine/directory loses state with no recovery path                    |
 
 ## Trade-off Analysis
 
@@ -121,7 +125,7 @@ not a bare passphrase.**
       out-of-band (console or a one-off script — not the `draupnir-infra` stack
       itself).
 - [ ] `pulumi login s3://nodm-pulumi-state/draupnir`, then `pulumi stack init
-      prod --secrets-provider="awskms://alias/nodm-pulumi-state"` before the
+    prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"` before the
       first `pulumi up`.
 - [x] Store the bucket name and KMS key ARN somewhere durable outside Pulumi
       state itself — see [infra/README.md](../../infra/README.md).

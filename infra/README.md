@@ -46,7 +46,7 @@ aws kms create-key --region eu-north-1 \
 aws kms create-alias --region eu-north-1 \
   --alias-name alias/nodm-pulumi-state --target-key-id <key-id-from-above>
 
-pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state"
+pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"
 ```
 
 If `nodm-pulumi-state` is taken globally, fall back to
