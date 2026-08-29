@@ -124,12 +124,22 @@ export function createIngestionApi(
     'ingestion',
     {
       restApi: restApi.id,
+      // Hash the actual route configuration, not resource IDs — IDs stay
+      // stable across an authorizer/integration config change, which would
+      // silently leave the stage serving a stale snapshot otherwise.
       triggers: {
         redeployment: pulumi
-          .all([whoamiResource.id, whoamiMethod.id, whoamiIntegration.id])
-          .apply(([resourceId, methodId, integrationId]) =>
-            JSON.stringify([resourceId, methodId, integrationId]),
-          ),
+          .all([
+            whoamiResource.pathPart,
+            whoamiMethod.httpMethod,
+            whoamiMethod.authorization,
+            whoamiMethod.authorizerId,
+            whoamiIntegration.type,
+            whoamiIntegration.integrationHttpMethod,
+            whoamiIntegration.uri,
+            authorizer.providerArns,
+          ])
+          .apply((values) => JSON.stringify(values)),
       },
     },
     { provider, dependsOn: [whoamiMethod, whoamiIntegration] },
