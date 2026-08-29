@@ -46,6 +46,7 @@ aws kms create-key --region eu-north-1 \
 aws kms create-alias --region eu-north-1 \
   --alias-name alias/nodm-pulumi-state --target-key-id <key-id-from-above>
 
+pulumi login s3://nodm-pulumi-state/draupnir
 pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"
 ```
 
