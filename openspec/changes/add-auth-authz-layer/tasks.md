@@ -1,18 +1,24 @@
 ## 0. Pulumi stack + AWS resource tagging (`infra`)
 
-- [ ] 0.1 Initialize the `prod` Pulumi stack and verify `Pulumi.prod.yaml` is
+- [x] 0.1 Initialize the `prod` Pulumi stack and verify `Pulumi.prod.yaml` is
       created — no stack exists yet, and every subsequent task in this change
       depends on one existing. Per [ADR-0006](../../../docs/adr/0006-pulumi-state-backend.md),
       backend is a self-managed S3 bucket + KMS secrets provider (already
       bootstrapped — see [infra/README.md](../../../infra/README.md)), not
       the local file backend/passphrase this note originally assumed:
       `pulumi login s3://nodm-pulumi-state/draupnir && pulumi stack init prod
-  --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"`
+--secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"`
       from `infra/` — the `?region=` query parameter is required since this
       command runs before `aws:region` (task 0.2) is set on the stack.
-- [ ] 0.2 Set the AWS region to eu-north-1 (ADR-0005) on the `prod`
+      Verified: `Pulumi.prod.yaml` created with `secretsprovider:
+    awskms://alias/nodm-pulumi-state?region=eu-north-1`; stack confirmed
+      present in `s3://nodm-pulumi-state/draupnir` via `pulumi stack ls` and
+      `aws s3 ls`.
+- [x] 0.2 Set the AWS region to eu-north-1 (ADR-0005) on the `prod`
       stack config and verify `pulumi config get aws:region` returns
-      eu-north-1 — depends on 0.1 (needs the `prod` stack to exist first)
+      eu-north-1 — depends on 0.1 (needs the `prod` stack to exist first).
+      Verified: `pulumi config get aws:region --stack prod` returns
+      `eu-north-1`.
 - [x] 0.3 Configure `defaultTags` (Project: draupnir, ManagedBy: pulumi,
       Environment: `pulumi.getStack()`) on an explicit `aws.Provider` and
       verify `pulumi preview` shows all three tags applied to every taggable
@@ -20,13 +26,15 @@
       `infra/lib/provider.ts`; code-driven, not manual `pulumi config set`,
       so `Environment` is always correct for whichever stack is deployed
       (`prod`, `dev`, ...) with no per-stack manual step. Live `pulumi
-  preview` verification still needs 0.1 (stack login + init) first.
-- [ ] 0.4 Set the required `prod` stack config values that `createAuthPool`
+preview --stack prod` now runs clean (22 resources to create, no errors).
+- [x] 0.4 Set the required `prod` stack config values that `createAuthPool`
       reads (`allowlistedEmails`, `google:clientId`, `google:clientSecret`,
       `authDomainPrefix`) and verify `pulumi preview` no longer errors on a
       missing config key — see [infra/README.md](../../../infra/README.md)
       for the exact `pulumi config set` commands; depends on 0.1 (needs the
-      `prod` stack to exist first)
+      `prod` stack to exist first). Verified: all 5 config keys set
+      (`pulumi config --stack prod`), `pulumi preview --stack prod` runs
+      clean with 22 resources to create and no missing-config errors.
 
 ## 1. Cognito User Pool (`infra`)
 
