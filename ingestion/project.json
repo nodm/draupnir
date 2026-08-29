@@ -11,6 +11,7 @@
       "options": {
         "outputPath": "dist/ingestion",
         "main": "ingestion/src/handler.ts",
+        "additionalEntryPoints": ["ingestion/src/whoami.ts"],
         "tsConfig": "ingestion/tsconfig.lib.json",
         "assets": ["ingestion/*.md"],
         "platform": "node",
