@@ -41,6 +41,13 @@ authorizer.claims` → handler) with a `whoami` endpoint, not just Pulumi
   shape is created here.
 - No resolution of the MCP client-registration/OAuth-for-Claude-Desktop
   question — ADR-0002 explicitly defers that to its own ADR.
+- No `mcp` authorizer attachment, and no "one token authorizes both API
+  surfaces" requirement in this change's delta spec. `mcp`'s REST API was
+  never actually provisioned in Pulumi (ADR-0001 left it as an open action
+  item), so there is nothing to attach an authorizer to yet. That requirement
+  belongs to the future change that provisions `mcp`'s base API — asserting
+  it here, in a change that only wires `ingestion`'s side, would leave the
+  capability spec claiming behavior this change does not deliver.
 
 ## Decisions
 

@@ -16,9 +16,11 @@ fact, which ADR-0002 explicitly calls out as the expensive mistake to avoid.
   emails, deployed as part of the pool so no unallowlisted Google account can
   ever obtain a profile.
 - Attach a native `COGNITO_USER_POOLS` API Gateway authorizer, pointed at the
-  pool, to a new `ingestion` REST API (the primary app's API surface) and to
-  the existing `mcp` REST API from ADR-0001 — same pool, two independent API
-  Gateway resources.
+  pool, to a new `ingestion` REST API (the primary app's API surface).
+  Attaching the same authorizer to `mcp`'s REST API is deferred: ADR-0001 left
+  "add Pulumi resources: Lambda, REST API, Cognito authorizer" as an unchecked
+  action item, so `mcp` has no REST API in Pulumi yet to attach to — a future
+  change provisions it and wires the authorizer at the same time.
 - Add an authenticated `GET /whoami` endpoint in `ingestion` that reads
   `event.requestContext.authorizer.claims.sub`/`email` and returns them,
   proving the token-to-claims path end-to-end without touching real data.
@@ -40,8 +42,9 @@ fact, which ADR-0002 explicitly calls out as the expensive mistake to avoid.
 
 - `user-authentication`: Cognito User Pool provisioning (Google federation,
   Managed Login, Pre-Sign-Up allowlist trigger), the `COGNITO_USER_POOLS`
-  authorizer attached to both the `ingestion` and `mcp` APIs, and the
-  authenticated `whoami` endpoint that proves claims reach a handler.
+  authorizer attached to `ingestion`'s new API (`mcp`'s attachment deferred —
+  see Impact), and the authenticated `whoami` endpoint that proves claims
+  reach a handler.
 - `row-level-authorization`: the `owner_user_id` ownership predicate,
   the `share_grants` table shape, the query-time `WHERE`/`EXISTS` predicate
   pattern every user-owned table and query must follow, and the write-side
@@ -58,11 +61,12 @@ fact, which ADR-0002 explicitly calls out as the expensive mistake to avoid.
 ## Impact
 
 - **`infra`**: new Cognito User Pool, Google IdP config, Managed Login
-  domain/branding, Pre-Sign-Up Lambda trigger + allowlist config, two
-  `COGNITO_USER_POOLS` authorizer attachments (one per REST API).
+  domain/branding, Pre-Sign-Up Lambda trigger + allowlist config, one
+  `COGNITO_USER_POOLS` authorizer attached to `ingestion`'s new REST API.
 - **`ingestion`**: new API Gateway REST API resource, `GET /whoami` handler.
-- **`mcp`**: authorizer attachment to the existing REST API from ADR-0001 (no
-  new routes).
+- **`mcp`**: unchanged in this change. Its REST API + authorizer attachment
+  from ADR-0001 was never actually provisioned in Pulumi and is deferred to a
+  future change (see the deferred-authorizer note above).
 - **`shared`**: ownership/share-grant predicate helper(s) and the
   `share_grants` table shape, consumed by both `ingestion` and `mcp`.
 - **Dependencies**: `aws-amplify` v6 added as a future client dependency
