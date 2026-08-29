@@ -51,3 +51,23 @@ pulumi stack init prod --secrets-provider="awskms://alias/nodm-pulumi-state?regi
 
 If `nodm-pulumi-state` is taken globally, fall back to
 `nodm-pulumi-state-<account-id>` and update this file + ADR-0006.
+
+## Required stack config
+
+`createAuthPool` (`infra/lib/cognito.ts`) reads these config values; `pulumi
+preview`/`pulumi up` fail without them set on the stack:
+
+```bash
+pulumi config set --secret allowlistedEmails "me@example.com,wife@example.com"
+pulumi config set --secret google:clientId "<google-oauth-client-id>"
+pulumi config set --secret google:clientSecret "<google-oauth-client-secret>"
+pulumi config set authDomainPrefix "<cognito-managed-login-domain-prefix>"
+```
+
+`google:clientId`/`google:clientSecret` come from a Google Cloud OAuth 2.0
+client (Web application type, with the Cognito domain's `/oauth2/idpresponse`
+callback URL registered) — not created by this Pulumi program. `authDomainPrefix`
+must be globally unique across all Cognito user pools (e.g. `draupnir-auth`).
+
+`callbackUrl`/`logoutUrl` are optional (`pulumi config set callbackUrl "..."`)
+and default to `localhost` values meant for local client development.
