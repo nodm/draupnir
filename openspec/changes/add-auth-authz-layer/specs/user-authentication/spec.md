@@ -2,7 +2,9 @@
 
 Establishes the single identity source for Draupnir — a Cognito User Pool
 federated with Google — and guarantees every request reaching a handler on
-either API surface carries a verified, non-forgeable identity.
+`ingestion`'s authenticated routes carries a verified, non-forgeable
+identity. (`mcp`'s authorizer attachment is deferred to a future change —
+see `design.md`'s Non-Goals.)
 
 ## ADDED Requirements
 
