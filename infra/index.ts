@@ -1,4 +1,14 @@
-// Pulumi program for Draupnir infrastructure.
-// No resources declared yet — see openspec/changes/scaffold-nx-monorepo for why:
-// ADR-0003 (no VPC) and ADR-0004 (S3/SQS deferred to the statement-ingestion change)
-// keep this stack empty until a later change actually needs to provision something.
+import { createAuthPool } from './lib/cognito';
+import { createIngestionApi } from './lib/ingestionApi';
+import { createAwsProvider } from './lib/provider';
+
+const provider = createAwsProvider();
+const authPool = createAuthPool(provider);
+const ingestionApi = createIngestionApi(authPool.userPool, provider);
+
+export const userPoolId = authPool.userPool.id;
+export const userPoolArn = authPool.userPool.arn;
+export const userPoolClientId = authPool.userPoolClient.id;
+export const authDomain = authPool.domain.domain;
+export const ingestionApiId = ingestionApi.restApi.id;
+export const ingestionInvokeUrl = ingestionApi.invokeUrl;

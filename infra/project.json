@@ -26,7 +26,10 @@
     },
     "preview": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-pre-sign-up-trigger"],
+      "dependsOn": [
+        "build-pre-sign-up-trigger",
+        { "projects": ["ingestion"], "target": "build" }
+      ],
       "options": {
         "command": "pulumi preview",
         "cwd": "infra"
@@ -34,7 +37,10 @@
     },
     "up": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-pre-sign-up-trigger"],
+      "dependsOn": [
+        "build-pre-sign-up-trigger",
+        { "projects": ["ingestion"], "target": "build" }
+      ],
       "options": {
         "command": "pulumi up --yes",
         "cwd": "infra"
