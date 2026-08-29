@@ -11,8 +11,22 @@
         "command": "tsc --noEmit -p infra/tsconfig.json"
       }
     },
+    "build-pre-sign-up-trigger": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/infra/preSignUpTrigger",
+        "main": "infra/src/preSignUpTrigger.ts",
+        "tsConfig": "infra/tsconfig.json",
+        "platform": "node",
+        "format": ["cjs"],
+        "external": ["@aws-sdk/*"],
+        "generatePackageJson": true
+      }
+    },
     "preview": {
       "executor": "nx:run-commands",
+      "dependsOn": ["build-pre-sign-up-trigger"],
       "options": {
         "command": "pulumi preview",
         "cwd": "infra"
@@ -20,6 +34,7 @@
     },
     "up": {
       "executor": "nx:run-commands",
+      "dependsOn": ["build-pre-sign-up-trigger"],
       "options": {
         "command": "pulumi up --yes",
         "cwd": "infra"
