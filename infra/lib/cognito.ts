@@ -145,7 +145,7 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
       clientId: userPoolClient.id,
       useCognitoProvidedValues: true,
     },
-    withProvider,
+    { provider, dependsOn: [domain] },
   );
 
   return { userPool, userPoolClient, domain };
