@@ -136,5 +136,17 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
     withProvider,
   );
 
+  // CreateUserPoolClient doesn't assign a branding style by itself — Managed
+  // Login stays unusable for this client until one is attached explicitly.
+  new aws.cognito.ManagedLoginBranding(
+    'app',
+    {
+      userPoolId: userPool.id,
+      clientId: userPoolClient.id,
+      useCognitoProvidedValues: true,
+    },
+    withProvider,
+  );
+
   return { userPool, userPoolClient, domain };
 }
