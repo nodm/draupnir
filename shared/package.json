@@ -7,5 +7,8 @@
   "types": "./src/index.d.ts",
   "dependencies": {
     "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "pgsql-ast-parser": "^12.0.2"
   }
 }
