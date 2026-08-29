@@ -208,7 +208,7 @@ importers:
   .:
     dependencies:
       aws-amplify:
-        specifier: ^6.20.0
+        specifier: 6.20.0
         version: 6.20.0
     devDependencies:
       '@cucumber/cucumber':
