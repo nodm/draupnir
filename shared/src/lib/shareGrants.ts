@@ -25,11 +25,14 @@ export class NotResourceOwnerError extends Error {
   }
 }
 
+// `trustedResourceOwnerUserId` must come from a `SELECT owner_user_id` against
+// the resource's own table, never from the grant payload's `grantor_user_id` —
+// that field is caller-supplied and proves nothing about actual ownership.
 export function assertCanMutateGrant(
-  grantorUserId: string,
+  trustedResourceOwnerUserId: string,
   authenticatedSub: string,
 ): void {
-  if (grantorUserId !== authenticatedSub) {
+  if (trustedResourceOwnerUserId !== authenticatedSub) {
     throw new NotResourceOwnerError();
   }
 }

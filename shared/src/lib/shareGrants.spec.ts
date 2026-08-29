@@ -106,13 +106,26 @@ describe('ownership/grant access semantics', () => {
 });
 
 describe('assertCanMutateGrant', () => {
-  it('allows the owner to mutate their own grant', () => {
+  it('allows the resource owner to mutate a grant', () => {
     expect(() => assertCanMutateGrant('bob', 'bob')).not.toThrow();
   });
 
-  it('rejects a non-owner attempting to mutate a grant', () => {
+  it('rejects a caller who is not the trusted resource owner', () => {
     expect(() => assertCanMutateGrant('bob', 'alice')).toThrow(
       NotResourceOwnerError,
     );
+  });
+
+  it('rejects even when a spoofed payload claims the caller as grantor', () => {
+    // Simulates the attack this function must resist: the request body says
+    // grantor_user_id = 'alice' (the caller), but the trusted owner looked up
+    // from the resource's own row is 'bob' — the call site must pass the
+    // trusted value, not the payload's, or this check is worthless.
+    const trustedOwnerFromResourceRow = 'bob';
+    const authenticatedCaller = 'alice';
+
+    expect(() =>
+      assertCanMutateGrant(trustedOwnerFromResourceRow, authenticatedCaller),
+    ).toThrow(NotResourceOwnerError);
   });
 });
