@@ -1,0 +1,11 @@
+secretsprovider: awskms://alias/nodm-pulumi-state?region=eu-north-1
+encryptedkey: AQICAHjmeTmc2x1foxZauBBjLk+3ShA9/cGlw+sOwyybCifzjwHbskeSfB6tbw6N2eQ5NvvtAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQManrHQ1LbyYw6vDdGAgEQgDvwCXvMdL0V/hZ1ANoiQEZdK2T6a0LVdcyJINLcg8a2jhNWYSTh0kupINQoIU/LPUWiJ/pZBXx6zaIC4Q==
+config:
+  aws:region: eu-north-1
+  draupnir-infra:allowlistedEmails:
+    secure: v1:25y4j0W6G5oUy4xC:GtbwFDnpkrURTjMqQ+6jfyKBRrOHtKbF/qSvXsMWaVgEtX3dylFlObWIPVwCwRTshZ6XxAkD
+  google:clientId:
+    secure: v1:dwRE44BVjdsWHXQp:lWjp5sfrBRl3hN0+zj60HKLsf7fq2nISuz5hiLsplgPN31XFnmMSFpFG0A6fklAQ/vk2ElxXhDlsr15e0mQPAk7wFt4cE/2xlo+sZ80tzhxk/GY+XgkTwA==
+  google:clientSecret:
+    secure: v1:OBguWK/Zo6f0omFR:Un998Itb8HTh2JzJtZrSMRP2h0YxHnpR2Zsrktx2huhBcZEiZaW65Hi4apHviMMWiWLg
+  draupnir-infra:authDomainPrefix: draupnir-auth
