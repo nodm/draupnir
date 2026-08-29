@@ -1,7 +1,7 @@
 ## Context
 
 See `proposal.md` - Why. The concrete decisions this design implements come
-from [ADR-0002](../../../docs/adr/0002-auth-request-flow.md), already
+from [ADR-0002](../../../../docs/adr/0002-auth-request-flow.md), already
 accepted: native `COGNITO_USER_POOLS` authorizer, Managed Login via Amplify
 Auth `signInWithRedirect`, a Pre-Sign-Up allowlist trigger, and a query-time
 ownership/share-grant predicate with no cached permissions object. This

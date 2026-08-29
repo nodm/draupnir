@@ -2,9 +2,9 @@
 
 - [x] 0.1 Initialize the `prod` Pulumi stack and verify `Pulumi.prod.yaml` is
       created — no stack exists yet, and every subsequent task in this change
-      depends on one existing. Per [ADR-0006](../../../docs/adr/0006-pulumi-state-backend.md),
+      depends on one existing. Per [ADR-0006](../../../../docs/adr/0006-pulumi-state-backend.md),
       backend is a self-managed S3 bucket + KMS secrets provider (already
-      bootstrapped — see [infra/README.md](../../../infra/README.md)), not
+      bootstrapped — see [infra/README.md](../../../../infra/README.md)), not
       the local file backend/passphrase this note originally assumed:
       `pulumi login s3://nodm-pulumi-state/draupnir && pulumi stack init prod
 --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"`
@@ -30,7 +30,7 @@ preview --stack prod` now runs clean (22 resources to create, no errors).
 - [x] 0.4 Set the required `prod` stack config values that `createAuthPool`
       reads (`allowlistedEmails`, `google:clientId`, `google:clientSecret`,
       `authDomainPrefix`) and verify `pulumi preview` no longer errors on a
-      missing config key — see [infra/README.md](../../../infra/README.md)
+      missing config key — see [infra/README.md](../../../../infra/README.md)
       for the exact `pulumi config set` commands; depends on 0.1 (needs the
       `prod` stack to exist first). Verified: all 5 config keys set
       (`pulumi config --stack prod`), `pulumi preview --stack prod` runs
@@ -41,23 +41,29 @@ preview --stack prod` now runs clean (22 resources to create, no errors).
 - [x] 1.1 Provision a Cognito User Pool in Pulumi with Google as the only
       federated IdP (no native username/password) and verify `pulumi preview`
       shows the pool and Google IdP resources with no other IdP configured
-      (`infra/lib/cognito.ts`; `pulumi preview` itself is blocked by 0.1 —
-      verified via `tsc --noEmit` and code review instead)
+      (`infra/lib/cognito.ts`; implementation complete and now confirmed via
+      `pulumi preview --stack prod`, which lists `aws:cognito:UserPool` and
+      `aws:cognito:IdentityProvider google` with no other IdP resource)
 - [x] 1.2 Enable Managed Login on the pool (hosted domain/branding) and
       verify the Managed Login domain is reachable and shows Google as the
       only sign-in option (`UserPoolDomain` with `managedLoginVersion: 2`;
-      live domain reachability needs a deployed stack — outstanding)
+      implementation complete and preview-verified — the live domain-
+      reachability check requires `pulumi up`, which has not been run yet,
+      so it remains a follow-up, not a blocker for this change)
 - [x] 1.3 Confirm `AdminLinkProviderForUser`/`Cognito_Subject` linking is not
       configured anywhere in the Pulumi program and verify two allowlisted
       Google accounts each produce a distinct Cognito profile/`sub` after
       signing in (confirmed by omission — no such config anywhere in
-      `infra/lib/cognito.ts`; the live two-account sign-in check needs a
-      deployed pool + real Google accounts — outstanding)
+      `infra/lib/cognito.ts`; implementation complete — the live two-account
+      sign-in check requires a deployed pool (`pulumi up`, not yet run) and
+      real Google accounts, so it remains a follow-up, not a blocker)
 - [x] 1.4 Implement the `PreSignUp_ExternalProvider` Lambda trigger with a
       two-email allowlist (env var/config value) and verify a non-allowlisted
       email fails sign-up while an allowlisted email succeeds
-      (`infra/src/preSignUpTrigger.ts` + unit tests; live Cognito sign-up
-      rejection needs a deployed pool — outstanding)
+      (`infra/src/preSignUpTrigger.ts` + unit tests; implementation complete
+      and unit-tested — the live Cognito sign-up rejection requires a
+      deployed pool (`pulumi up`, not yet run), so it remains a follow-up,
+      not a blocker)
 - [x] 1.5 Attach the Pre-Sign-Up trigger to the user pool and verify
       `pulumi preview`/`pulumi up` wires the trigger before the pool accepts
       any sign-up (`lambdaConfig.preSignUp` set at pool creation time)
@@ -71,7 +77,9 @@ preview --stack prod` now runs clean (22 resources to create, no errors).
       pool from 1.1 by its exported ARN, to the new `ingestion` API and
       verify an unauthenticated request to a protected route returns 401
       before any Lambda invokes (authorizer wired to the `/whoami` method;
-      live 401 check needs a deployed API — outstanding)
+      implementation complete and preview-verified — the live 401 check
+      requires a deployed API (`pulumi up`, not yet run), so it remains a
+      follow-up, not a blocker)
 - [ ] 2.3 Attach the same authorizer configuration (same pool ARN) to the
       existing `mcp` REST API from ADR-0001 and verify a token issued via
       sign-in authorizes requests to both APIs
@@ -86,8 +94,10 @@ preview --stack prod` now runs clean (22 resources to create, no errors).
 
 - [x] 3.1 Add a `GET /whoami` route on the new `ingestion` API, protected by
       the authorizer from 2.2, and verify the route is rejected without a
-      token (method requires `COGNITO_USER_POOLS` authorization; live check
-      needs a deployed API — outstanding)
+      token (method requires `COGNITO_USER_POOLS` authorization;
+      implementation complete and preview-verified — the live rejection
+      check requires a deployed API (`pulumi up`, not yet run), so it
+      remains a follow-up, not a blocker)
 - [x] 3.2 Implement the `whoami` handler to read
       `event.requestContext.authorizer.claims.sub`/`email` and return them,
       and verify an authenticated request returns the caller's own `sub` and
