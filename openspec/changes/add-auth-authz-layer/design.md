@@ -22,8 +22,10 @@ to the primary app getting its own API Gateway REST API separate from MCP's.
 
 **Goals:**
 
-- Stand up one Cognito User Pool that both `ingestion`'s new API and `mcp`'s
-  existing API trust via the same authorizer.
+- Stand up one Cognito User Pool that `ingestion`'s new API trusts via a
+  `COGNITO_USER_POOLS` authorizer, exporting the pool ARN so a future change
+  can attach `mcp`'s authorizer to the same pool without re-deciding
+  anything (see the Non-Goals note on the deferred `mcp` attachment).
 - Prove the full claims path (token → authorizer → `event.requestContext.
 authorizer.claims` → handler) with a `whoami` endpoint, not just Pulumi
   resources that nothing ever calls.
@@ -106,12 +108,12 @@ deploy doesn't produce a stage labeled `prod`.
   against a user-owned table that doesn't include the predicate. This is a
   process mitigation, not a technical one — accepted as adequate at current
   scale per Decision 3.
-- **Two separate API Gateway REST APIs (`ingestion`, `mcp`) both need the
-  authorizer wired correctly against the same pool** → drift between the two
-  configurations (e.g., one referencing a stale pool ARN after a pool
-  replacement) would silently split auth behavior. Mitigated by defining the
-  pool ARN once in Pulumi and having both API definitions reference the same
-  exported value, never a hardcoded ARN in either.
+- **A future `mcp` authorizer could hardcode or re-derive the pool ARN instead
+  of referencing this stack's export** → once `mcp` gets its own REST API
+  (not part of this change — see Non-Goals), a hardcoded/stale ARN there
+  would silently split auth behavior between the two surfaces. This change's
+  pool ARN is already exported (`userPoolArn` in `infra/index.ts`) specifically
+  so that future change imports it rather than re-deciding it.
 - **Allowlist-in-env-var doesn't scale past a handful of users** → acceptable
   now; ADR-0002's own action items already flag revisiting this if a third
   user is ever added, and moving from env var to a small config table is a
@@ -127,7 +129,7 @@ deploy doesn't produce a stage labeled `prod`.
 - Additive only: new Cognito resources, new `ingestion` API Gateway REST
   API, new `share_grants` table. Nothing existing changes shape.
 - Deploy order: Cognito User Pool + Pre-Sign-Up trigger first (must exist
-  before anyone can sign in), then the two authorizer attachments, then the
-  `whoami` route and `share_grants` table. No traffic depends on any of this
-  today, so there is no cutover step and no rollback beyond `pulumi destroy`
-  on the newly-added resources.
+  before anyone can sign in), then `ingestion`'s authorizer attachment, then
+  the `whoami` route and `share_grants` table. No traffic depends on any of
+  this today, so there is no cutover step and no rollback beyond `pulumi
+destroy` on the newly-added resources.
