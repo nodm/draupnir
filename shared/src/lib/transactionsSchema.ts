@@ -10,15 +10,21 @@ CREATE TABLE accounts (
   iban text NOT NULL UNIQUE,
   currency text NOT NULL,
   display_name text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (id, owner_user_id)
 );
 `.trim();
 
+// account_id + owner_user_id is a composite FK against accounts(id,
+// owner_user_id) (backed by that table's UNIQUE (id, owner_user_id)),
+// not just account_id -> accounts(id) — a plain single-column FK would
+// let a transaction claim owner_user_id B while pointing at an account
+// owned by user A, which the ownership invariant must never allow.
 export const TRANSACTIONS_TABLE_DDL = `
 CREATE TABLE transactions (
   id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   owner_user_id text NOT NULL,
-  account_id text NOT NULL REFERENCES accounts(id),
+  account_id text NOT NULL,
   posted_date date NOT NULL,
   amount_minor_units bigint NOT NULL,
   currency text NOT NULL,
@@ -30,6 +36,7 @@ CREATE TABLE transactions (
   fx_fee_percent numeric,
   created_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((original_currency IS NULL) = (original_amount_minor_units IS NULL)),
-  CHECK ((fx_fee_minor_units IS NULL) = (fx_fee_percent IS NULL))
+  CHECK ((fx_fee_minor_units IS NULL) = (fx_fee_percent IS NULL)),
+  FOREIGN KEY (account_id, owner_user_id) REFERENCES accounts (id, owner_user_id)
 );
 `.trim();

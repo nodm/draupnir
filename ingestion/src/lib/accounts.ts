@@ -33,8 +33,19 @@ export class DuplicateIbanError extends Error {
   }
 }
 
+export class InvalidAccountInputError extends Error {
+  constructor(field: string) {
+    super(`${field} must be a non-empty string`);
+    this.name = 'InvalidAccountInputError';
+  }
+}
+
 function isBank(value: string): value is Bank {
   return (BANKS as readonly string[]).includes(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 export async function createAccount(
@@ -44,8 +55,20 @@ export async function createAccount(
   input: CreateAccountInput,
 ): Promise<CreatedAccount> {
   const sub = requireSub(claims);
+  if (!isNonEmptyString(input.bank)) {
+    throw new InvalidAccountInputError('bank');
+  }
   if (!isBank(input.bank)) {
     throw new InvalidBankError(input.bank);
+  }
+  if (!isNonEmptyString(input.iban)) {
+    throw new InvalidAccountInputError('iban');
+  }
+  if (!isNonEmptyString(input.currency)) {
+    throw new InvalidAccountInputError('currency');
+  }
+  if (!isNonEmptyString(input.displayName)) {
+    throw new InvalidAccountInputError('displayName');
   }
 
   const id = randomUUID();

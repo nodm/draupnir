@@ -1,5 +1,10 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { createAccount, DuplicateIbanError, InvalidBankError } from './accounts';
+import {
+  createAccount,
+  DuplicateIbanError,
+  InvalidAccountInputError,
+  InvalidBankError,
+} from './accounts';
 import { UnauthenticatedError } from './auth';
 import type { DataApiConfig } from './dataApi';
 
@@ -71,6 +76,23 @@ describe('createAccount', () => {
     ).rejects.toThrow(InvalidBankError);
     expect(send).not.toHaveBeenCalled();
   });
+
+  it.each(['iban', 'currency', 'displayName'] as const)(
+    'rejects an empty %s without querying the database',
+    async (field) => {
+      const send = vi.fn();
+
+      await expect(
+        createAccount(
+          fakeClient(send),
+          config,
+          { sub: 'user-123' },
+          { ...validInput, [field]: '  ' },
+        ),
+      ).rejects.toThrow(InvalidAccountInputError);
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a duplicate iban', async () => {
     const send = vi

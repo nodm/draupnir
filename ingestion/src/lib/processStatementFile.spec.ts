@@ -2,6 +2,7 @@ import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import type { S3Client } from '@aws-sdk/client-s3';
 import {
   MissingUploadAccountError,
+  OversizedStatementFileError,
   processStatementFile,
   UnresolvableRowIbanError,
   type ParserDispatch,
@@ -135,6 +136,7 @@ describe('processStatementFile', () => {
       parsers,
       'draupnir-uploads',
       'uploads/user-1/acc-1/file.csv',
+      1000,
     );
 
     expect(inserted).toHaveLength(2);
@@ -179,6 +181,7 @@ describe('processStatementFile', () => {
       parsers,
       'draupnir-uploads',
       'uploads/user-1/acc-1/file.csv',
+      1000,
     );
 
     const byDedupKey = Object.fromEntries(
@@ -223,6 +226,7 @@ describe('processStatementFile', () => {
         parsers,
         'draupnir-uploads',
         'uploads/user-1/acc-1/file.csv',
+        1000,
       ),
     ).rejects.toThrow('malformed row 3');
 
@@ -243,9 +247,33 @@ describe('processStatementFile', () => {
         parsers,
         'draupnir-uploads',
         'uploads/user-1/acc-1/file.csv',
+        1000,
       ),
     ).rejects.toThrow(MissingUploadAccountError);
     expect(parsers['seb']).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized file before touching S3 or the database', async () => {
+    const send = fakeDataApiClient({ accountsById: {}, accountsByIban: {} });
+    const client = { send } as unknown as RDSDataClient;
+    const s3Send = vi.fn();
+    const s3Client = { send: s3Send } as unknown as S3Client;
+    const parsers: ParserDispatch = { seb: vi.fn() };
+
+    await expect(
+      processStatementFile(
+        client,
+        dataApiConfig,
+        s3Client,
+        parsers,
+        'draupnir-uploads',
+        'uploads/user-1/acc-1/file.csv',
+        11 * 1024 * 1024,
+      ),
+    ).rejects.toThrow(OversizedStatementFileError);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(s3Send).not.toHaveBeenCalled();
   });
 
   it('fails the whole file when a parsed row iban does not resolve to an account', async () => {
@@ -277,6 +305,7 @@ describe('processStatementFile', () => {
         parsers,
         'draupnir-uploads',
         'uploads/user-1/acc-1/file.csv',
+        1000,
       ),
     ).rejects.toThrow(UnresolvableRowIbanError);
 
@@ -311,6 +340,7 @@ describe('processStatementFile', () => {
       parsers,
       'draupnir-uploads',
       'uploads/user-1/acc-1/file.csv',
+      1000,
     );
 
     expect(inserted).toHaveLength(2);

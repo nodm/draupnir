@@ -7,6 +7,15 @@ const fixture = readFileSync(
   'utf8',
 );
 
+const TITLE_LINE =
+  '"SĄSKAITOS  (LT100000000000000001) IŠRAŠAS (UŽ LAIKOTARPĮ: 2026-08-29-2026-08-29)";';
+const HEADER_LINE =
+  '"DOK NR.";"DATA";"VALIUTA";"SUMA";"MOKĖTOJO ARBA GAVĖJO PAVADINIMAS";"MOKĖTOJO ARBA GAVĖJO IDENTIFIKACINIS KODAS";"SĄSKAITA";"KREDITO ĮSTAIGOS PAVADINIMAS";"KREDITO ĮSTAIGOS SWIFT KODAS";"MOKĖJIMO PASKIRTIS";"TRANSAKCIJOS KODAS";"DOKUMENTO DATA";"TRANSAKCIJOS TIPAS";"NUORODA";"DEBETAS/KREDITAS";"SUMA SĄSKAITOS VALIUTA";"SĄSKAITOS NR";"SĄSKAITOS VALIUTA";';
+
+function dataRow(debitCredit: string): string {
+  return `"CLR1";2026-08-29;"EUR";22,23;"IKI EUROPA";"";"";"AB SEB BANKAS";"CBVILT2X";"purpose text";"RO1L01";2026-08-28;"PMNTCCRDOTHR";"";"${debitCredit}";22,23;"LT100000000000000002";"EUR";`;
+}
+
 describe('SEB parseStatement', () => {
   it('parses a normal row', () => {
     const rows = parseStatement(fixture);
@@ -72,6 +81,21 @@ describe('SEB parseStatement', () => {
     expect(lidl?.originalAmountMinorUnits).toBeUndefined();
     expect(lidl?.fxFeeMinorUnits).toBeUndefined();
     expect(lidl?.fxFeePercent).toBeUndefined();
+  });
+
+  it('throws on a row with an unrecognized DEBETAS/KREDITAS marker', () => {
+    const malformed = [TITLE_LINE, HEADER_LINE, dataRow('X')].join('\n');
+
+    expect(() => parseStatement(malformed)).toThrow(
+      /Unrecognized DEBETAS\/KREDITAS marker/,
+    );
+  });
+
+  it('throws on a row with the wrong field count instead of dropping it', () => {
+    const truncatedRow = dataRow('D').replace(/;"EUR";$/, ';');
+    const malformed = [TITLE_LINE, HEADER_LINE, truncatedRow].join('\n');
+
+    expect(() => parseStatement(malformed)).toThrow(/Malformed SEB row/);
   });
 
   it('produces the same dedup_key for the same provider transaction id', () => {

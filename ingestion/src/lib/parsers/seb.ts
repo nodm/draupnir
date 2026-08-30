@@ -55,7 +55,10 @@ function parseSebDate(value: string): Date {
 }
 
 function parseSebAmountSign(debitCredit: string): 1 | -1 {
-  return debitCredit.trim().toUpperCase() === 'D' ? -1 : 1;
+  const marker = debitCredit.trim().toUpperCase();
+  if (marker === 'D') return -1;
+  if (marker === 'C') return 1;
+  throw new Error(`Unrecognized DEBETAS/KREDITAS marker: ${debitCredit}`);
 }
 
 function parseSebAmountMinorUnits(sumaField: string, amountSign: 1 | -1): number {
@@ -72,8 +75,20 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
   const rows: NormalizedRow[] = [];
 
   for (const fields of lines) {
-    if (fields.length !== DATA_ROW_FIELD_COUNT || fields[0] === HEADER_MARKER) {
+    // Title lines (one text field + the trailing empty field from the
+    // line's closing `;`) and header lines are recognized and skipped.
+    // Anything else with the wrong field count is malformed — fail the
+    // whole file rather than silently dropping the row.
+    const isTitleLine = fields.length === 2;
+    const isHeaderLine =
+      fields.length === DATA_ROW_FIELD_COUNT && fields[0] === HEADER_MARKER;
+    if (isTitleLine || isHeaderLine) {
       continue;
+    }
+    if (fields.length !== DATA_ROW_FIELD_COUNT) {
+      throw new Error(
+        `Malformed SEB row: expected ${DATA_ROW_FIELD_COUNT} fields, got ${fields.length}`,
+      );
     }
 
     const data = fields[1] as string;

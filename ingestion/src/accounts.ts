@@ -7,6 +7,7 @@ import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import {
   createAccount,
   DuplicateIbanError,
+  InvalidAccountInputError,
   InvalidBankError,
   type CreateAccountInput,
 } from './lib/accounts';
@@ -35,7 +36,11 @@ export const handler: Handler<
     if (error instanceof UnauthenticatedError) {
       return { statusCode: 401, body: JSON.stringify({ error: error.message }) };
     }
-    if (error instanceof InvalidBankError || error instanceof DuplicateIbanError) {
+    if (
+      error instanceof InvalidBankError ||
+      error instanceof DuplicateIbanError ||
+      error instanceof InvalidAccountInputError
+    ) {
       return { statusCode: 400, body: JSON.stringify({ error: error.message }) };
     }
     throw error;

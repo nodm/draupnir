@@ -38,6 +38,7 @@ export const handler: SQSHandler = async (event) => {
         parsers,
         bucket,
         key,
+        s3Record.s3.object.size,
       );
     }
   }

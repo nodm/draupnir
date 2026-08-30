@@ -28,6 +28,10 @@ export function parseCsvLine(line: string, delimiter: string): string[] {
       current += char;
     }
   }
+  if (inQuotes) {
+    throw new Error('Malformed CSV row: unterminated quoted field');
+  }
+
   fields.push(current);
   return fields;
 }

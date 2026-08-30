@@ -111,6 +111,7 @@ describe('schema applied to a real Postgres instance', () => {
       accountId: string,
       dedupKey: string,
       fx?: {
+        ownerUserId?: string;
         originalCurrency?: string | null;
         originalAmountMinorUnits?: number | null;
         fxFeeMinorUnits?: number | null;
@@ -124,7 +125,7 @@ describe('schema applied to a real Postgres instance', () => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (dedup_key) DO NOTHING`,
         [
-          'user-1',
+          fx?.ownerUserId ?? 'user-1',
           accountId,
           '2026-08-29',
           -1050,
@@ -138,6 +139,16 @@ describe('schema applied to a real Postgres instance', () => {
         ],
       );
     }
+
+    it('rejects a transaction whose owner_user_id does not match its account owner', async () => {
+      const accountId = await insertAccount();
+
+      await expect(
+        insertTransaction(accountId, 'seb:RO1000000001L01', {
+          ownerUserId: 'user-2',
+        }),
+      ).rejects.toThrow();
+    });
 
     it('a duplicate dedup_key insert is a no-op', async () => {
       const accountId = await insertAccount();

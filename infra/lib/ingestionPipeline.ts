@@ -19,6 +19,16 @@ const LAMBDA_BASIC_EXECUTION_POLICY_ARN =
 // discarded, per the statement-ingestion-pipeline spec.
 const MAX_RECEIVE_COUNT = 5;
 
+// One file does S3 I/O plus a sequential Data API round trip per row
+// (account lookups + one INSERT per parsed transaction) — well past the
+// Lambda default of 3s for any real statement.
+const INGEST_FUNCTION_TIMEOUT_SECONDS = 60;
+// AWS's own guidance: the queue's visibility timeout should be at least
+// 6x the consumer function's timeout, so a message already being
+// processed can't be redelivered to a second concurrent invocation
+// before the first one finishes or fails.
+const QUEUE_VISIBILITY_TIMEOUT_SECONDS = INGEST_FUNCTION_TIMEOUT_SECONDS * 6;
+
 export interface DbConfig {
   clusterArn: pulumi.Input<string>;
   secretArn: pulumi.Input<string>;
@@ -86,6 +96,7 @@ export function createIngestionPipeline(
   const queue = new aws.sqs.Queue(
     'ingestion',
     {
+      visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
       redrivePolicy: pulumi.jsonStringify({
         deadLetterTargetArn: deadLetterQueue.arn,
         maxReceiveCount: MAX_RECEIVE_COUNT,
@@ -169,6 +180,7 @@ export function createIngestionPipeline(
       role: role.arn,
       runtime: aws.lambda.Runtime.NodeJS24dX,
       handler: 'handler.handler',
+      timeout: INGEST_FUNCTION_TIMEOUT_SECONDS,
       code: new pulumi.asset.FileArchive('../dist/ingestion'),
       environment: {
         variables: {

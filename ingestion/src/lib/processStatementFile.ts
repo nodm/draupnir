@@ -12,6 +12,13 @@ import type { StatementParser } from './parsers/types';
 
 export type ParserDispatch = Record<string, StatementParser>;
 
+// The Lambda buffers the whole object into memory via transformToString —
+// a bound here keeps an oversized upload from exhausting it. Generous for
+// a CSV bank statement (even a multi-year export is a few MB of text at
+// most), since a presigned PUT URL can't itself carry a size limit the
+// way a presigned POST policy's content-length-range can.
+const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+
 export class MissingUploadAccountError extends Error {
   constructor() {
     super('The upload-selected account no longer exists');
@@ -23,6 +30,22 @@ export class UnresolvableRowIbanError extends Error {
   constructor(iban: string) {
     super(`No account owned by the uploader matches iban ${iban}`);
     this.name = 'UnresolvableRowIbanError';
+  }
+}
+
+export class EmptyStatementFileError extends Error {
+  constructor() {
+    super('Parsed statement file produced no transaction rows');
+    this.name = 'EmptyStatementFileError';
+  }
+}
+
+export class OversizedStatementFileError extends Error {
+  constructor(sizeBytes: number) {
+    super(
+      `Statement file is ${sizeBytes} bytes, exceeding the ${MAX_UPLOAD_SIZE_BYTES}-byte limit`,
+    );
+    this.name = 'OversizedStatementFileError';
   }
 }
 
@@ -57,7 +80,12 @@ export async function processStatementFile(
   parsers: ParserDispatch,
   bucket: string,
   key: string,
+  objectSizeBytes: number,
 ): Promise<void> {
+  if (objectSizeBytes > MAX_UPLOAD_SIZE_BYTES) {
+    throw new OversizedStatementFileError(objectSizeBytes);
+  }
+
   const { ownerUserId, accountId } = parseObjectKey(key);
 
   const { rows: uploadAccountRows } = await executeStatement(
@@ -90,6 +118,9 @@ export async function processStatementFile(
   // any row — naturally leaves no partial write, per the
   // statement-ingestion-pipeline spec.
   const parsedRows = parser(fileContents, uploadAccount.iban);
+  if (parsedRows.length === 0) {
+    throw new EmptyStatementFileError();
+  }
 
   const resolvedAccountIdByIban = new Map<string, string>();
   for (const iban of new Set(parsedRows.map((row) => row.iban))) {
