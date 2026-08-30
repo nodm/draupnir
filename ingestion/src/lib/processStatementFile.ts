@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
+  batchExecuteStatement,
   beginTransaction,
   commitTransaction,
   executeStatement,
@@ -18,6 +19,20 @@ export type ParserDispatch = Record<string, StatementParser>;
 // most), since a presigned PUT URL can't itself carry a size limit the
 // way a presigned POST policy's content-length-range can.
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+
+// Inserting one row per Data API round trip doesn't fit the Lambda's
+// timeout for a statement with thousands of rows — batching keeps the
+// round-trip count roughly constant regardless of file size, well inside
+// BatchExecuteStatement's 4-MiB-per-call request limit for rows this narrow.
+const INSERT_BATCH_SIZE = 500;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
 
 export class MissingUploadAccountError extends Error {
   constructor() {
@@ -112,6 +127,17 @@ export async function processStatementFile(
   if (!object.Body) {
     throw new Error(`S3 object has no body: ${bucket}/${key}`);
   }
+  // The S3 event's object.size can be stale by the time this runs — the
+  // key is reusable until the presigned URL expires, so a small first
+  // upload could be overwritten with a large one before this Lambda picks
+  // up the event. Re-check the actual object's size, from this GetObject
+  // response itself, before buffering the body.
+  if (
+    object.ContentLength !== undefined &&
+    object.ContentLength > MAX_UPLOAD_SIZE_BYTES
+  ) {
+    throw new OversizedStatementFileError(object.ContentLength);
+  }
   const fileContents = await object.Body.transformToString('utf-8');
 
   // Parsing the whole file before any DB write means a parse failure — at
@@ -136,19 +162,21 @@ export async function processStatementFile(
     resolvedAccountIdByIban.set(iban, (rows[0] as { id: string }).id);
   }
 
+  const insertSql = `INSERT INTO transactions
+       (id, owner_user_id, account_id, posted_date, amount_minor_units, currency, description, dedup_key,
+        original_currency, original_amount_minor_units, fx_fee_minor_units, fx_fee_percent)
+     VALUES (:id, :ownerUserId, :accountId, :postedDate, :amountMinorUnits, :currency, :description, :dedupKey,
+             :originalCurrency, :originalAmountMinorUnits, :fxFeeMinorUnits, :fxFeePercent)
+     ON CONFLICT (dedup_key) DO NOTHING`;
+
   const transactionId = await beginTransaction(dataApiClient, dataApiConfig);
   try {
-    for (const row of parsedRows) {
-      await executeStatement(
+    for (const batch of chunk(parsedRows, INSERT_BATCH_SIZE)) {
+      await batchExecuteStatement(
         dataApiClient,
         dataApiConfig,
-        `INSERT INTO transactions
-           (id, owner_user_id, account_id, posted_date, amount_minor_units, currency, description, dedup_key,
-            original_currency, original_amount_minor_units, fx_fee_minor_units, fx_fee_percent)
-         VALUES (:id, :ownerUserId, :accountId, :postedDate, :amountMinorUnits, :currency, :description, :dedupKey,
-                 :originalCurrency, :originalAmountMinorUnits, :fxFeeMinorUnits, :fxFeePercent)
-         ON CONFLICT (dedup_key) DO NOTHING`,
-        {
+        insertSql,
+        batch.map((row) => ({
           id: randomUUID(),
           ownerUserId,
           accountId: resolvedAccountIdByIban.get(row.iban) as string,
@@ -161,7 +189,7 @@ export async function processStatementFile(
           originalAmountMinorUnits: row.originalAmountMinorUnits ?? null,
           fxFeeMinorUnits: row.fxFeeMinorUnits ?? null,
           fxFeePercent: row.fxFeePercent ?? null,
-        },
+        })),
         transactionId,
       );
     }

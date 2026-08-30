@@ -48,6 +48,16 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+// Canonical form so the UNIQUE constraint and the parsers' resolution
+// query (owner_user_id + iban) can't be bypassed by casing/whitespace —
+// e.g. SEB statements carry uppercase, unspaced IBANs, so an account
+// created with lowercase or spaced input would never resolve a row.
+function canonicalizeIban(iban: string): string {
+  return iban.replace(/\s+/g, '').toUpperCase();
+}
+
+const IBAN_PATTERN = /^[A-Z0-9]{15,34}$/;
+
 export async function createAccount(
   client: RDSDataClient,
   config: DataApiConfig,
@@ -62,6 +72,10 @@ export async function createAccount(
     throw new InvalidBankError(input.bank);
   }
   if (!isNonEmptyString(input.iban)) {
+    throw new InvalidAccountInputError('iban');
+  }
+  const iban = canonicalizeIban(input.iban);
+  if (!IBAN_PATTERN.test(iban)) {
     throw new InvalidAccountInputError('iban');
   }
   if (!isNonEmptyString(input.currency)) {
@@ -83,7 +97,7 @@ export async function createAccount(
         id,
         ownerUserId: sub,
         bank: input.bank,
-        iban: input.iban,
+        iban,
         currency: input.currency,
         displayName: input.displayName,
       },
@@ -98,7 +112,7 @@ export async function createAccount(
   return {
     id,
     bank: input.bank,
-    iban: input.iban,
+    iban,
     currency: input.currency,
     displayName: input.displayName,
   };

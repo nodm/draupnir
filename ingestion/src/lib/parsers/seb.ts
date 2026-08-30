@@ -13,6 +13,10 @@ import type { NormalizedRow } from './types';
 const HEADER_MARKER = 'DOK NR.';
 // 18 real columns plus one trailing empty field from the line's closing `;`.
 const DATA_ROW_FIELD_COUNT = 19;
+// Matches only the real title shape (e.g. "SĄSKAITOS  (LT...) IŠRAŠAS (UŽ
+// LAIKOTARPĮ: ...)") — a 2-field line alone isn't enough to recognize a
+// title, since a truncated data row can also happen to have 2 fields.
+const TITLE_LINE_PATTERN = /^SĄSKAITOS\s.*IŠRAŠAS/;
 
 // Card purchases settled in a currency other than the account's embed the
 // original amount/currency and the conversion fee as free text inside
@@ -75,11 +79,12 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
   const rows: NormalizedRow[] = [];
 
   for (const fields of lines) {
-    // Title lines (one text field + the trailing empty field from the
-    // line's closing `;`) and header lines are recognized and skipped.
-    // Anything else with the wrong field count is malformed — fail the
-    // whole file rather than silently dropping the row.
-    const isTitleLine = fields.length === 2;
+    // Title lines (one text field matching the real title shape + the
+    // trailing empty field from the line's closing `;`) and header lines
+    // are recognized and skipped. Anything else with the wrong field count
+    // is malformed — fail the whole file rather than silently dropping it.
+    const isTitleLine =
+      fields.length === 2 && TITLE_LINE_PATTERN.test(fields[0] ?? '');
     const isHeaderLine =
       fields.length === DATA_ROW_FIELD_COUNT && fields[0] === HEADER_MARKER;
     if (isTitleLine || isHeaderLine) {
@@ -98,6 +103,14 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
     const transakcijosKodas = fields[10] as string;
     const debetasKreditas = fields[14] as string;
     const saskaitosNr = fields[16] as string;
+
+    if (transakcijosKodas.trim().length === 0) {
+      // dedup_key is derived solely from this field (bank-statement-parsers
+      // spec) — an empty value would make multiple malformed rows collide
+      // on `seb:` and silently lose all but one, instead of failing the file.
+      throw new Error('Malformed SEB row: empty TRANSAKCIJOS KODAS');
+    }
+
     const amountSign = parseSebAmountSign(debetasKreditas);
     const fxMetadata = parseSebFxMetadata(paskirtis, amountSign);
 

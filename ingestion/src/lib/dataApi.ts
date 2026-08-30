@@ -1,4 +1,5 @@
 import {
+	BatchExecuteStatementCommand,
 	BeginTransactionCommand,
 	CommitTransactionCommand,
 	ExecuteStatementCommand,
@@ -86,6 +87,30 @@ export async function executeStatement(
 			: [],
 		numberOfRecordsUpdated: response.numberOfRecordsUpdated ?? 0,
 	};
+}
+
+// Runs one SQL statement once per parameter set in a single Data API call —
+// used for the ingestion write path so a multi-thousand-row statement file
+// doesn't cost one network round trip per row (see statement-ingestion-
+// pipeline spec). Data API caps a single call's request at 4 MiB; callers
+// are responsible for chunking parameterSets to stay under that.
+export async function batchExecuteStatement(
+	client: RDSDataClient,
+	config: DataApiConfig,
+	sql: string,
+	parameterSets: Record<string, SqlParameterValue>[],
+	transactionId?: string,
+): Promise<void> {
+	await client.send(
+		new BatchExecuteStatementCommand({
+			resourceArn: config.resourceArn,
+			secretArn: config.secretArn,
+			database: config.database,
+			sql,
+			parameterSets: parameterSets.map(toSqlParameters),
+			transactionId,
+		}),
+	);
 }
 
 export async function beginTransaction(

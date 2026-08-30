@@ -94,6 +94,38 @@ describe('createAccount', () => {
     },
   );
 
+  it('canonicalizes a lowercase, spaced iban before persisting and returning it', async () => {
+    const send = vi.fn().mockResolvedValue({ numberOfRecordsUpdated: 1 });
+
+    const account = await createAccount(
+      fakeClient(send),
+      config,
+      { sub: 'user-123' },
+      { ...validInput, iban: 'lt10 0000 0000 0000 0001' },
+    );
+
+    expect(account.iban).toBe('LT100000000000000001');
+    const [command] = send.mock.calls[0];
+    const ibanParam = command.input.parameters.find(
+      (p: { name: string }) => p.name === 'iban',
+    );
+    expect(ibanParam.value).toEqual({ stringValue: 'LT100000000000000001' });
+  });
+
+  it('rejects an iban with characters outside the canonical shape', async () => {
+    const send = vi.fn();
+
+    await expect(
+      createAccount(
+        fakeClient(send),
+        config,
+        { sub: 'user-123' },
+        { ...validInput, iban: 'LT10-0000-0000-0000-0001' },
+      ),
+    ).rejects.toThrow(InvalidAccountInputError);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('rejects a duplicate iban', async () => {
     const send = vi
       .fn()

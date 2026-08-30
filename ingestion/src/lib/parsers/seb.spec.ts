@@ -12,8 +12,8 @@ const TITLE_LINE =
 const HEADER_LINE =
   '"DOK NR.";"DATA";"VALIUTA";"SUMA";"MOKĖTOJO ARBA GAVĖJO PAVADINIMAS";"MOKĖTOJO ARBA GAVĖJO IDENTIFIKACINIS KODAS";"SĄSKAITA";"KREDITO ĮSTAIGOS PAVADINIMAS";"KREDITO ĮSTAIGOS SWIFT KODAS";"MOKĖJIMO PASKIRTIS";"TRANSAKCIJOS KODAS";"DOKUMENTO DATA";"TRANSAKCIJOS TIPAS";"NUORODA";"DEBETAS/KREDITAS";"SUMA SĄSKAITOS VALIUTA";"SĄSKAITOS NR";"SĄSKAITOS VALIUTA";';
 
-function dataRow(debitCredit: string): string {
-  return `"CLR1";2026-08-29;"EUR";22,23;"IKI EUROPA";"";"";"AB SEB BANKAS";"CBVILT2X";"purpose text";"RO1L01";2026-08-28;"PMNTCCRDOTHR";"";"${debitCredit}";22,23;"LT100000000000000002";"EUR";`;
+function dataRow(debitCredit: string, transakcijosKodas = 'RO1L01'): string {
+  return `"CLR1";2026-08-29;"EUR";22,23;"IKI EUROPA";"";"";"AB SEB BANKAS";"CBVILT2X";"purpose text";"${transakcijosKodas}";2026-08-28;"PMNTCCRDOTHR";"";"${debitCredit}";22,23;"LT100000000000000002";"EUR";`;
 }
 
 describe('SEB parseStatement', () => {
@@ -96,6 +96,24 @@ describe('SEB parseStatement', () => {
     const malformed = [TITLE_LINE, HEADER_LINE, truncatedRow].join('\n');
 
     expect(() => parseStatement(malformed)).toThrow(/Malformed SEB row/);
+  });
+
+  it('throws on a truncated row that happens to have 2 fields, instead of treating it as a title', () => {
+    const malformed = [
+      TITLE_LINE,
+      HEADER_LINE,
+      '"DP1000001";2026-08-29',
+    ].join('\n');
+
+    expect(() => parseStatement(malformed)).toThrow(/Malformed SEB row/);
+  });
+
+  it('throws on a row with an empty TRANSAKCIJOS KODAS instead of building a degenerate dedup_key', () => {
+    const malformed = [TITLE_LINE, HEADER_LINE, dataRow('D', '')].join('\n');
+
+    expect(() => parseStatement(malformed)).toThrow(
+      /empty TRANSAKCIJOS KODAS/,
+    );
   });
 
   it('produces the same dedup_key for the same provider transaction id', () => {

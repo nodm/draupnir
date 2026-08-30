@@ -1,6 +1,7 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import type { S3Client } from '@aws-sdk/client-s3';
 import {
+  EmptyStatementFileError,
   MissingUploadAccountError,
   OversizedStatementFileError,
   processStatementFile,
@@ -81,6 +82,27 @@ function fakeDataApiClient(options: {
       if (input.sql.includes('INSERT INTO transactions')) {
         options.onInsert?.(params);
         return { numberOfRecordsUpdated: 1 };
+      }
+    }
+    if (name === 'BatchExecuteStatementCommand') {
+      const input = (
+        command as {
+          input: {
+            sql: string;
+            parameterSets: { name: string; value: unknown }[][];
+          };
+        }
+      ).input;
+
+      if (input.sql.includes('INSERT INTO transactions')) {
+        for (const parameterSet of input.parameterSets) {
+          options.onInsert?.(
+            Object.fromEntries(
+              parameterSet.map((p) => [p.name, paramValue(p.value)]),
+            ),
+          );
+        }
+        return { updateResults: [] };
       }
     }
     throw new Error(`unexpected command: ${name}`);
@@ -231,6 +253,35 @@ describe('processStatementFile', () => {
     ).rejects.toThrow('malformed row 3');
 
     expect(inserted).toHaveLength(0);
+  });
+
+  it('rejects a file that parses to zero transaction rows, without starting a transaction', async () => {
+    const send = fakeDataApiClient({
+      accountsById: {
+        'acc-1': { id: 'acc-1', bank: 'seb', iban: 'LT100000000000000001' },
+      },
+      accountsByIban: {},
+    });
+    const client = { send } as unknown as RDSDataClient;
+    const s3Client = fakeS3Client('raw file contents');
+    const parsers: ParserDispatch = { seb: vi.fn().mockReturnValue([]) };
+
+    await expect(
+      processStatementFile(
+        client,
+        dataApiConfig,
+        s3Client,
+        parsers,
+        'draupnir-uploads',
+        'uploads/user-1/acc-1/file.csv',
+        1000,
+      ),
+    ).rejects.toThrow(EmptyStatementFileError);
+
+    const commandNames = send.mock.calls.map(
+      ([command]) => (command as { constructor: { name: string } }).constructor.name,
+    );
+    expect(commandNames).not.toContain('BeginTransactionCommand');
   });
 
   it('fails when the upload-selected account no longer exists', async () => {
