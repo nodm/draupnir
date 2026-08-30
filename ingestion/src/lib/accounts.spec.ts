@@ -22,7 +22,7 @@ function fakeClient(
 
 const validInput = {
   bank: 'seb',
-  iban: 'LT100000000000000001',
+  iban: 'LT121000011101001000',
   currency: 'EUR',
   displayName: 'SEB checking',
 };
@@ -101,15 +101,15 @@ describe('createAccount', () => {
       fakeClient(send),
       config,
       { sub: 'user-123' },
-      { ...validInput, iban: 'lt10 0000 0000 0000 0001' },
+      { ...validInput, iban: 'lt12 1000 0111 0100 1000' },
     );
 
-    expect(account.iban).toBe('LT100000000000000001');
+    expect(account.iban).toBe('LT121000011101001000');
     const [command] = send.mock.calls[0];
     const ibanParam = command.input.parameters.find(
       (p: { name: string }) => p.name === 'iban',
     );
-    expect(ibanParam.value).toEqual({ stringValue: 'LT100000000000000001' });
+    expect(ibanParam.value).toEqual({ stringValue: 'LT121000011101001000' });
   });
 
   it('rejects an iban with characters outside the canonical shape', async () => {
@@ -121,6 +121,20 @@ describe('createAccount', () => {
         config,
         { sub: 'user-123' },
         { ...validInput, iban: 'LT10-0000-0000-0000-0001' },
+      ),
+    ).rejects.toThrow(InvalidAccountInputError);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('rejects an iban with the right shape but a failing checksum', async () => {
+    const send = vi.fn();
+
+    await expect(
+      createAccount(
+        fakeClient(send),
+        config,
+        { sub: 'user-123' },
+        { ...validInput, iban: 'LT000000000000000000' },
       ),
     ).rejects.toThrow(InvalidAccountInputError);
     expect(send).not.toHaveBeenCalled();

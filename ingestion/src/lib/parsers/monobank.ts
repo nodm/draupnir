@@ -36,7 +36,7 @@ export function parseStatement(
 		partialRows.push({
 			iban: uploadAccountIban,
 			postedDate: resolvePostedDate(parseMonobankDate(dateAndTime)),
-			amountMinorUnits: toMinorUnits(parseFloat(operationAmount)),
+			amountMinorUnits: toMinorUnits(parseFloat(operationAmount), operationCurrency),
 			currency: operationCurrency.trim(),
 			normalizedDescription: normalizeDescription(description),
 			description: normalizeDescription(description),

@@ -56,7 +56,22 @@ function canonicalizeIban(iban: string): string {
   return iban.replace(/\s+/g, '').toUpperCase();
 }
 
-const IBAN_PATTERN = /^[A-Z0-9]{15,34}$/;
+// 2-letter country + 2 check digits + 11-30 char BBAN = ISO 13616's 15-34
+// total length range.
+const IBAN_SHAPE_PATTERN = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+
+// ISO 13616 mod-97 checksum: move the country+check-digit prefix to the
+// end, expand each letter to two digits (A=10..Z=35), and the resulting
+// number mod 97 must equal 1. Catches e.g. all-zero or transposed-digit
+// IBANs that the shape pattern alone lets through — those can never match
+// a real statement row but would still occupy the unique iban value.
+function hasValidIbanChecksum(iban: string): boolean {
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  const numeric = rearranged.replace(/[A-Z]/g, (letter) =>
+    String(letter.charCodeAt(0) - 55),
+  );
+  return BigInt(numeric) % BigInt(97) === BigInt(1);
+}
 
 export async function createAccount(
   client: RDSDataClient,
@@ -75,7 +90,7 @@ export async function createAccount(
     throw new InvalidAccountInputError('iban');
   }
   const iban = canonicalizeIban(input.iban);
-  if (!IBAN_PATTERN.test(iban)) {
+  if (!IBAN_SHAPE_PATTERN.test(iban) || !hasValidIbanChecksum(iban)) {
     throw new InvalidAccountInputError('iban');
   }
   if (!isNonEmptyString(input.currency)) {

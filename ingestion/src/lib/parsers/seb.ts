@@ -48,8 +48,11 @@ function parseSebFxMetadata(
     originalCurrency: originalCurrency as string,
     originalAmountMinorUnits: toMinorUnits(
       amountSign * parseFloat(originalAmount as string),
+      originalCurrency as string,
     ),
-    fxFeeMinorUnits: toMinorUnits(parseFloat(feeAmount as string)),
+    // The fee is always stated in EUR in the purpose text (see the pattern
+    // above: "mokestis {feeAmount} EUR"), regardless of originalCurrency.
+    fxFeeMinorUnits: toMinorUnits(parseFloat(feeAmount as string), 'EUR'),
     fxFeePercent: parseFloat(feePercent as string),
   };
 }
@@ -65,9 +68,13 @@ function parseSebAmountSign(debitCredit: string): 1 | -1 {
   throw new Error(`Unrecognized DEBETAS/KREDITAS marker: ${debitCredit}`);
 }
 
-function parseSebAmountMinorUnits(sumaField: string, amountSign: 1 | -1): number {
+function parseSebAmountMinorUnits(
+  sumaField: string,
+  amountSign: 1 | -1,
+  currency: string,
+): number {
   const magnitude = parseFloat(sumaField.trim().replace(',', '.'));
-  return toMinorUnits(amountSign * magnitude);
+  return toMinorUnits(amountSign * magnitude, currency);
 }
 
 // Only takes `fileContents`: SEB rows carry their own account IBAN, so the
@@ -117,7 +124,7 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
     rows.push({
       iban: saskaitosNr.trim(),
       postedDate: resolvePostedDate(parseSebDate(data)),
-      amountMinorUnits: parseSebAmountMinorUnits(suma, amountSign),
+      amountMinorUnits: parseSebAmountMinorUnits(suma, amountSign, valiuta),
       currency: valiuta.trim(),
       description: normalizeDescription(paskirtis),
       dedupKey: `seb:${transakcijosKodas.trim()}`,

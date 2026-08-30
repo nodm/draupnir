@@ -17,9 +17,22 @@ describe('normalizeDescription', () => {
 });
 
 describe('toMinorUnits', () => {
-  it('rounds a decimal amount to minor units', () => {
-    expect(toMinorUnits(22.23)).toBe(2223);
-    expect(toMinorUnits(-0.29)).toBe(-29);
+  it('rounds a decimal amount to minor units for a 2-decimal currency', () => {
+    expect(toMinorUnits(22.23, 'EUR')).toBe(2223);
+    expect(toMinorUnits(-0.29, 'EUR')).toBe(-29);
+  });
+
+  it('treats a zero-decimal currency as having no minor units', () => {
+    expect(toMinorUnits(100, 'JPY')).toBe(100);
+    expect(toMinorUnits(1500, 'KRW')).toBe(1500);
+  });
+
+  it('scales a three-decimal currency by 1000', () => {
+    expect(toMinorUnits(12.345, 'BHD')).toBe(12345);
+  });
+
+  it('is case-insensitive on the currency code', () => {
+    expect(toMinorUnits(100, 'jpy')).toBe(100);
   });
 });
 

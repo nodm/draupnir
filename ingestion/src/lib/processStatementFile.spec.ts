@@ -111,9 +111,10 @@ function fakeDataApiClient(options: {
   return send;
 }
 
-function fakeS3Client(fileContents: string): S3Client {
+function fakeS3Client(fileContents: string, contentLength?: number): S3Client {
   const send = vi.fn().mockResolvedValue({
     Body: { transformToString: async () => fileContents },
+    ContentLength: contentLength,
   });
   return { send } as unknown as S3Client;
 }
@@ -325,6 +326,42 @@ describe('processStatementFile', () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(s3Send).not.toHaveBeenCalled();
+  });
+
+  it('rejects a file whose actual GetObject size exceeds the limit, even when the S3 event size did not', async () => {
+    const send = fakeDataApiClient({
+      accountsById: {
+        'acc-1': { id: 'acc-1', bank: 'seb', iban: 'LT100000000000000001' },
+      },
+      accountsByIban: {},
+    });
+    const client = { send } as unknown as RDSDataClient;
+    const transformToString = vi.fn(async () => 'raw file contents');
+    const s3Send = vi.fn().mockResolvedValue({
+      Body: { transformToString },
+      ContentLength: 11 * 1024 * 1024,
+    });
+    const s3Client = { send: s3Send } as unknown as S3Client;
+    const parsers: ParserDispatch = { seb: vi.fn() };
+
+    await expect(
+      processStatementFile(
+        client,
+        dataApiConfig,
+        s3Client,
+        parsers,
+        'draupnir-uploads',
+        'uploads/user-1/acc-1/file.csv',
+        1000,
+      ),
+    ).rejects.toThrow(OversizedStatementFileError);
+
+    expect(transformToString).not.toHaveBeenCalled();
+    expect(parsers['seb']).not.toHaveBeenCalled();
+    const commandNames = send.mock.calls.map(
+      ([command]) => (command as { constructor: { name: string } }).constructor.name,
+    );
+    expect(commandNames).not.toContain('BeginTransactionCommand');
   });
 
   it('fails the whole file when a parsed row iban does not resolve to an account', async () => {

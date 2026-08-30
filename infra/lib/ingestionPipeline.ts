@@ -19,9 +19,10 @@ const LAMBDA_BASIC_EXECUTION_POLICY_ARN =
 // discarded, per the statement-ingestion-pipeline spec.
 const MAX_RECEIVE_COUNT = 5;
 
-// One file does S3 I/O plus a sequential Data API round trip per row
-// (account lookups + one INSERT per parsed transaction) — well past the
-// Lambda default of 3s for any real statement.
+// One file does S3 I/O, one sequential Data API lookup per distinct
+// account IBAN in the file, and the batched INSERT writes (500 rows per
+// Data API call) — well past the Lambda default of 3s for any real
+// statement even with batching.
 const INGEST_FUNCTION_TIMEOUT_SECONDS = 60;
 // AWS's own guidance: the queue's visibility timeout should be at least
 // 6x the consumer function's timeout, so a message already being
@@ -146,7 +147,7 @@ export function createIngestionPipeline(
     withProvider,
   );
 
-  new aws.iam.RolePolicy(
+  const rolePolicy = new aws.iam.RolePolicy(
     'ingest-policy',
     {
       role: role.id,
@@ -200,7 +201,10 @@ export function createIngestionPipeline(
       functionName: ingestFunction.name,
       batchSize: 1,
     },
-    withProvider,
+    // Without this, Pulumi can create the mapping before the inline
+    // RolePolicy granting sqs:ReceiveMessage exists — AWS then rejects the
+    // mapping because the function's role can't yet consume the queue.
+    { ...withProvider, dependsOn: [rolePolicy] },
   );
 
   return { uploadsBucket, queue, deadLetterQueue, ingestFunction };
