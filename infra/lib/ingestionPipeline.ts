@@ -36,20 +36,6 @@ export interface DbConfig {
   name: pulumi.Input<string>;
 }
 
-// Read once here; `pulumi.Config` provisioning for these keys (an Aurora
-// Serverless v2 cluster, its Secrets Manager secret) is out of scope for
-// this change — see ADR-0003's own unchecked action items. `pulumi preview`/
-// `up` will fail until a later change provisions Aurora and this stack's
-// config sets `draupnir-infra:dbClusterArn`/`dbSecretArn`/`dbName`.
-export function loadDbConfig(): DbConfig {
-  const config = new pulumi.Config();
-  return {
-    clusterArn: config.require('dbClusterArn'),
-    secretArn: config.requireSecret('dbSecretArn'),
-    name: config.require('dbName'),
-  };
-}
-
 export function dataApiPolicyStatements(
   dbConfig: DbConfig,
 ): pulumi.Input<Record<string, unknown>>[] {
