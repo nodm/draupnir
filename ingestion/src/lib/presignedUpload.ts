@@ -21,6 +21,10 @@ export interface PresignedUploadInput {
 export interface PresignedUpload {
   url: string;
   key: string;
+  // IfNoneMatch is signed into the URL's SigV4 signature, so the caller's
+  // PUT must send this exact header or S3 rejects it as a signature
+  // mismatch rather than accepting the upload.
+  headers: { 'If-None-Match': string };
 }
 
 export interface UploadsBucketConfig {
@@ -75,5 +79,5 @@ export async function createPresignedUpload(
     { expiresIn: PRESIGNED_URL_TTL_SECONDS },
   );
 
-  return { url, key };
+  return { url, key, headers: { 'If-None-Match': '*' } };
 }

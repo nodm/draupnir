@@ -51,6 +51,7 @@ describe('createPresignedUpload', () => {
     expect(result.key).toMatch(
       /^uploads\/user-123\/acc-1\/[0-9a-f-]+\.csv$/,
     );
+    expect(result.headers).toEqual({ 'If-None-Match': '*' });
 
     const [command] = send.mock.calls[0];
     const params = Object.fromEntries(
