@@ -16,6 +16,15 @@ const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
 const LAMBDA_BASIC_EXECUTION_POLICY_ARN =
   'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole';
 
+// The Aurora cluster scales to zero when idle (see aurora.ts), and resuming
+// from a pause can take several seconds up to ~1 minute. 29s is the ceiling
+// API Gateway's REST API integration timeout allows without requesting an
+// AWS Service Quota increase, so it's the most this route can wait without
+// separate account-level setup — a rare worst-case resume can still exceed
+// it and return a 504; callers should retry a failed request from a
+// DB-backed route once before surfacing an error.
+const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
+
 export interface IngestionApi {
   restApi: aws.apigateway.RestApi;
   invokeUrl: pulumi.Output<string>;
@@ -28,6 +37,7 @@ interface LambdaRouteConfig {
   handler: string;
   environment?: Record<string, pulumi.Input<string>>;
   policyStatements?: pulumi.Input<Record<string, unknown>>[];
+  timeoutSeconds?: number;
 }
 
 interface LambdaRoute {
@@ -79,6 +89,7 @@ function createLambdaRoute(
       role: role.arn,
       runtime: aws.lambda.Runtime.NodeJS24dX,
       handler: config.handler,
+      timeout: config.timeoutSeconds,
       code: new pulumi.asset.FileArchive('../dist/ingestion'),
       environment: config.environment
         ? { variables: config.environment }
@@ -118,6 +129,9 @@ function createLambdaRoute(
       integrationHttpMethod: 'POST',
       type: 'AWS_PROXY',
       uri: lambdaFunction.invokeArn,
+      timeoutMilliseconds: config.timeoutSeconds
+        ? config.timeoutSeconds * 1000
+        : undefined,
     },
     withProvider,
   );
@@ -250,6 +264,7 @@ export function createIngestionApi(
         DB_NAME: dbConfig.name,
       },
       policyStatements: dataApiPolicyStatements(dbConfig),
+      timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
     },
     restApi,
     authorizer,
@@ -276,6 +291,7 @@ export function createIngestionApi(
           Resource: pulumi.interpolate`${uploadsBucket.arn}/*`,
         },
       ],
+      timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
     },
     restApi,
     authorizer,
@@ -305,6 +321,7 @@ export function createIngestionApi(
           accountsRoute.integration.type,
           accountsRoute.integration.integrationHttpMethod,
           accountsRoute.integration.uri,
+          accountsRoute.integration.timeoutMilliseconds,
           presignedUploadRoute.resource.pathPart,
           presignedUploadRoute.method.httpMethod,
           presignedUploadRoute.method.authorization,
@@ -312,6 +329,7 @@ export function createIngestionApi(
           presignedUploadRoute.integration.type,
           presignedUploadRoute.integration.integrationHttpMethod,
           presignedUploadRoute.integration.uri,
+          presignedUploadRoute.integration.timeoutMilliseconds,
           authorizer.providerArns,
         ]),
       },
