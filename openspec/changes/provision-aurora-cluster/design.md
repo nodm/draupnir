@@ -62,12 +62,12 @@ Data API doesn't reach the cluster over the VPC network path (it's a separate in
 mechanism), so there's no compute resource that ever needs a rule granting it access — an
 empty ingress list is the correct steady state, not a placeholder to fill in later.
 
-**Capacity — bottom of the Serverless v2 range**: `serverlessv2ScalingConfiguration` with a
-low `minCapacity`/`maxCapacity` (e.g. 0.5–1 ACU) sized for near-idle, occasional use, not
-sustained load — consistent with ADR-0001/ADR-0003's 2-user framing. Confirm at
-implementation time whether 0-ACU auto-pause is available in the target account/region (AWS
-introduced this after ADR-0003 was written); if so, prefer it to minimize idle cost further,
-otherwise use the lowest supported non-zero minimum.
+**Capacity — scale to zero**: `serverlessv2ScalingConfiguration` with `minCapacity: 0`,
+`maxCapacity: 1`, and `secondsUntilAutoPause: 300` (AWS's default). Aurora PostgreSQL 17.7
+supports 0-ACU auto-pause (GA since Nov 2024, requires 13.15+/14.12+/15.7+/16.3+), and the
+cost gap between this and a non-zero floor is the difference between near-zero and a real
+~$40+/month fixed cost at 2-user, occasional-use load — worth the several-seconds-to-~1-minute
+resume latency on the first request after an idle period.
 
 **Engine version — not pinned in this document**: rather than hardcoding a specific
 `x.y` engine version here (which drifts as AWS ships updates), the implementing task picks

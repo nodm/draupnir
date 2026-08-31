@@ -7,11 +7,16 @@ const DB_NAME = 'draupnir';
 // underscores or other punctuation.
 const MASTER_USERNAME = 'draupniradmin';
 
-// Bottom of the Serverless v2 range: near-idle, occasional 2-user load, per
-// ADR-0001/ADR-0003's near-zero-idle-cost framing — not sized for
-// sustained throughput.
-const MIN_CAPACITY_ACU = 0.5;
+// 0 lets the cluster pause to $0 compute between uses — Aurora PostgreSQL
+// 17.7 supports scale-to-zero — matching ADR-0001/ADR-0003's near-zero-
+// idle-cost framing for occasional 2-user load. Not sized for sustained
+// throughput.
+const MIN_CAPACITY_ACU = 0;
 const MAX_CAPACITY_ACU = 1;
+// Resume from a pause takes several seconds to ~1 minute, so this trades a
+// bit of first-request latency after idle for not paying for compute the
+// rest of the time. AWS's own default.
+const SECONDS_UNTIL_AUTO_PAUSE = 300;
 
 export interface AuroraCluster {
   dbConfig: DbConfig;
@@ -88,6 +93,7 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
       serverlessv2ScalingConfiguration: {
         minCapacity: MIN_CAPACITY_ACU,
         maxCapacity: MAX_CAPACITY_ACU,
+        secondsUntilAutoPause: SECONDS_UNTIL_AUTO_PAUSE,
       },
       // This cluster is about to hold live account/transaction data once
       // import-bank-statements deploys, so an accidental `pulumi destroy`
