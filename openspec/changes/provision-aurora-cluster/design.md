@@ -98,9 +98,12 @@ mechanism AWS's own Secrets Manager-integration docs recommend for this exact ca
   adding a reader without a schema/access-pattern change.
 - **Resume-from-pause latency vs. API Gateway's timeout ceiling** → the first DB-backed request
   after an idle period can take several seconds to ~1 minute to resume the cluster, while API
-  Gateway's REST API integration timeout caps at 29s without an AWS Service Quota increase.
-  Mitigation: the `accounts`/`presigned-upload` Lambdas and their API Gateway integrations are
-  set to the 29s ceiling (up from the 3s default, which failed on essentially every request);
-  a rare worst-case resume can still exceed even that and return a 504 — acceptable for a
-  2-user app given the cost difference (see Decisions), revisit with a Service Quota increase
-  or a client-side retry if this proves disruptive in practice.
+  Gateway's REST API integration timeout caps at 29s without an AWS Service Quota increase —
+  and that increase is only available on a Regional or private REST API, not the default
+  edge-optimized one. Mitigation: `ingestionApi.ts`'s `RestApi` is configured Regional (no
+  CloudFront benefit for a private, Cognito-authenticated API anyway), and the
+  `accounts`/`presigned-upload` Lambdas and their API Gateway integrations are set to the 29s
+  ceiling (up from the 3s default, which failed on essentially every request); a rare
+  worst-case resume can still exceed even that and return a 504 — acceptable for a 2-user app
+  given the cost difference (see Decisions), revisit with the now-available Service Quota
+  increase or a client-side retry if this proves disruptive in practice.

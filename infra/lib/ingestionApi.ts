@@ -162,6 +162,12 @@ export function createIngestionApi(
     'ingestion',
     {
       name: 'draupnir-ingestion',
+      // Regional, not the default edge-optimized: no CloudFront benefit for
+      // a private, Cognito-authenticated API with no public/global traffic,
+      // and only Regional/private REST APIs are eligible to request an
+      // integration timeout increase past 29s if the Aurora resume-latency
+      // risk (aurora.ts) ever needs that.
+      endpointConfiguration: { types: 'REGIONAL' },
     },
     withProvider,
   );
