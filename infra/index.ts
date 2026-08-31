@@ -1,11 +1,13 @@
+import { createAuroraCluster } from './lib/aurora';
 import { createAuthPool } from './lib/cognito';
 import { createIngestionApi } from './lib/ingestionApi';
-import { createIngestionPipeline, loadDbConfig } from './lib/ingestionPipeline';
+import { createIngestionPipeline } from './lib/ingestionPipeline';
 import { createAwsProvider } from './lib/provider';
 
 const provider = createAwsProvider();
 const authPool = createAuthPool(provider);
-const dbConfig = loadDbConfig();
+const auroraCluster = createAuroraCluster(provider);
+const dbConfig = auroraCluster.dbConfig;
 const ingestionPipeline = createIngestionPipeline(provider, dbConfig);
 const ingestionApi = createIngestionApi(
   authPool.userPool,
