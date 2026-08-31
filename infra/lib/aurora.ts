@@ -1,4 +1,5 @@
 import * as aws from '@pulumi/aws';
+import * as pulumi from '@pulumi/pulumi';
 import type { DbConfig } from './ingestionPipeline';
 
 const DB_NAME = 'draupnir';
@@ -93,8 +94,12 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
       // or a replacement (e.g. an engine-version bump) must not silently
       // discard it: deletion protection blocks the delete outright, and a
       // final snapshot is still taken on any deletion that does go through.
+      // Scoped to the stack name since RDS requires the identifier to be
+      // unique in the account/region — a second full teardown-and-recreate
+      // of the same stack needs that prior snapshot deleted/renamed first,
+      // which is a deliberate manual gate, not a data-loss path.
       deletionProtection: true,
-      finalSnapshotIdentifier: 'aurora-final-snapshot',
+      finalSnapshotIdentifier: `aurora-final-snapshot-${pulumi.getStack()}`,
     },
     withProvider,
   );
