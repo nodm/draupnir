@@ -37,10 +37,11 @@ version numbers as something to confirm at provisioning time:
 
 **Module placement**: `infra/lib/aurora.ts`, exporting `createAuroraCluster(provider):
 AuroraCluster` where `AuroraCluster` includes `dbConfig: DbConfig` (the same shape
-`infra/lib/ingestionPipeline.ts` already defines and consumes) plus the underlying `vpc`,
-`cluster`, and `secret` resources for anything that needs them later. `infra/index.ts` calls
-this before `loadDbConfig()`'s current call site and passes `auroraCluster.dbConfig` through
-instead.
+`infra/lib/ingestionPipeline.ts` already defines and consumes) plus the underlying `vpc` and
+`cluster` resources for anything that needs them later — there's no separate `secret`
+resource to expose since it's RDS-owned (`manageMasterUserPassword`), represented only by its
+ARN inside `dbConfig`. `infra/index.ts` calls this before `loadDbConfig()`'s current call site
+and passes `auroraCluster.dbConfig` through instead.
 
 **`loadDbConfig()` is removed, not parameterized**: the function existed only as a config-read
 placeholder documented as temporary (see its own comment in `ingestionPipeline.ts`). Once

@@ -41,9 +41,12 @@ spec-level behavior in that change's capabilities changes)
 
 - **New Pulumi resources** (`infra`): VPC, DB subnet group, security group, Aurora Serverless
   v2 cluster (Data API enabled), Secrets Manager secret.
-- **`infra/lib/ingestionPipeline.ts`**: `loadDbConfig()` changes from a `pulumi.Config` read
-  to consuming the new cluster module's outputs directly.
-- **`infra/index.ts`**: wires the new Aurora module in ahead of `loadDbConfig()`.
+- **`infra/lib/ingestionPipeline.ts`**: `loadDbConfig()` is removed — it existed only as a
+  temporary `pulumi.Config` placeholder read; the `DbConfig` type it returned stays, still
+  consumed by `dataApiPolicyStatements()`.
+- **`infra/index.ts`**: calls the new Aurora module and passes `auroraCluster.dbConfig`
+  directly to `createIngestionPipeline`/`createIngestionApi`, in place of the removed
+  `loadDbConfig()` call.
 - **No changes** to `shared`, `ingestion`, or `mcp` application code — this is infra-only,
   unblocking `import-bank-statements`'s deploy-dependent tasks (8.1/8.2) without touching its
   already-implemented code.

@@ -2,7 +2,9 @@ import * as aws from '@pulumi/aws';
 import type { DbConfig } from './ingestionPipeline';
 
 const DB_NAME = 'draupnir';
-const MASTER_USERNAME = 'draupnir_admin';
+// RDS's CreateDBCluster only accepts 1-16 letters or numbers here — no
+// underscores or other punctuation.
+const MASTER_USERNAME = 'draupniradmin';
 
 // Bottom of the Serverless v2 range: near-idle, occasional 2-user load, per
 // ADR-0001/ADR-0003's near-zero-idle-cost framing — not sized for
@@ -86,9 +88,13 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
         minCapacity: MIN_CAPACITY_ACU,
         maxCapacity: MAX_CAPACITY_ACU,
       },
-      // 2-user app, no production data yet — a final snapshot on teardown
-      // isn't worth the extra manual cleanup it forces on `pulumi destroy`.
-      skipFinalSnapshot: true,
+      // This cluster is about to hold live account/transaction data once
+      // import-bank-statements deploys, so an accidental `pulumi destroy`
+      // or a replacement (e.g. an engine-version bump) must not silently
+      // discard it: deletion protection blocks the delete outright, and a
+      // final snapshot is still taken on any deletion that does go through.
+      deletionProtection: true,
+      finalSnapshotIdentifier: 'aurora-final-snapshot',
     },
     withProvider,
   );
