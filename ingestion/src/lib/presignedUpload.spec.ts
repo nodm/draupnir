@@ -61,6 +61,12 @@ describe('createPresignedUpload', () => {
     );
     expect(params['accountId']).toEqual({ stringValue: 'acc-1' });
     expect(params['ownerUserId']).toEqual({ stringValue: 'user-123' });
+
+    const [, putCommand] = vi.mocked(getSignedUrl).mock.calls[0] as [
+      unknown,
+      { input: { IfNoneMatch?: string } },
+    ];
+    expect(putCommand.input.IfNoneMatch).toBe('*');
   });
 
   it('rejects when the caller has no sub claim', async () => {

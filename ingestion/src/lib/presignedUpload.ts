@@ -64,6 +64,13 @@ export async function createPresignedUpload(
       Bucket: bucketConfig.bucket,
       Key: key,
       ContentType: 'text/csv',
+      // Each key is a fresh random UUID, so the only way it's ever written
+      // twice is the same presigned URL being replayed within its TTL. A
+      // second write would silently replace the first upload's content
+      // before its S3 notification is processed, losing that file. This
+      // conditional-write header makes S3 reject any PUT to a key that
+      // already exists, turning that race into a client-visible 412 instead.
+      IfNoneMatch: '*',
     }),
     { expiresIn: PRESIGNED_URL_TTL_SECONDS },
   );

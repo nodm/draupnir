@@ -20,11 +20,13 @@ const ZERO_DECIMAL_CURRENCIES = new Set([
 const THREE_DECIMAL_CURRENCIES = new Set([
   'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND',
 ]);
+const FOUR_DECIMAL_CURRENCIES = new Set(['CLF', 'UYW']);
 
 function minorUnitExponent(currency: string): number {
   const code = currency.trim().toUpperCase();
   if (ZERO_DECIMAL_CURRENCIES.has(code)) return 0;
   if (THREE_DECIMAL_CURRENCIES.has(code)) return 3;
+  if (FOUR_DECIMAL_CURRENCIES.has(code)) return 4;
   return 2;
 }
 

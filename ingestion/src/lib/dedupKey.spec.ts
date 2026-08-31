@@ -31,6 +31,11 @@ describe('toMinorUnits', () => {
     expect(toMinorUnits(12.345, 'BHD')).toBe(12345);
   });
 
+  it('scales a four-decimal currency by 10000', () => {
+    expect(toMinorUnits(1.2345, 'CLF')).toBe(12345);
+    expect(toMinorUnits(1.2345, 'UYW')).toBe(12345);
+  });
+
   it('is case-insensitive on the currency code', () => {
     expect(toMinorUnits(100, 'jpy')).toBe(100);
   });
