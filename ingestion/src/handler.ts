@@ -25,6 +25,13 @@ export const handler: SQSHandler = async (event) => {
   for (const record of event.Records) {
     const s3Event = JSON.parse(record.body) as S3Event;
 
+    // S3 sends a one-time s3:TestEvent (no `Records` field) through the
+    // queue when a bucket notification configuration is first created, to
+    // confirm the destination is reachable — not a real object upload.
+    if (!Array.isArray(s3Event.Records)) {
+      continue;
+    }
+
     for (const s3Record of s3Event.Records) {
       const bucket = s3Record.s3.bucket.name;
       const key = decodeURIComponent(
