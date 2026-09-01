@@ -107,3 +107,9 @@ mechanism AWS's own Secrets Manager-integration docs recommend for this exact ca
   worst-case resume can still exceed even that and return a 504 — acceptable for a 2-user app
   given the cost difference (see Decisions), revisit with the now-available Service Quota
   increase or a client-side retry if this proves disruptive in practice.
+- **Longer per-request Lambda hold with no throttling** → raising the DB-backed routes' timeout
+  3s→29s means a hammering/replaying client can now legitimately hold a Lambda slot ~10x longer
+  per invocation, and there's no `UsagePlan`, `reservedConcurrentExecutions`, or WAF in `infra/`
+  to cap it. Mitigation: acceptable for a 2-user app — Cognito auth is unchanged, this only
+  widens the blast radius of an already-required token compromise, not a new vulnerability.
+  Add API Gateway throttling/a usage plan as a follow-up if traffic or user count grows.
