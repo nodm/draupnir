@@ -62,12 +62,12 @@ Data API doesn't reach the cluster over the VPC network path (it's a separate in
 mechanism), so there's no compute resource that ever needs a rule granting it access — an
 empty ingress list is the correct steady state, not a placeholder to fill in later.
 
-**Capacity — bottom of the Serverless v2 range**: `serverlessv2ScalingConfiguration` with a
-low `minCapacity`/`maxCapacity` (e.g. 0.5–1 ACU) sized for near-idle, occasional use, not
-sustained load — consistent with ADR-0001/ADR-0003's 2-user framing. Confirm at
-implementation time whether 0-ACU auto-pause is available in the target account/region (AWS
-introduced this after ADR-0003 was written); if so, prefer it to minimize idle cost further,
-otherwise use the lowest supported non-zero minimum.
+**Capacity — scale to zero**: `serverlessv2ScalingConfiguration` with `minCapacity: 0`,
+`maxCapacity: 1`, and `secondsUntilAutoPause: 300` (AWS's default). Aurora PostgreSQL 17.7
+supports 0-ACU auto-pause (GA since Nov 2024, requires 13.15+/14.12+/15.7+/16.3+), and the
+cost gap between this and a non-zero floor is the difference between near-zero and a real
+~$40+/month fixed cost at 2-user, occasional-use load — worth the several-seconds-to-~1-minute
+resume latency on the first request after an idle period.
 
 **Engine version — not pinned in this document**: rather than hardcoding a specific
 `x.y` engine version here (which drifts as AWS ships updates), the implementing task picks
@@ -96,6 +96,20 @@ mechanism AWS's own Secrets Manager-integration docs recommend for this exact ca
   one instance causes downtime until Aurora recovers it. Mitigation: acceptable for a 2-user
   app; add a second instance later if uptime requirements change — Serverless v2 supports
   adding a reader without a schema/access-pattern change.
-- **0-ACU auto-pause availability is unconfirmed for this account/region** → if unavailable,
-  the cluster's true idle-cost floor is the lowest non-zero ACU tier, not zero. Mitigation:
-  not a blocker either way — confirmed at implementation time, doesn't change the design.
+- **Resume-from-pause latency vs. API Gateway's timeout ceiling** → the first DB-backed request
+  after an idle period can take several seconds to ~1 minute to resume the cluster, while API
+  Gateway's REST API integration timeout caps at 29s without an AWS Service Quota increase —
+  and that increase is only available on a Regional or private REST API, not the default
+  edge-optimized one. Mitigation: `ingestionApi.ts`'s `RestApi` is configured Regional (no
+  CloudFront benefit for a private, Cognito-authenticated API anyway), and the
+  `accounts`/`presigned-upload` Lambdas and their API Gateway integrations are set to the 29s
+  ceiling (up from the 3s default, which failed on essentially every request); a rare
+  worst-case resume can still exceed even that and return a 504 — acceptable for a 2-user app
+  given the cost difference (see Decisions), revisit with the now-available Service Quota
+  increase or a client-side retry if this proves disruptive in practice.
+- **Longer per-request Lambda hold with no throttling** → raising the DB-backed routes' timeout
+  3s→29s means a hammering/replaying client can now legitimately hold a Lambda slot ~10x longer
+  per invocation, and there's no `UsagePlan`, `reservedConcurrentExecutions`, or WAF in `infra/`
+  to cap it. Mitigation: acceptable for a 2-user app — Cognito auth is unchanged, this only
+  widens the blast radius of an already-required token compromise, not a new vulnerability.
+  Add API Gateway throttling/a usage plan as a follow-up if traffic or user count grows.

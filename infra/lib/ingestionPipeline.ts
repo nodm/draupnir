@@ -22,8 +22,10 @@ const MAX_RECEIVE_COUNT = 5;
 // One file does S3 I/O, one sequential Data API lookup per distinct
 // account IBAN in the file, and the batched INSERT writes (500 rows per
 // Data API call) — well past the Lambda default of 3s for any real
-// statement even with batching.
-const INGEST_FUNCTION_TIMEOUT_SECONDS = 60;
+// statement even with batching. Not API-Gateway-bound, so no 29s ceiling;
+// budgeted with headroom for Aurora's up-to-~1-minute resume-from-pause
+// (aurora.ts) stacked on top of that work.
+const INGEST_FUNCTION_TIMEOUT_SECONDS = 90;
 // AWS's own guidance: the queue's visibility timeout should be at least
 // 6x the consumer function's timeout, so a message already being
 // processed can't be redelivered to a second concurrent invocation
