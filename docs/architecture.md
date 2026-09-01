@@ -1,8 +1,6 @@
 # AWS Architecture
 
-Resources provisioned by the Pulumi stack in `infra/` (see `infra/index.ts` and `infra/lib/*`).
-
-IAM roles/policies and Lambda invoke permissions exist per Lambda (least-privilege, one role each) and are omitted below for readability.
+High-level view of the resources provisioned by the Pulumi stack in `infra/` (see `infra/index.ts` and `infra/lib/*`). Supporting resources are omitted below for readability, including: IAM roles/policies and Lambda invoke permissions (one role per Lambda — note that `dataApiPolicyStatements` grants the same Data API actions, including transactions/batch writes, to every DB-backed route even though only `ingest` uses transactions), `ManagedLoginBranding`, the API Gateway `Deployment`/`Stage`, the RDS `SubnetGroup`, and the SQS queue policy/S3 bucket notification/Lambda event source mapping (shown only as the edges they wire up).
 
 ```mermaid
 graph TB
