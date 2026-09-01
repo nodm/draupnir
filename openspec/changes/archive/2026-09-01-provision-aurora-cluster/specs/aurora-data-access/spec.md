@@ -1,8 +1,8 @@
 ## Purpose
 
 Defines the Aurora Serverless v2 cluster and its Data API access surface that back the
-`DbConfig` contract `ingestion`'s Data API client and `infra`'s IAM policy grants already
-depend on, per ADR-0003.
+`DbConfig` contract that `ingestion`'s Data API client and `infra`'s IAM policy grants
+already depend on, per ADR-0003.
 
 ## ADDED Requirements
 
@@ -23,9 +23,9 @@ through Data API's regional HTTPS endpoint, never a direct Postgres wire connect
 The cluster's security group SHALL NOT contain an ingress rule for Lambda or any other
 compute resource, since Data API does not require network-level access to the cluster.
 
-#### Scenario: Security group has no Lambda ingress rule
+#### Scenario: Security group has no ingress rules
 - **WHEN** the cluster's security group rules are inspected
-- **THEN** no ingress rule references a Lambda function or Lambda security group
+- **THEN** its ingress rule set is empty
 
 ### Requirement: Cluster engine version meets the Data API floor
 The cluster's PostgreSQL engine version SHALL meet or exceed the minimum version RDS Data
