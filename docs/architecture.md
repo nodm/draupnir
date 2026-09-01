@@ -15,7 +15,7 @@ graph TB
 
     UserPool --> GoogleIdP
     UserPool --> UserPoolClient
-    UserPoolClient --> Domain
+    UserPool --> Domain
     UserPool -. invokes .-> PreSignUpFn
   end
 
@@ -55,11 +55,12 @@ graph TB
 
     VPC --> SubnetA & SubnetB & SG
     SubnetA & SubnetB -- "DB subnet group" --> Cluster
+    SG -- "vpcSecurityGroupIds" --> Cluster
     Cluster --> Instance
     Cluster -. "manageMasterUserPassword" .-> Secret
   end
 
-  UploadFn -- "s3:PutObject" --> UploadsBucket
+  UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
   UploadFn -- "RDS Data API" --> Cluster
   AccountsFn -- "RDS Data API" --> Cluster
   IngestFn -- "s3:GetObject" --> UploadsBucket
