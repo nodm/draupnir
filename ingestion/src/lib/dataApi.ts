@@ -7,6 +7,7 @@ import {
 	type RDSDataClient,
 	RollbackTransactionCommand,
 	type SqlParameter,
+	type TypeHint,
 } from "@aws-sdk/client-rds-data";
 
 // Narrow repository interface over RDS Data API per ADR-0003 — callers never
@@ -33,14 +34,39 @@ export function loadDataApiConfigFromEnv(): DataApiConfig {
 	return { resourceArn, secretArn, database };
 }
 
-export type SqlParameterValue = string | number | boolean | null;
+// BatchExecuteStatement — unlike ExecuteStatement — won't implicitly cast a
+// stringValue to a non-text column type (observed against a live cluster:
+// inserting posted_date this way fails with "column is of type date but
+// expression is of type text"), so a DATE column's value needs an explicit
+// typeHint alongside it.
+export interface TypedSqlParameterValue {
+	readonly typeHint: TypeHint;
+	readonly value: string;
+}
+
+export function dateParameter(value: string): TypedSqlParameterValue {
+	return { typeHint: "DATE", value };
+}
+
+export type SqlParameterValue =
+	| string
+	| number
+	| boolean
+	| null
+	| TypedSqlParameterValue;
 
 export interface ExecuteResult {
 	rows: Record<string, unknown>[];
 	numberOfRecordsUpdated: number;
 }
 
-function toField(value: SqlParameterValue): Field {
+function isTypedSqlParameterValue(
+	value: SqlParameterValue,
+): value is TypedSqlParameterValue {
+	return typeof value === "object" && value !== null;
+}
+
+function toField(value: string | number | boolean | null): Field {
 	if (value === null) {
 		return { isNull: true };
 	}
@@ -56,10 +82,16 @@ function toField(value: SqlParameterValue): Field {
 function toSqlParameters(
 	parameters: Record<string, SqlParameterValue>,
 ): SqlParameter[] {
-	return Object.entries(parameters).map(([name, value]) => ({
-		name,
-		value: toField(value),
-	}));
+	return Object.entries(parameters).map(([name, value]) => {
+		if (isTypedSqlParameterValue(value)) {
+			return {
+				name,
+				value: { stringValue: value.value },
+				typeHint: value.typeHint,
+			};
+		}
+		return { name, value: toField(value) };
+	});
 }
 
 export async function executeStatement(

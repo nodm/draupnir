@@ -171,6 +171,52 @@ describe('processStatementFile', () => {
     );
   });
 
+  it('sends posted_date with a DATE typeHint so BatchExecuteStatement does not reject it as text', async () => {
+    // Regression test: BatchExecuteStatement (unlike ExecuteStatement) does
+    // not implicitly cast a plain stringValue to a `date` column — verified
+    // against a live cluster, where this failed with "column is of type
+    // date but expression is of type text" before dataApi.ts's
+    // dateParameter() added an explicit typeHint.
+    const send = fakeDataApiClient({
+      accountsById: {
+        'acc-1': { id: 'acc-1', bank: 'seb', iban: 'LT100000000000000001' },
+      },
+      accountsByIban: {
+        LT100000000000000001: { id: 'acc-1' },
+      },
+    });
+    const client = { send } as unknown as RDSDataClient;
+    const s3Client = fakeS3Client('raw file contents');
+    const parsers: ParserDispatch = {
+      seb: vi.fn().mockReturnValue([row({ dedupKey: 'seb:1' })]),
+    };
+
+    await processStatementFile(
+      client,
+      dataApiConfig,
+      s3Client,
+      parsers,
+      'draupnir-uploads',
+      'uploads/user-1/acc-1/file.csv',
+      1000,
+    );
+
+    const batchCall = send.mock.calls.find(
+      ([command]) =>
+        (command as { constructor: { name: string } }).constructor.name ===
+        'BatchExecuteStatementCommand',
+    );
+    const parameterSets = (
+      batchCall?.[0] as {
+        input: { parameterSets: { name: string; typeHint?: string }[][] };
+      }
+    ).input.parameterSets;
+    const postedDateParam = parameterSets[0]?.find(
+      (p) => p.name === 'postedDate',
+    );
+    expect(postedDateParam?.typeHint).toBe('DATE');
+  });
+
   it('writes FX metadata when present, and null when absent', async () => {
     const inserted: Record<string, unknown>[] = [];
     const send = fakeDataApiClient({
