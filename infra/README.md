@@ -2,7 +2,8 @@
 
 Pulumi TypeScript. See [ADR-0005](../docs/adr/0005-aws-region-selection.md) (region)
 and [ADR-0006](../docs/adr/0006-pulumi-state-backend.md) (state backend) for the
-reasoning behind the setup below.
+reasoning behind the setup below, and [../docs/architecture.md](../docs/architecture.md)
+for a diagram of the resources provisioned.
 
 ## State backend
 
