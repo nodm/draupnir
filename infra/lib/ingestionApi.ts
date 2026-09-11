@@ -30,17 +30,21 @@ export interface IngestionApi {
   invokeUrl: pulumi.Output<string>;
 }
 
-interface LambdaRouteConfig {
+export interface LambdaRouteConfig {
   name: string;
   pathPart: string;
   httpMethod: string;
   handler: string;
+  // The Nx build output directory this route's Lambda bundle lives in, e.g.
+  // '../dist/ingestion' or '../dist/mcp' — each app builds to its own
+  // directory, so this can't be a shared default.
+  codePath: string;
   environment?: Record<string, pulumi.Input<string>>;
   policyStatements?: pulumi.Input<Record<string, unknown>>[];
   timeoutSeconds?: number;
 }
 
-interface LambdaRoute {
+export interface LambdaRoute {
   resource: aws.apigateway.Resource;
   method: aws.apigateway.Method;
   integration: aws.apigateway.Integration;
@@ -48,8 +52,9 @@ interface LambdaRoute {
 
 // Shared shape for a new API Gateway route backed by its own Lambda function,
 // used by every endpoint added after `whoami` (kept as its original
-// hand-written block above to avoid touching working, already-deployed code).
-function createLambdaRoute(
+// hand-written block above to avoid touching working, already-deployed code)
+// and, via `codePath`, by other apps' REST APIs (see `mcpApi.ts`).
+export function createLambdaRoute(
   config: LambdaRouteConfig,
   restApi: aws.apigateway.RestApi,
   authorizer: aws.apigateway.Authorizer,
@@ -90,7 +95,7 @@ function createLambdaRoute(
       runtime: aws.lambda.Runtime.NodeJS24dX,
       handler: config.handler,
       timeout: config.timeoutSeconds,
-      code: new pulumi.asset.FileArchive('../dist/ingestion'),
+      code: new pulumi.asset.FileArchive(config.codePath),
       environment: config.environment
         ? { variables: config.environment }
         : undefined,
@@ -264,6 +269,7 @@ export function createIngestionApi(
       pathPart: 'accounts',
       httpMethod: 'POST',
       handler: 'accounts.handler',
+      codePath: '../dist/ingestion',
       environment: {
         DB_CLUSTER_ARN: dbConfig.clusterArn,
         DB_SECRET_ARN: dbConfig.secretArn,
@@ -283,6 +289,7 @@ export function createIngestionApi(
       pathPart: 'uploads',
       httpMethod: 'POST',
       handler: 'presignedUpload.handler',
+      codePath: '../dist/ingestion',
       environment: {
         DB_CLUSTER_ARN: dbConfig.clusterArn,
         DB_SECRET_ARN: dbConfig.secretArn,

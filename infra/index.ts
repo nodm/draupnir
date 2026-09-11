@@ -2,6 +2,7 @@ import { createAuroraCluster } from './lib/aurora';
 import { createAuthPool } from './lib/cognito';
 import { createIngestionApi } from './lib/ingestionApi';
 import { createIngestionPipeline } from './lib/ingestionPipeline';
+import { createMcpApi } from './lib/mcpApi';
 import { createAwsProvider } from './lib/provider';
 
 const provider = createAwsProvider();
@@ -15,6 +16,7 @@ const ingestionApi = createIngestionApi(
   dbConfig,
   ingestionPipeline.uploadsBucket,
 );
+const mcpApi = createMcpApi(authPool.userPool, provider);
 
 export const userPoolId = authPool.userPool.id;
 export const userPoolArn = authPool.userPool.arn;
@@ -25,3 +27,5 @@ export const ingestionInvokeUrl = ingestionApi.invokeUrl;
 export const uploadsBucketName = ingestionPipeline.uploadsBucket.bucket;
 export const ingestionQueueUrl = ingestionPipeline.queue.url;
 export const ingestionDlqUrl = ingestionPipeline.deadLetterQueue.url;
+export const mcpApiId = mcpApi.restApi.id;
+export const mcpInvokeUrl = mcpApi.invokeUrl;
