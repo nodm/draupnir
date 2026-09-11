@@ -13,7 +13,10 @@ export default [
             '{projectRoot}/esbuild.config.{js,ts,mjs,mts}',
             '{projectRoot}/vitest.config.{js,cjs,mjs,ts,cts,mts}',
           ],
-          ignoredDependencies: ['@types/aws-lambda'],
+          ignoredDependencies: [
+            '@types/aws-lambda',
+            '@modelcontextprotocol/client',
+          ],
         },
       ],
     },

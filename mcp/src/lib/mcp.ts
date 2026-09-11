@@ -2,6 +2,7 @@ import {
   createMcpHandler,
   McpServer,
   type AuthInfo,
+  type McpHttpHandler,
 } from '@modelcontextprotocol/server';
 
 // No tools/resources for transaction/account data exist yet (see
@@ -23,7 +24,7 @@ function buildServer(): McpServer {
   return server;
 }
 
-export const mcpHandler = createMcpHandler(buildServer);
+export const mcpHandler: McpHttpHandler = createMcpHandler(buildServer);
 
 // API Gateway's Cognito authorizer has already verified the JWT before the
 // Lambda runs; this only shapes its injected `sub` claim into the AuthInfo
