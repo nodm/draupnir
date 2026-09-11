@@ -1,5 +1,5 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { authInfoForSub, mcpHandler } from './mcp';
+import { authInfoFromClaims, mcpHandler } from './mcp';
 
 function connectAsSub(sub: string) {
   const transport = new StreamableHTTPClientTransport(
@@ -7,7 +7,7 @@ function connectAsSub(sub: string) {
     {
       fetch: (url, init) =>
         mcpHandler.fetch(new Request(url, init), {
-          authInfo: authInfoForSub(sub),
+          authInfo: authInfoFromClaims({ sub }, 'test-token'),
         }),
     },
   );

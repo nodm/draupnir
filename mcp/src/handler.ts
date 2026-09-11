@@ -3,7 +3,7 @@ import type {
   APIGatewayProxyWithCognitoAuthorizerEvent,
   Handler,
 } from 'aws-lambda';
-import { authInfoForSub, mcpHandler } from './lib/mcp';
+import { authInfoFromClaims, mcpHandler } from './lib/mcp';
 
 export class UnauthenticatedError extends Error {
   constructor() {
@@ -12,12 +12,16 @@ export class UnauthenticatedError extends Error {
   }
 }
 
-function requireSub(claims: { [name: string]: string }): string {
-  const sub = claims['sub'];
-  if (!sub) {
+function requireSub(claims: { [name: string]: string }): void {
+  if (!claims['sub']) {
     throw new UnauthenticatedError();
   }
-  return sub;
+}
+
+function bearerToken(event: APIGatewayProxyWithCognitoAuthorizerEvent): string {
+  const headers = event.headers ?? {};
+  const header = headers['Authorization'] ?? headers['authorization'] ?? '';
+  return header.replace(/^Bearer\s+/i, '');
 }
 
 // API Gateway delivers the request as a parsed event, not raw HTTP — this
@@ -59,9 +63,9 @@ export const handler: Handler<
   APIGatewayProxyWithCognitoAuthorizerEvent,
   APIGatewayProxyResult
 > = async (event) => {
-  let sub: string;
+  const claims = event.requestContext.authorizer.claims;
   try {
-    sub = requireSub(event.requestContext.authorizer.claims);
+    requireSub(claims);
   } catch (error) {
     if (error instanceof UnauthenticatedError) {
       return { statusCode: 401, body: JSON.stringify({ error: error.message }) };
@@ -70,7 +74,7 @@ export const handler: Handler<
   }
 
   const response = await mcpHandler.fetch(toRequest(event), {
-    authInfo: authInfoForSub(sub),
+    authInfo: authInfoFromClaims(claims, bearerToken(event)),
   });
 
   return toProxyResult(response);

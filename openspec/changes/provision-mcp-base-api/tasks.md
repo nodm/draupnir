@@ -40,17 +40,20 @@
       succeeds.
 - [~] 2.2 Add the deployment + stage for the new REST API, following
       `ingestionApi.ts`'s pattern of hashing route config (not resource ids) into
-      the deployment's `triggers` — done. **Verification incomplete**: `pulumi
-      preview` needs real AWS credentials, unavailable in the environment this
-      was implemented in. Also added `mcp` to `infra`'s `preview`/`up` Nx target
-      `dependsOn` (previously only `build-pre-sign-up-trigger` +
-      `ingestion:build` — `dist/mcp` would have been stale/missing otherwise).
-      `tsc`/`eslint` pass; `pulumi preview` itself still needs to be run with
-      real credentials before deploying.
+      the deployment's `triggers` — done. **Verification incomplete**: run
+      `pnpm exec nx run infra:preview` (not bare `pulumi preview` — the Nx
+      target's `dependsOn` builds the Lambda archives first, per
+      `infra/README.md`'s Deploying section) with real AWS credentials,
+      unavailable in the environment this was implemented in. Also added `mcp`
+      to `infra`'s `preview`/`up` Nx target `dependsOn` (previously only
+      `build-pre-sign-up-trigger` + `ingestion:build` — `dist/mcp` would have
+      been stale/missing otherwise) and updated `infra/README.md` accordingly.
+      `tsc`/`eslint` pass; `nx run infra:preview` itself still needs to be run
+      with real credentials before deploying.
 - [~] 2.3 Wire `createMcpApi` into `infra/index.ts` alongside the existing
       `createIngestionApi` call, using the same `authPool.userPool` and
-      `provider`; export `mcpApiId` and `mcpInvokeUrl` — done. Same `pulumi
-      preview` verification gap as 2.2.
+      `provider`; export `mcpApiId` and `mcpInvokeUrl` — done. Same
+      `nx run infra:preview` verification gap as 2.2.
 
 ## 3. End-to-end verification
 

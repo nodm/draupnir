@@ -49,14 +49,15 @@ See proposal.md - Why/What Changes for motivation and scope.
   `aws.apigateway.Authorizer`, but it points at the same `userPool.arn` `ingestion`
   uses — one identity source for both APIs, per ADR-0001's "two independent
   Cognito-authenticated users" framing.
-- **Minimal endpoint returns the `sub` claim in a JSON-RPC response, not a real
-  MCP method.** The goal here is proving the Lambda receives
+- **Only a proof-of-wiring `whoami` tool — no transaction/account tools.** The
+  goal here is proving the Lambda receives
   `event.requestContext.authorizer.claims.sub` and that Streamable HTTP's
   request/response shape round-trips through API Gateway's `AWS_PROXY`
-  integration — not implementing `initialize`/`tools/list` yet. Using
-  `@modelcontextprotocol/server`'s `createMcpHandler` for even this minimal
-  endpoint (rather than hand-rolling JSON-RPC parsing) is preferred so the next
-  change can add real tools without re-plumbing the transport.
+  integration. `@modelcontextprotocol/server`'s `createMcpHandler` already
+  serves `initialize`/`tools/list` itself; `whoami`, invoked via `tools/call`,
+  is the one tool this change adds, and it exists only to echo the caller's
+  `sub` back through a real MCP round-trip — not to hand-roll JSON-RPC parsing
+  or to stand in for the next change's real, data-scoped tools.
 - **`@modelcontextprotocol/server` (v2), not `@modelcontextprotocol/sdk` (v1).**
   Verified via the SDK's own migration docs (`docs/migration/upgrade-to-v2.md`)
   and the npm registry (2026-09-11): the single v1 `@modelcontextprotocol/sdk`

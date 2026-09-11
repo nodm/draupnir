@@ -7,15 +7,19 @@ const fetch = vi.fn().mockImplementation(
       headers: { 'content-type': 'application/json' },
     }),
 );
-const authInfoForSub = vi.fn((sub: string) => ({
-  token: sub,
-  clientId: sub,
-  scopes: [],
-}));
+const authInfoFromClaims = vi.fn(
+  (claims: { [name: string]: string }, token: string) => ({
+    token,
+    clientId: claims['aud'] ?? '',
+    scopes: [],
+    extra: { sub: claims['sub'] },
+  }),
+);
 
 vi.mock('./lib/mcp', () => ({
   mcpHandler: { fetch: (...args: unknown[]) => fetch(...args) },
-  authInfoForSub: (sub: string) => authInfoForSub(sub),
+  authInfoFromClaims: (claims: { [name: string]: string }, token: string) =>
+    authInfoFromClaims(claims, token),
 }));
 
 function cognitoEvent(
@@ -24,7 +28,10 @@ function cognitoEvent(
   return {
     path: '/mcp',
     httpMethod: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer test-token',
+    },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     isBase64Encoded: false,
     requestContext: {
@@ -37,16 +44,26 @@ function cognitoEvent(
 describe('mcp handler', () => {
   beforeEach(() => {
     fetch.mockClear();
-    authInfoForSub.mockClear();
+    authInfoFromClaims.mockClear();
   });
 
-  it('forwards an authenticated request and returns the fetch response as a proxy result', async () => {
+  it('forwards the API Gateway event as an equivalent Request and returns the fetch response as a proxy result', async () => {
     const { handler } = await import('./handler');
 
     const result = await handler(cognitoEvent(), {} as never, () => undefined);
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(authInfoForSub).toHaveBeenCalledWith('user-123');
+    const [request] = fetch.mock.calls[0] as [Request, unknown];
+    expect(request.method).toBe('POST');
+    expect(request.headers.get('content-type')).toBe('application/json');
+    await expect(request.text()).resolves.toBe(
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    );
+
+    expect(authInfoFromClaims).toHaveBeenCalledWith(
+      { sub: 'user-123' },
+      'test-token',
+    );
     expect(result).toMatchObject({
       statusCode: 200,
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }),
@@ -69,8 +86,14 @@ describe('mcp handler', () => {
       () => undefined,
     );
 
-    expect(authInfoForSub).toHaveBeenCalledWith('user-123');
-    expect(authInfoForSub).not.toHaveBeenCalledWith('attacker-controlled');
+    expect(authInfoFromClaims).toHaveBeenCalledWith(
+      { sub: 'user-123' },
+      'test-token',
+    );
+    expect(authInfoFromClaims).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'attacker-controlled' }),
+      expect.anything(),
+    );
   });
 
   it('rejects a request whose authorizer claims carry no sub, without calling the MCP handler', async () => {
