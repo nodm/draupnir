@@ -28,16 +28,26 @@ through parsing or writing SHALL leave no partial rows for that file.
 - **THEN** none of that file's rows are committed to `transactions`
 
 ### Requirement: Processing order across files is not required for correctness
-The pipeline SHALL NOT depend on the order in which uploaded files are processed for
-dedup correctness. Two files processed concurrently, including two overlapping exports
-for the same account, SHALL both complete without either silently corrupting the
-other's rows.
+The pipeline SHALL NOT depend on the order in which uploaded files are processed:
+two files processed concurrently SHALL both complete without either silently
+corrupting the other's rows. For SEB, whose `dedup_key` is derived from the
+provider's own per-row transaction id, this also guarantees overlapping exports
+dedup to exactly one row regardless of processing order. Revolut and monobank's
+hash-fallback `dedup_key` (see `bank-statement-parsers`) assigns `occurrence_index`
+independently per file, so a true duplicate at a re-upload overlap boundary can
+still slip past dedup if the two files' identical-looking rows are ordered
+differently — a known, accepted limitation, not covered by this guarantee.
 
-#### Scenario: Two overlapping files processed concurrently
-- **WHEN** two files covering an overlapping date range for the same account are
+#### Scenario: Two overlapping SEB files processed concurrently
+- **WHEN** two SEB files covering an overlapping date range for the same account are
   processed at the same time
 - **THEN** the overlapping transactions appear exactly once in `transactions`,
   regardless of which file's processing completed first
+
+#### Scenario: Concurrent processing never corrupts either file's rows
+- **WHEN** two files for any bank are processed at the same time
+- **THEN** each file's own non-overlapping rows are written correctly, regardless
+  of the other file's processing order or outcome
 
 ### Requirement: A file that repeatedly fails to process is retained for inspection
 A file whose processing fails more than the configured maximum receive count SHALL be

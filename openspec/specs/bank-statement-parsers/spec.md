@@ -53,9 +53,11 @@ read or infer an account identifier from the row itself.
 
 ### Requirement: Revolut and monobank parsers use a hash-fallback dedup_key
 The Revolut and monobank parsers SHALL compute `dedup_key` as a deterministic hash of
-`account_id + posted_date + amount_minor_units + currency + normalized_description +
-occurrence_index`, where `occurrence_index` is the row's rank (0-based) among rows in
-the same source file that share identical values for the other fields.
+`iban + posted_date + amount_minor_units + currency + normalized_description +
+occurrence_index`, where `iban` is the row's account IBAN (parsers have no database
+access to resolve a real `accounts.id` at parse time) and `occurrence_index` is the
+row's rank (0-based) among rows in the same source file that share identical values
+for the other fields.
 
 #### Scenario: Two genuinely distinct same-day identical-looking purchases both persist
 - **WHEN** a single file contains two rows with identical account, date, amount,
