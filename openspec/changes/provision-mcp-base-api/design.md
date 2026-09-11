@@ -53,10 +53,23 @@ See proposal.md - Why/What Changes for motivation and scope.
   MCP method.** The goal here is proving the Lambda receives
   `event.requestContext.authorizer.claims.sub` and that Streamable HTTP's
   request/response shape round-trips through API Gateway's `AWS_PROXY`
-  integration — not implementing `initialize`/`tools/list` yet. Using the
-  `@modelcontextprotocol/sdk` server object for even this minimal endpoint (rather
-  than hand-rolling JSON-RPC parsing) is preferred so the next change can add real
-  tools without re-plumbing the transport.
+  integration — not implementing `initialize`/`tools/list` yet. Using
+  `@modelcontextprotocol/server`'s `createMcpHandler` for even this minimal
+  endpoint (rather than hand-rolling JSON-RPC parsing) is preferred so the next
+  change can add real tools without re-plumbing the transport.
+- **`@modelcontextprotocol/server` (v2), not `@modelcontextprotocol/sdk` (v1).**
+  Verified via the SDK's own migration docs (`docs/migration/upgrade-to-v2.md`)
+  and the npm registry (2026-09-11): the single v1 `@modelcontextprotocol/sdk`
+  package is split in v2 into `@modelcontextprotocol/server` /`client`/`core`,
+  currently at `2.0.0`. The 2026-07-28 transport is served by v2's
+  `createMcpHandler(factory)`, which returns a web-standard `{ fetch(Request):
+  Promise<Response> }` handler — there's no official AWS Lambda/API Gateway
+  adapter (only `@modelcontextprotocol/node`/`express`/`hono`/`fastify`, none of
+  which fit `AWS_PROXY`'s event shape), so `mcp/src/handler.ts` converts the
+  `APIGatewayProxyEvent` to a `Request`, calls `handler.fetch`, and converts the
+  `Response` back to an `APIGatewayProxyResult` itself. ADR-0001 explicitly
+  flagged its own `@modelcontextprotocol/sdk` reference as unconfirmed ("re-check,
+  don't assume") — this is that check.
 
 ## Risks / Trade-offs
 

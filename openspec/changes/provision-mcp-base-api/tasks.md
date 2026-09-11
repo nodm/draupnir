@@ -1,23 +1,24 @@
 ## 1. MCP server dependency and handler
 
-- [ ] 1.1 Add `@modelcontextprotocol/sdk` to `mcp/package.json`/workspace deps;
-      confirm the installed version's Streamable HTTP transport implements
-      protocol revision 2026-07-28 (check the SDK's own version/changelog, per
-      ADR-0001's action item — do not assume) and verify `pnpm install` resolves
-      cleanly.
-- [ ] 1.2 Implement `mcp/src/lib/mcp.ts`: build an MCP server instance (no tools
-      registered yet) and a function that handles one Streamable HTTP POST —
-      given a JSON-RPC request body and a caller `sub`, return a JSON-RPC
-      response; verify a unit test posts a well-formed JSON-RPC request and
-      asserts a correlated JSON-RPC response, and a malformed-body case returns
-      a JSON-RPC error rather than throwing (`mcp-server-api` spec).
+- [ ] 1.1 Add `@modelcontextprotocol/server` (v2, currently `2.0.0`) to
+      `mcp/package.json`/workspace deps — not the frozen v1
+      `@modelcontextprotocol/sdk`; the 2026-07-28 transport lives in v2's
+      `createMcpHandler` (confirmed via the SDK's `docs/migration/upgrade-to-v2.md`
+      and npm registry, per ADR-0001's action item to re-check, not assume) —
+      and verify `pnpm install` resolves cleanly.
+- [ ] 1.2 Implement `mcp/src/lib/mcp.ts`: build an MCP server via
+      `createMcpHandler(() => new McpServer(...))` (no tools registered yet) and
+      export its `handler.fetch`; verify a unit test posts a well-formed
+      Streamable HTTP `Request` and asserts a correlated JSON-RPC `Response`, and
+      a malformed-body case returns a JSON-RPC error response rather than
+      throwing (`mcp-server-api` spec).
 - [ ] 1.3 Replace `mcp/src/handler.ts`'s no-op with an `APIGatewayProxyHandler`
-      that reads `event.requestContext.authorizer.claims.sub`, parses
-      `event.body` as the JSON-RPC request, delegates to 1.2's function, and
-      returns its response as the proxy result body; verify unit tests cover a
-      valid authenticated request and confirm the handler never reads any
-      identifier from the parsed body (`mcp-server-api` spec's claim-only
-      requirement).
+      that reads `event.requestContext.authorizer.claims.sub`, builds a
+      web-standard `Request` from the API Gateway event (method, headers, body),
+      calls 1.2's `handler.fetch`, and converts the resulting `Response` back to
+      an `APIGatewayProxyResult`; verify unit tests cover a valid authenticated
+      request and confirm the handler never reads any identifier from the parsed
+      body (`mcp-server-api` spec's claim-only requirement).
 - [ ] 1.4 Remove the now-unused placeholder `mcp()` export from
       `mcp/src/lib/mcp.ts` (and its spec) once nothing references it; verify
       `nx run mcp:build` and `nx run mcp:test` still pass.
