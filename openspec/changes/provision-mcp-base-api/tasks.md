@@ -30,22 +30,27 @@
 
 ## 2. Pulumi infrastructure
 
-- [ ] 2.1 Implement `infra/lib/mcpApi.ts` exporting `createMcpApi(userPool,
+- [x] 2.1 Implement `infra/lib/mcpApi.ts` exporting `createMcpApi(userPool,
       provider)`: a new regional `aws.apigateway.RestApi`, a new
       `COGNITO_USER_POOLS` `aws.apigateway.Authorizer` bound to the same
       `userPool.arn` `ingestion` uses, and one route built via
-      `createLambdaRoute` (imported/exported from `ingestionApi.ts`, or hoisted
-      to a shared module if that reads cleaner) pointing at `dist/mcp` and
-      `handler.handler`; verify `nx run infra:build` succeeds.
-- [ ] 2.2 Add the deployment + stage for the new REST API, following
+      `createLambdaRoute` (generalized with a `codePath` field — it was
+      hardcoded to `../dist/ingestion` — and exported from `ingestionApi.ts`)
+      pointing at `dist/mcp` and `handler.handler`; `nx run infra:build`
+      succeeds.
+- [~] 2.2 Add the deployment + stage for the new REST API, following
       `ingestionApi.ts`'s pattern of hashing route config (not resource ids) into
-      the deployment's `triggers`; verify `pulumi preview` shows the expected new
-      resources (Lambda, REST API, authorizer, deployment, stage) with no errors
-      and no unexpected diff to existing `ingestion` resources.
-- [ ] 2.3 Wire `createMcpApi` into `infra/index.ts` alongside the existing
+      the deployment's `triggers` — done. **Verification incomplete**: `pulumi
+      preview` needs real AWS credentials, unavailable in the environment this
+      was implemented in. Also added `mcp` to `infra`'s `preview`/`up` Nx target
+      `dependsOn` (previously only `build-pre-sign-up-trigger` +
+      `ingestion:build` — `dist/mcp` would have been stale/missing otherwise).
+      `tsc`/`eslint` pass; `pulumi preview` itself still needs to be run with
+      real credentials before deploying.
+- [~] 2.3 Wire `createMcpApi` into `infra/index.ts` alongside the existing
       `createIngestionApi` call, using the same `authPool.userPool` and
-      `provider`; export `mcpApiId` and `mcpInvokeUrl`; verify `pulumi preview`
-      shows no drift to unrelated resources.
+      `provider`; export `mcpApiId` and `mcpInvokeUrl` — done. Same `pulumi
+      preview` verification gap as 2.2.
 
 ## 3. End-to-end verification
 
