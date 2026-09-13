@@ -15,8 +15,17 @@
         "assets": ["mcp/*.md"],
         "platform": "node",
         "format": ["cjs"],
-        "external": ["@aws-sdk/*"],
+        "external": ["@aws-sdk/*", "@modelcontextprotocol/*"],
         "generatePackageJson": true
+      }
+    },
+    "install-deps": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "outputs": ["{workspaceRoot}/dist/mcp/node_modules"],
+      "options": {
+        "command": "npm install --omit=dev --no-audit --no-fund --package-lock=false",
+        "cwd": "dist/mcp"
       }
     }
   }

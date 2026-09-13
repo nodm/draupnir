@@ -29,7 +29,7 @@
       "dependsOn": [
         "build-pre-sign-up-trigger",
         { "projects": ["ingestion"], "target": "build" },
-        { "projects": ["mcp"], "target": "build" }
+        { "projects": ["mcp"], "target": "install-deps" }
       ],
       "options": {
         "command": "pulumi preview",
@@ -41,7 +41,7 @@
       "dependsOn": [
         "build-pre-sign-up-trigger",
         { "projects": ["ingestion"], "target": "build" },
-        { "projects": ["mcp"], "target": "build" }
+        { "projects": ["mcp"], "target": "install-deps" }
       ],
       "options": {
         "command": "pulumi up --yes",
