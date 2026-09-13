@@ -9,6 +9,17 @@
       tests cover parameter marshaling the same way
       `ingestion`'s does, if such tests exist there, or a minimal
       equivalent otherwise.
+- [ ] 1.3 Apply `SHARE_GRANTS_TABLE_DDL` (`shared/src/lib/shareGrants.ts`) to
+      the live cluster — neither `add-auth-authz-layer` (DDL-validated only,
+      no cluster existed yet) nor `provision-aurora-cluster`'s bootstrap
+      (ran `ACCOUNTS_TABLE_DDL`/`TRANSACTIONS_TABLE_DDL` only) ever applied
+      it, so `share_grants` does not exist on the live database today and
+      every `ownershipPredicate` query in this change would fail with
+      `relation "share_grants" does not exist`. Apply it manually via
+      `rds-data execute-statement` the same way the original two tables
+      were bootstrapped, before enabling either tool; verify by inserting
+      and reading back a test `share_grants` row against the live cluster,
+      then remove the test row.
 
 ## 2. Query helpers
 

@@ -18,8 +18,14 @@ alias.id)`. `ResourceType` is `'account' | 'category'` — there is no
 transaction's `owner_user_id` to always equal its account's owner, never a
 grantee's (see `transactionsSchema.ts`'s composite FK comment). Today this
 function is only exercised by `shareGrants.spec.ts` against the literal SQL
-string; no route runs it against a real database. See proposal.md - Why/What
-Changes for motivation.
+string; no route runs it against a real database, and — more fundamentally —
+the `share_grants` table it queries does not exist on the live cluster yet.
+`add-auth-authz-layer` only DDL-validated `SHARE_GRANTS_TABLE_DDL` (no
+cluster existed then); `provision-aurora-cluster`'s live bootstrap applied
+only `ACCOUNTS_TABLE_DDL`/`TRANSACTIONS_TABLE_DDL`. So this change is not
+just `ownershipPredicate`'s first real query-site — it also needs to apply
+the table it depends on for the first time (task 1.3). See proposal.md -
+Why/What Changes for motivation.
 
 ## Goals / Non-Goals
 
@@ -154,11 +160,16 @@ Changes for motivation.
 
 ## Migration Plan
 
-- Mostly additive: new tool registrations, new `mcp`-local Data API module,
-  new IAM policy statements and env vars on `mcp`'s existing Lambda. The one
-  schema change is additive too — the two new indexes on `transactions`
-  (Decisions) — applied manually against the live cluster the same way the
-  original table DDL was, no backfill or data migration involved.
-- Rollback: revert the commit and redeploy; drop the two new indexes manually
-  if applied; no other data written by this change to clean up (read-only
+- Schema prerequisite: apply `SHARE_GRANTS_TABLE_DDL` to the live cluster —
+  it was never applied by either prior change (Context). This must land
+  before either tool is enabled; both tools' first query would otherwise
+  fail with `relation "share_grants" does not exist`.
+- Otherwise additive: new tool registrations, new `mcp`-local Data API
+  module, new IAM policy statements and env vars on `mcp`'s existing Lambda,
+  and the two new indexes on `transactions` (Decisions) — all applied
+  manually against the live cluster the same way the original table DDL was,
+  no backfill or data migration involved.
+- Rollback: revert the commit and redeploy; drop the two new indexes and,
+  if nothing else depends on it yet, the `share_grants` table manually if
+  applied; no other data written by this change to clean up (read-only
   tools).
