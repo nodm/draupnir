@@ -77,14 +77,15 @@ and default to `localhost` values meant for local client development.
 ## Deploying
 
 Use the Nx targets, not bare `pulumi preview`/`pulumi up` — the Pulumi program
-archives `dist/infra/preSignUpTrigger` and `dist/ingestion` as Lambda code, and
-those `dist/` directories don't exist until the Nx targets that build them run
-first:
+archives `dist/infra/preSignUpTrigger`, `dist/ingestion`, and `dist/mcp` as
+Lambda code, and those `dist/` directories don't exist until the Nx targets
+that build them run first:
 
 ```bash
 pnpm exec nx run infra:preview
 pnpm exec nx run infra:up
 ```
 
-Both targets depend on `infra:build-pre-sign-up-trigger` and `ingestion:build`,
-so Nx builds both Lambda archives before invoking Pulumi.
+Both targets depend on `infra:build-pre-sign-up-trigger`, `ingestion:build`,
+and `mcp:build`, so Nx builds all three Lambda archives before invoking
+Pulumi.

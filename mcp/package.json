@@ -5,5 +5,7 @@
   "type": "commonjs",
   "main": "./handler.cjs",
   "types": "./src/handler.d.ts",
-  "dependencies": {}
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0"
+  }
 }
