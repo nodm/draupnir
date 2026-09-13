@@ -20,7 +20,10 @@ this change adds that.
   unpaginated (see design.md for why account count doesn't need paging yet).
 - Give `mcp` its own Aurora Data API wiring (`DataApiConfig` + `RDSDataClient`),
   mirroring `ingestion/src/lib/dataApi.ts` — `mcp` has none today.
-- No writes, no new tables, no changes to `ingestion`.
+- No writes, no new table/column definitions in `shared`, no changes to
+  `ingestion`. This change does apply `share_grants`'s already-defined DDL to
+  the live cluster for the first time (never applied by an earlier change)
+  and adds two indexes to `transactions` — see Impact and design.md.
 
 ## Capabilities
 
@@ -43,5 +46,9 @@ change only adds tools on top of that existing wiring)
 - `infra/`: `mcp`'s Lambda needs `DB_CLUSTER_ARN`/`DB_SECRET_ARN`/`DB_NAME` env
   vars and Data API IAM permissions granted to `ingestion`'s Lambda today —
   wire the same grants onto `mcp`'s role.
+- Live cluster: apply `share_grants`'s already-defined DDL for the first time
+  (a prerequisite — no earlier change applied it, see design.md's Context),
+  and add two indexes to `transactions` supporting the keyset query
+  (design.md's Decisions). Neither is a new table/column definition in code.
 - No changes to `ingestion`'s API, schema, or data; no changes to `shared`'s
   exports (`ownershipPredicate` already exists and is reused as-is).

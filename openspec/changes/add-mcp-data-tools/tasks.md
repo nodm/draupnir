@@ -33,14 +33,18 @@
       against the account row (per design.md's Decisions — never against
       `t.owner_user_id`), with an optional `AND t.account_id = :accountId`
       and keyset `AND (t.posted_date, t.id) < (:cursorDate, :cursorId)`,
-      ordered `t.posted_date DESC, t.id DESC`, `LIMIT :limit + 1` — fetch one
-      extra row and trim it before returning, using its presence (not
-      `rows.length === limit`) to decide whether a `nextCursor` is emitted,
-      so an exactly-full final page correctly omits the cursor (design.md's
-      exact-page-boundary decision); verify unit tests cover: no filter,
-      account filter, first page (no cursor), a subsequent page (with
-      cursor), and the exact-page-boundary case (matching row count exactly
-      equal to `limit`).
+      ordered `t.posted_date DESC, t.id DESC`, `LIMIT :limit::bigint` bound to
+      `limit + 1` — the explicit `::bigint` cast is required because
+      `executeStatement` marshals a JS number as a Data API `doubleValue`,
+      which Postgres rejects as a `LIMIT` argument bound via a parameter
+      (design.md); fetch the extra row and trim it before returning, using
+      its presence (not `rows.length === limit`) to decide whether a
+      `nextCursor` is emitted, so an exactly-full final page correctly omits
+      the cursor (design.md's exact-page-boundary decision); verify unit
+      tests cover: no filter, account filter, first page (no cursor), a
+      subsequent page (with cursor), the exact-page-boundary case (matching
+      row count exactly equal to `limit`), and that the query does not fail
+      against a real/representative Postgres due to the `LIMIT` type.
 - [ ] 2.3 Implement opaque cursor encode/decode (base64 of
       `{postedDate, id}`) with a default page size of 50 and a max of 200;
       verify unit tests cover round-trip encode/decode and that an
@@ -58,19 +62,30 @@
 
 ## 3. Tool registration
 
+- [ ] 3.1a Add `resolveCallerSub(authInfo): string | undefined` to
+      `mcp/src/lib/mcp.ts` alongside the existing `callerSub` (design.md's
+      Decisions) — returns `undefined` when no sub claim is present, rather
+      than `callerSub`'s `'unknown'` display fallback, which stays unchanged
+      and stays scoped to `whoami`; verify a unit test covers both a present
+      and an absent sub claim.
 - [ ] 3.1 Register `list_accounts` in `mcp/src/lib/mcp.ts` via
-      `server.registerTool`, resolving the caller the same way `whoami`
-      does (`callerSub(ctx.http?.authInfo)`), returning an empty result when
-      the sub can't be resolved without querying the database; verify a
-      unit test using `StreamableHTTPClientTransport` in-process
-      (`tools/call` for `list_accounts` returns only rows matching the
-      injected sub's ownership/share fixtures).
+      `server.registerTool`, resolving the caller via 3.1a's
+      `resolveCallerSub(ctx.http?.authInfo)` and returning an empty result
+      *without calling the accounts query helper* when it returns
+      `undefined`; verify unit tests cover: a `StreamableHTTPClientTransport`
+      in-process `tools/call` for `list_accounts` returning only rows
+      matching the injected sub's ownership/share fixtures, and a
+      separate case (mocking the query helper) asserting the helper is
+      never invoked when `resolveCallerSub` returns `undefined` — not just
+      that the tool result happens to be empty.
 - [ ] 3.2 Register `list_transactions` accepting optional `accountId`,
-      `limit`, and `cursor` input fields, wiring them to task 2.2/2.3's
-      helpers; validate `limit` against the max from 2.3 and reject an
-      out-of-range value; verify unit tests cover: default call, account
-      filter (visible and invisible account), pagination across two calls,
-      and an unresolved-sub call returning empty.
+      `limit`, and `cursor` input fields, resolving the caller via 3.1a's
+      `resolveCallerSub` the same way, wiring resolved input to task
+      2.2/2.3's helpers; validate `limit` against the max from 2.3 and
+      reject an out-of-range value; verify unit tests cover: default call,
+      account filter (visible and invisible account), pagination across two
+      calls, and an unresolved-sub call asserting (via a mocked query
+      helper) that it is never invoked.
 - [ ] 3.3 Verify (`pnpm exec nx run mcp:test`) that `whoami`'s existing
       behavior and tests are unaffected by the new registrations.
 

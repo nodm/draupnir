@@ -38,8 +38,11 @@ Why/What Changes for motivation.
   proposal's scope note) rather than leaving it open.
 
 **Non-Goals:**
-- No writes, no new tables, no changes to `share_grants`'s `ResourceType`
-  union.
+- No writes, no new table or column *definitions*, no changes to
+  `share_grants`'s `ResourceType` union. (This change does perform two live
+  schema actions — applying `share_grants`'s already-defined DDL to the live
+  cluster for the first time, and adding two indexes to `transactions` — but
+  neither introduces a new table, column, or type; see Migration Plan.)
 - No pagination for `list_accounts` — see Decisions for why.
 - No changes to `ingestion`'s routes, schema, or Data API wrapper itself;
   `mcp` gets its own copy of the wiring, not a shared package extraction (see
@@ -64,8 +67,15 @@ Why/What Changes for motivation.
     [AND t.account_id = :accountId]
     [AND (t.posted_date, t.id) < (:cursorDate, :cursorId)]
   ORDER BY t.posted_date DESC, t.id DESC
-  LIMIT :limit
+  LIMIT :limit::bigint
   ```
+  `:limit::bigint` is required, not cosmetic: `executeStatement`'s parameter
+  marshaling (`ingestion/src/lib/dataApi.ts`'s `toField`) sends every JS
+  `number` as a Data API `doubleValue`, and Postgres rejects a
+  double-precision `LIMIT` argument bound as a parameter ("argument of LIMIT
+  must be type bigint, not type double precision") — unlike a literal
+  constant, which Postgres would implicitly cast. The explicit cast in the
+  SQL text sidesteps that without adding a new parameter type to the wrapper.
   `list_accounts`'s query applies `ownershipPredicate('a', 'account')` directly
   against `accounts`, since accounts are the shared resource itself.
 - **Add indexes on `transactions(posted_date, id)` and `transactions(account_id,
@@ -131,6 +141,19 @@ Why/What Changes for motivation.
   the cursor. Querying `limit + 1` rows and, when the extra row is present,
   trimming it back to `limit` before building the cursor from the true last
   returned row, resolves the boundary without a second existence-check query.
+- **Add a nullable `resolveCallerSub` alongside the existing `callerSub`,
+  rather than reusing `callerSub` for the new tools.** `callerSub`
+  (`mcp/src/lib/mcp.ts`) returns the literal string `'unknown'` when no sub
+  claim is present — a display fallback that makes sense for `whoami`'s echo
+  response, but is indistinguishable from a real (if unlikely) sub value to
+  a caller further down the stack. `list_accounts`/`list_transactions` need
+  to *skip querying entirely* on an unresolved sub (spec's "unresolved
+  caller identity yields no data" requirement), not query with
+  `owner_user_id = 'unknown'` and happen to get zero rows back — the latter
+  is indistinguishable from "resolved but no data" in a test and would
+  silently start returning real rows if a user's actual sub ever collided
+  with the literal string. `resolveCallerSub` returns `string | undefined`;
+  `callerSub` (and `whoami`'s `'unknown'` display fallback) is unchanged.
 - **New IAM/env wiring on `mcp`'s Lambda mirrors `ingestion`'s exactly**
   (`DB_CLUSTER_ARN`/`DB_SECRET_ARN`/`DB_NAME`, `rds-data:ExecuteStatement` on
   the cluster ARN *and* `secretsmanager:GetSecretValue` on the referenced
