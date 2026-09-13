@@ -38,30 +38,34 @@
       hardcoded to `../dist/ingestion` — and exported from `ingestionApi.ts`)
       pointing at `dist/mcp` and `handler.handler`; `nx run infra:build`
       succeeds.
-- [~] 2.2 Add the deployment + stage for the new REST API, following
+- [x] 2.2 Add the deployment + stage for the new REST API, following
       `ingestionApi.ts`'s pattern of hashing route config (not resource ids) into
-      the deployment's `triggers` — done. **Verification incomplete**: run
-      `pnpm exec nx run infra:preview` (not bare `pulumi preview` — the Nx
-      target's `dependsOn` builds the Lambda archives first, per
-      `infra/README.md`'s Deploying section) with real AWS credentials,
-      unavailable in the environment this was implemented in. Also added `mcp`
-      to `infra`'s `preview`/`up` Nx target `dependsOn` (previously only
-      `build-pre-sign-up-trigger` + `ingestion:build` — `dist/mcp` would have
-      been stale/missing otherwise) and updated `infra/README.md` accordingly.
-      `tsc`/`eslint` pass; `nx run infra:preview` itself still needs to be run
-      with real credentials before deploying.
-- [~] 2.3 Wire `createMcpApi` into `infra/index.ts` alongside the existing
+      the deployment's `triggers` — done and verified: `pnpm exec nx run
+      infra:preview`/`infra:up` ran clean against the live `prod` stack (11
+      resources created, then a follow-up 1-resource code update — see 3.1/3.2).
+- [x] 2.3 Wire `createMcpApi` into `infra/index.ts` alongside the existing
       `createIngestionApi` call, using the same `authPool.userPool` and
-      `provider`; export `mcpApiId` and `mcpInvokeUrl` — done. Same
-      `nx run infra:preview` verification gap as 2.2.
+      `provider`; export `mcpApiId` and `mcpInvokeUrl` — done and verified live
+      (`mcpApiId`/`mcpInvokeUrl` present in `pulumi up`'s stack outputs).
 
 ## 3. End-to-end verification
 
-- [ ] 3.1 Deploy to the test/dev stack and send an authenticated `POST` (a real
+- [x] 3.1 Deploy to the test/dev stack and send an authenticated `POST` (a real
       Cognito JWT from the shared pool) with a well-formed JSON-RPC request body
       to the deployed invoke URL; verify the response is a JSON-RPC response
-      correlated to the request id and reflects that token's `sub`.
-- [ ] 3.2 Send the same request with no `Authorization` header and with an
+      correlated to the request id and reflects that token's `sub` — verified
+      against the live `prod` stack via the OAuth authorization-code flow
+      (Managed Login) and `@modelcontextprotocol/client`'s
+      `StreamableHTTPClientTransport`: `whoami` returned the signed-in user's
+      real Cognito `sub`. (Along the way, found and fixed a real deploy bug: the
+      Lambda package shipped without `node_modules`, since `@modelcontextprotocol/server`
+      is `external` in the esbuild config and nothing installed it afterward —
+      see the `mcp:install-deps` Nx target added to fix this.)
+- [x] 3.2 Send the same request with no `Authorization` header and with an
       expired/malformed token; verify both are rejected by the authorizer (403,
       Lambda not invoked — confirm via logs) per the `mcp-server-api` spec's
-      authorizer scenarios.
+      authorizer scenarios — verified live: both cases returned **401** (the
+      correct code for a native `COGNITO_USER_POOLS` authorizer rejection, not
+      403 as originally assumed here), and CloudWatch logs for the mcp Lambda
+      show zero invocations beyond the legitimate 3.1 call, confirming the
+      authorizer blocks before the Lambda runs.
