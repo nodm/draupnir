@@ -1,6 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import { createLambdaRoute } from './ingestionApi';
+import { createLambdaRoute } from './lambdaRoute';
 
 export interface McpApi {
   restApi: aws.apigateway.RestApi;
