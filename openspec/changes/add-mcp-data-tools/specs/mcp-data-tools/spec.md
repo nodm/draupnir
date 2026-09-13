@@ -10,7 +10,10 @@ that govern every other user-owned resource.
 ### Requirement: list_accounts returns only caller-visible accounts
 `list_accounts` SHALL return every `accounts` row the caller owns, plus any
 `accounts` row shared with the caller via a `share_grants` row naming resource
-type `account`. It SHALL NOT return any other account.
+type `account`. It SHALL NOT return any other account. Each returned account
+SHALL include its `id`, `ownerUserId`, `bank`, `iban`, `currency`, and
+`displayName` — `ownerUserId` lets the caller tell an owned account apart
+from one visible only through a share grant.
 
 #### Scenario: Owned account is returned
 - **WHEN** the caller calls `list_accounts` and owns an `accounts` row
@@ -33,7 +36,10 @@ a `share_grants` row naming resource type `account`. Since a transaction's
 `owner_user_id` always equals its account's owner (per the transactions-schema
 spec) and never the grantee, visibility SHALL be evaluated against the
 referenced account's ownership and grants, not the transaction row's own
-`owner_user_id`.
+`owner_user_id`. Each returned transaction SHALL include its `id`,
+`accountId`, `postedDate`, `amountMinorUnits`, `currency`, `description`, and,
+when present on the row, the FX metadata fields (`originalCurrency`,
+`originalAmountMinorUnits`, `fxFeeMinorUnits`, `fxFeePercent`).
 
 #### Scenario: Transaction on an owned account is returned
 - **WHEN** the caller calls `list_transactions` and owns the account a
@@ -74,10 +80,10 @@ error, so the tool never reveals whether an account id exists.
 `list_transactions` SHALL return results ordered most-recent-first and SHALL
 limit each response to a bounded page size (a caller-supplied size within a
 fixed maximum, or a fixed default when omitted). When more matching rows exist
-beyond the page, the response SHALL include a cursor that, supplied on a
-subsequent call, continues immediately after the last row already returned,
-without omitting or repeating a row across pages whose underlying data does
-not change between calls.
+beyond the page, the response SHALL include a `nextCursor` string that,
+supplied as the `cursor` input on a subsequent call, continues immediately
+after the last row already returned, without omitting or repeating a row
+across pages whose underlying data does not change between calls.
 
 #### Scenario: A full page includes a continuation cursor
 - **WHEN** more matching transactions exist beyond the requested page size
@@ -94,11 +100,19 @@ not change between calls.
   transactions
 - **THEN** the response includes no cursor
 
-#### Scenario: An invalid or tampered cursor is rejected
-- **WHEN** the caller supplies a cursor that was not returned by a previous
-  `list_transactions` call for this tool
-- **THEN** the call is rejected rather than returning an arbitrary or
-  unscoped page
+#### Scenario: A malformed cursor is rejected
+- **WHEN** the caller supplies a `cursor` value that does not decode to a
+  well-formed cursor
+- **THEN** the call is rejected rather than treated as "no cursor" or
+  returning a 5xx with no explanation
+
+Note: a caller who hand-edits a well-formed (but not previously issued)
+cursor is not detected as tampering — decoding to a valid shape is
+sufficient. This is safe rather than a gap: the ownership/share-grant
+predicate from the requirements above is re-evaluated on every call
+regardless of cursor content, so a hand-crafted cursor can only change which
+of the *caller's own visible* rows come next, never surface another user's
+row.
 
 ### Requirement: An unresolved caller identity yields no data
 If a `list_accounts` or `list_transactions` call cannot resolve the caller's

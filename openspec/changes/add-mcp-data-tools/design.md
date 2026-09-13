@@ -62,6 +62,17 @@ Changes for motivation.
   ```
   `list_accounts`'s query applies `ownershipPredicate('a', 'account')` directly
   against `accounts`, since accounts are the shared resource itself.
+- **Add indexes on `transactions(posted_date, id)` and `transactions(account_id,
+  posted_date, id)` — the current DDL has neither.** `TRANSACTIONS_TABLE_DDL`
+  (`shared/src/lib/transactionsSchema.ts`) indexes only `id` (primary key) and
+  `dedup_key` (unique); the keyset query above orders and filters on
+  `posted_date`/`id`, and the account-filtered variant also predicates on
+  `account_id`, so without these indexes every page (including page one)
+  forces a full scan + sort of the caller's transactions. Add both via the
+  same manual-DDL path `provision-aurora-cluster`'s tasks used for the
+  original table DDL (no migration framework exists yet); verify with
+  `EXPLAIN` against representative data that both the unfiltered and
+  account-filtered keyset queries use an index scan, not a sequential scan.
 - **Account filter checks visibility by intersecting with the same predicate,
   not a separate existence check.** Adding `t.account_id = :accountId` to the
   query above (rather than first checking "does this account exist and is it
@@ -79,10 +90,16 @@ Changes for motivation.
   skew offsets); keyset avoids both. The cursor is opaque to the caller
   (base64 of `{postedDate, id}`) so the tool can change its encoding later
   without breaking the spec-level contract ("a cursor from a previous
-  response continues after that page"). An invalid/undecodable cursor is
-  rejected (spec's "invalid or tampered cursor" scenario) rather than treated
-  as "start from the beginning," so a corrupted cursor fails loudly instead of
-  silently re-serving page one.
+  response continues after that page"). A cursor that fails to decode to that
+  shape is rejected rather than treated as "start from the beginning," so a
+  corrupted cursor fails loudly instead of silently re-serving page one. This
+  is a malformed-input check only, not tamper detection: base64 JSON has no
+  signature, so a caller can hand-edit a well-formed cursor to a different
+  `(postedDate, id)` pair and it will decode successfully. That is accepted,
+  not treated as a security gap (see Risks) — the ownership predicate is
+  re-applied on every call regardless of cursor content, so the spec's
+  requirement is scoped to rejecting *undecodable* cursors, not to detecting
+  forged-but-well-formed ones.
 - **Default page size 50, max 200.** Chosen to keep a single MCP tool
   response comfortably under typical LLM context/tool-result size limits
   while still returning enough rows to be useful for a statement-review
@@ -102,11 +119,20 @@ Changes for motivation.
   both Lambdas for schema/predicate constants only) to an AWS SDK dependency
   for two call sites. Duplicating the wrapper is the smaller change; revisit
   extraction if a third consumer appears.
+- **Fetch `limit + 1` rows to decide whether a next-page cursor is emitted.**
+  `LIMIT :limit` alone can't distinguish an exactly-full final page from a
+  page with more rows behind it, and the spec requires the last page to omit
+  the cursor. Querying `limit + 1` rows and, when the extra row is present,
+  trimming it back to `limit` before building the cursor from the true last
+  returned row, resolves the boundary without a second existence-check query.
 - **New IAM/env wiring on `mcp`'s Lambda mirrors `ingestion`'s exactly**
-  (`DB_CLUSTER_ARN`/`DB_SECRET_ARN`/`DB_NAME`, `rds-data:ExecuteStatement`/
-  `BatchExecuteStatement` on the same cluster/secret). No new Data API
-  transactions (`BeginTransaction`/`Commit`/`Rollback`) are needed — every
-  query here is a single read statement.
+  (`DB_CLUSTER_ARN`/`DB_SECRET_ARN`/`DB_NAME`, `rds-data:ExecuteStatement` on
+  the cluster ARN *and* `secretsmanager:GetSecretValue` on the referenced
+  secret — the Data API needs both; `ingestion`'s policy already separates
+  them, see `infra/lib/ingestionPipeline.ts`). `BatchExecuteStatement` and the
+  transaction actions (`BeginTransaction`/`Commit`/`Rollback`) are not
+  granted — every query here is a single read statement via
+  `ExecuteStatement`.
 
 ## Risks / Trade-offs
 
@@ -128,8 +154,11 @@ Changes for motivation.
 
 ## Migration Plan
 
-- Additive only: new tool registrations, new `mcp`-local Data API module, new
-  IAM policy statements and env vars on `mcp`'s existing Lambda. No schema
-  migration, no data backfill.
-- Rollback: revert the commit and redeploy; no data written by this change to
-  clean up (read-only tools).
+- Mostly additive: new tool registrations, new `mcp`-local Data API module,
+  new IAM policy statements and env vars on `mcp`'s existing Lambda. The one
+  schema change is additive too — the two new indexes on `transactions`
+  (Decisions) — applied manually against the live cluster the same way the
+  original table DDL was, no backfill or data migration involved.
+- Rollback: revert the commit and redeploy; drop the two new indexes manually
+  if applied; no other data written by this change to clean up (read-only
+  tools).
