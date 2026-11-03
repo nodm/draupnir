@@ -25,7 +25,10 @@ format's expected columns and value formats. A file SHALL be rejected when:
 - its header matches no known format version for that bank;
 - its header contains a duplicate column name;
 - a required cell is missing or malformed;
-- a row's currency differs from the account's currency.
+- a row's currency differs from the currency of the account that row resolves
+  to (each row's own account in a multi-account file, otherwise the
+  upload-selected account). This applies to every row of the file, including
+  rows kept out of `transactions`.
 
 #### Scenario: Unknown format is rejected
 - **WHEN** a Revolut account's upload has a header that matches no known
@@ -37,8 +40,8 @@ format's expected columns and value formats. A file SHALL be rejected when:
 - **THEN** the file is rejected with a reason naming the duplicated column
 
 #### Scenario: Currency mismatch is rejected
-- **WHEN** a row's currency differs from the currency of the account the file
-  was uploaded for
+- **WHEN** a row's currency differs from the currency of the account that row
+  resolves to
 - **THEN** the file is rejected with a reason naming that row
 
 ### Requirement: Balances inside a file must chain
@@ -97,7 +100,9 @@ The system SHALL decide continuity between an account's approved files from
 evidence the exports provide, never from days without transactions:
 - **Balance formats:** two adjacent files are continuous when the earlier
   one's closing balance for the account equals the later one's opening
-  balance. The first file connects to the account's opening when its opening
+  balance, or when their activity periods overlap (overlapping files must
+  already agree on every shared transaction, so the boundary balances of an
+  overlapping export legitimately differ). The first file connects to the account's opening when its opening
   balance equals the account's opening balance.
 - **Formats with a declared period:** two files are continuous when their
   declared periods touch or overlap. The first connects to the opening when
@@ -112,6 +117,12 @@ it. Unknown continuity SHALL be reported as unknown, not as a gap.
   closing balance differs from March's opening balance
 - **THEN** the January file is approved, and a gap warning is recorded between
   January and March
+
+#### Scenario: Overlapping statements are continuous
+- **WHEN** a balance-format file's period overlaps the previous file's and
+  their shared transactions agree, although the later file's opening balance
+  differs from the earlier file's closing balance
+- **THEN** no gap warning is recorded between them
 
 #### Scenario: Connected import has no warning
 - **WHEN** a file's opening balance equals the previous file's closing balance
