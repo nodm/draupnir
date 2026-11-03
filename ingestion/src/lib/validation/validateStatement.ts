@@ -80,6 +80,7 @@ export function validateStatementFile(
       ok: false,
       formatVersion: null,
       reasons: [
+        ...reasons,
         {
           code: 'duplicate-header',
           message: `Duplicate column header: ${duplicates.join(', ')}`,
@@ -94,6 +95,7 @@ export function validateStatementFile(
       ok: false,
       formatVersion: null,
       reasons: [
+        ...reasons,
         {
           code: 'unrecognized-format',
           message: `Unrecognized ${bank} export format: the header matches no known format version`,

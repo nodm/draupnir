@@ -67,7 +67,11 @@ export function deriveTransactions(
       if (transactionId === undefined) {
         transactionId = newId();
         idByKey.set(key, transactionId);
-        transactions.push({ id: transactionId, accountId: file.accountId, row });
+        transactions.push({
+          id: transactionId,
+          accountId: file.accountId,
+          row,
+        });
       }
       sources.push({
         transactionId,

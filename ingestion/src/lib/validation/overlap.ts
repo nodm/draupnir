@@ -81,10 +81,9 @@ export async function findOverlapConflicts(
 ): Promise<ValidationReason[]> {
   const byKey = new Map<string, OverlapCandidate[]>();
   for (const row of rows) {
-    byKey.set(row.normalized.dedupKey, [
-      ...(byKey.get(row.normalized.dedupKey) ?? []),
-      row,
-    ]);
+    const group = byKey.get(row.normalized.dedupKey);
+    if (group) group.push(row);
+    else byKey.set(row.normalized.dedupKey, [row]);
   }
 
   const keys = [...byKey.keys()];

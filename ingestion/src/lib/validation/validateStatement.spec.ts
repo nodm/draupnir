@@ -129,6 +129,49 @@ describe('validateStatementFile — row validation', () => {
     expect(found[0]?.row).toBe(1);
   });
 
+  it('rejects an impossible calendar date instead of rolling it over', () => {
+    const sebCsv = seb.replace(
+      '2026-08-29;"EUR";50,00',
+      '2026-02-31;"EUR";50,00',
+    );
+    const revolutCsv = revolut.replace(
+      '2026-08-28 19:20:23',
+      '2026-02-30 19:20:23',
+    );
+    const monoCsv = monobank.replace(
+      '26.07.2026 08:48:06',
+      '31.04.2026 08:48:06',
+    );
+
+    expect(
+      reasons(validateStatementFile('seb', sebCsv, IBAN))[0]?.message,
+    ).toMatch(/DATA is not a real calendar date/);
+    expect(
+      reasons(validateStatementFile('revolut', revolutCsv, IBAN))[0]?.message,
+    ).toMatch(/Started Date is not a real calendar date/);
+    expect(
+      reasons(validateStatementFile('monobank', monoCsv, IBAN))[0]?.message,
+    ).toMatch(/Date and time is not a real calendar date/);
+  });
+
+  it('accepts a real leap day', () => {
+    const csv = revolut.replace('2026-08-28 19:20:23', '2028-02-29 19:20:23');
+
+    expect(validateStatementFile('revolut', csv, IBAN).ok).toBe(true);
+  });
+
+  it('keeps earlier SEB row reasons when the header is also bad', () => {
+    const csv =
+      seb.replace('"DOK NR.";"DATA"', '"DOK NR.";"DATA2"') + '"x";1\n';
+
+    const found = reasons(validateStatementFile('seb', csv, IBAN));
+
+    expect(found.map((r) => r.code)).toEqual([
+      'malformed-row',
+      'unrecognized-format',
+    ]);
+  });
+
   it('rejects a SEB row with the wrong field count', () => {
     const csv = `${seb}"DP1";2026-08-29\n`;
 

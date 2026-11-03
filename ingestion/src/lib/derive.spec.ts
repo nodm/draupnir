@@ -53,7 +53,10 @@ describe('deriveTransactions', () => {
     const first = revolutFile(['r1']);
     const second = revolutFile(['r2']);
 
-    const { transactions, sources } = deriveTransactions([first, second], nextId);
+    const { transactions, sources } = deriveTransactions(
+      [first, second],
+      nextId,
+    );
 
     expect(transactions).toHaveLength(1);
     expect(sources.map((s) => s.rawRowId)).toEqual(['r1', 'r2']);
@@ -61,7 +64,10 @@ describe('deriveTransactions', () => {
   });
 
   it('keeps identical-looking rows of one file as distinct transactions', () => {
-    const { transactions } = deriveTransactions([revolutFile(['r1', 'r2'])], nextId);
+    const { transactions } = deriveTransactions(
+      [revolutFile(['r1', 'r2'])],
+      nextId,
+    );
 
     expect(transactions).toHaveLength(2);
   });
@@ -113,8 +119,8 @@ describe('deriveTransactions', () => {
   it('reflects a changed normalization without new raw rows', () => {
     const file = revolutFile(['r1'], [{ Description: '  LIDL  ' }]);
 
-    expect(deriveTransactions([file], nextId).transactions[0]?.row.description).toBe(
-      'lidl',
-    );
+    expect(
+      deriveTransactions([file], nextId).transactions[0]?.row.description,
+    ).toBe('lidl');
   });
 });

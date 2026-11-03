@@ -48,7 +48,12 @@ describe('createAccount validation (no database access)', () => {
     const { send, client } = neverCalledClient();
 
     await expect(
-      createAccount(client, config, { sub: 'u' }, { ...validInput, bank: 'chase' }),
+      createAccount(
+        client,
+        config,
+        { sub: 'u' },
+        { ...validInput, bank: 'chase' },
+      ),
     ).rejects.toThrow(InvalidBankError);
     expect(send).not.toHaveBeenCalled();
   });
@@ -59,7 +64,12 @@ describe('createAccount validation (no database access)', () => {
       const { send, client } = neverCalledClient();
 
       await expect(
-        createAccount(client, config, { sub: 'u' }, { ...validInput, [field]: '  ' }),
+        createAccount(
+          client,
+          config,
+          { sub: 'u' },
+          { ...validInput, [field]: '  ' },
+        ),
       ).rejects.toThrow(InvalidAccountInputError);
       expect(send).not.toHaveBeenCalled();
     },
@@ -77,6 +87,23 @@ describe('createAccount validation (no database access)', () => {
     },
   );
 
+  it.each(['EURO', 'E1R', 'euros', '€'])(
+    'rejects the non-ISO currency %j',
+    async (currency) => {
+      const { send, client } = neverCalledClient();
+
+      await expect(
+        createAccount(
+          client,
+          config,
+          { sub: 'u' },
+          { ...validInput, currency },
+        ),
+      ).rejects.toThrow(InvalidAccountInputError);
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ['openedOn', '15/01/2024'],
     ['openedOn', '2024-02-31'],
@@ -88,12 +115,10 @@ describe('createAccount validation (no database access)', () => {
     const { send, client } = neverCalledClient();
 
     await expect(
-      createAccount(
-        client,
-        config,
-        { sub: 'u' },
-        { ...validInput, [field]: value } as never,
-      ),
+      createAccount(client, config, { sub: 'u' }, {
+        ...validInput,
+        [field]: value,
+      } as never),
     ).rejects.toThrow(InvalidAccountInputError);
     expect(send).not.toHaveBeenCalled();
   });
@@ -116,7 +141,12 @@ describe('createAccount on a real Postgres instance', () => {
   });
 
   it('creates the account with its opening balance and records the caller as owner', async () => {
-    const account = await createAccount(client, config, { sub: 'user-123' }, validInput);
+    const account = await createAccount(
+      client,
+      config,
+      { sub: 'user-123' },
+      validInput,
+    );
 
     expect(account).toEqual({ id: expect.any(String), ...validInput });
     const { rows } = await db.query<Record<string, unknown>>(
@@ -137,14 +167,15 @@ describe('createAccount on a real Postgres instance', () => {
   });
 
   it('takes the owner from the authenticated identity only', async () => {
-    await createAccount(
-      client,
-      config,
-      { sub: 'real-user' },
-      { ...validInput, userId: 'attacker', ownerUserId: 'attacker' } as never,
-    );
+    await createAccount(client, config, { sub: 'real-user' }, {
+      ...validInput,
+      userId: 'attacker',
+      ownerUserId: 'attacker',
+    } as never);
 
-    const { rows } = await db.query<{ user_id: string }>('SELECT user_id FROM account_members');
+    const { rows } = await db.query<{ user_id: string }>(
+      'SELECT user_id FROM account_members',
+    );
     expect(rows).toEqual([{ user_id: 'real-user' }]);
   });
 
@@ -162,6 +193,24 @@ describe('createAccount on a real Postgres instance', () => {
     expect(rows[0]?.v).toBe('-12550');
   });
 
+  it.each([' eur ', 'eur'])(
+    'stores the canonical currency for %j',
+    async (currency) => {
+      const account = await createAccount(
+        client,
+        config,
+        { sub: 'u' },
+        { ...validInput, currency },
+      );
+
+      expect(account.currency).toBe('EUR');
+      const { rows } = await db.query<{ currency: string }>(
+        'SELECT currency FROM accounts',
+      );
+      expect(rows[0]?.currency).toBe('EUR');
+    },
+  );
+
   it('canonicalizes a lowercase, spaced iban', async () => {
     const account = await createAccount(
       client,
@@ -176,12 +225,19 @@ describe('createAccount on a real Postgres instance', () => {
   it('rejects a duplicate iban, telling the caller to ask an owner, and creates nothing new', async () => {
     await createAccount(client, config, { sub: 'first' }, validInput);
 
-    const attempt = createAccount(client, config, { sub: 'second' }, validInput);
+    const attempt = createAccount(
+      client,
+      config,
+      { sub: 'second' },
+      validInput,
+    );
 
     await expect(attempt).rejects.toThrow(DuplicateIbanError);
     await expect(attempt).rejects.toThrow(/ask one of its owners to add you/);
     expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(1);
-    const members = await db.query<{ user_id: string }>('SELECT user_id FROM account_members');
+    const members = await db.query<{ user_id: string }>(
+      'SELECT user_id FROM account_members',
+    );
     expect(members.rows).toEqual([{ user_id: 'first' }]);
   });
 

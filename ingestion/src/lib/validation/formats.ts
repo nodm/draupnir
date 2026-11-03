@@ -18,6 +18,29 @@ export interface FormatVersion {
   ): Record<string, string>;
 }
 
+// `new Date('2026-02-31')` silently rolls over to March, so calendar validity
+// is checked on the parts. Malformed shapes pass here; the regex reports them.
+function isRealDate(year: number, month: number, day: number): boolean {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return (
+    d.getUTCFullYear() === year &&
+    d.getUTCMonth() === month - 1 &&
+    d.getUTCDate() === day
+  );
+}
+
+function isRealIsoDatePart(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return !m || isRealDate(Number(m[1]), Number(m[2]), Number(m[3]));
+}
+
+function isRealDottedDatePart(value: string): boolean {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(value);
+  return !m || isRealDate(Number(m[3]), Number(m[2]), Number(m[1]));
+}
+
+const NOT_A_DATE = 'is not a real calendar date';
+
 const money = (label: string) =>
   z.string().regex(/^-?\d+(\.\d+)?$/, `${label} must be a decimal number`);
 const nonEmpty = (label: string) =>
@@ -47,7 +70,10 @@ export const SEB_HEADERS = [
 ] as const;
 
 const sebRow = z.object({
-  DATA: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'DATA must be YYYY-MM-DD'),
+  DATA: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'DATA must be YYYY-MM-DD')
+    .refine(isRealIsoDatePart, `DATA ${NOT_A_DATE}`),
   VALIUTA: z.string().regex(/^[A-Z]{3}$/, 'VALIUTA must be a currency code'),
   SUMA: z.string().regex(/^\d+(,\d+)?$/, 'SUMA must be a decimal like 50,00'),
   'MOKĖJIMO PASKIRTIS': z.string(),
@@ -92,7 +118,8 @@ const revolutRow = z
     Product: nonEmpty('Product'),
     'Started Date': z
       .string()
-      .regex(REVOLUT_DATETIME, 'Started Date must be YYYY-MM-DD HH:MM:SS'),
+      .regex(REVOLUT_DATETIME, 'Started Date must be YYYY-MM-DD HH:MM:SS')
+      .refine(isRealIsoDatePart, `Started Date ${NOT_A_DATE}`),
     'Completed Date': z.string(),
     Description: z.string(),
     Amount: money('Amount'),
@@ -106,6 +133,16 @@ const revolutRow = z
   .superRefine((row, ctx) => {
     // Only COMPLETED rows move the balance, so only they must carry one.
     if (row.State !== 'COMPLETED') return;
+    if (
+      REVOLUT_DATETIME.test(row['Completed Date']) &&
+      !isRealIsoDatePart(row['Completed Date'])
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['Completed Date'],
+        message: `Completed Date ${NOT_A_DATE}`,
+      });
+    }
     if (!REVOLUT_DATETIME.test(row['Completed Date'])) {
       ctx.addIssue({
         code: 'custom',
@@ -187,7 +224,8 @@ const monobankRow = z.object({
     .regex(
       /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}$/,
       'Date and time must be DD.MM.YYYY HH:MM:SS',
-    ),
+    )
+    .refine(isRealDottedDatePart, `Date and time ${NOT_A_DATE}`),
   Description: z.string(),
   MCC: z.string().regex(/^\d*$/, 'MCC must be digits'),
   'Card currency amount': money('Card currency amount'),

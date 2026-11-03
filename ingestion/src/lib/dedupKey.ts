@@ -14,11 +14,31 @@ export function normalizeDescription(description: string): string {
 // 100 would become 10,000 minor units) rather than erroring, so this has
 // to be explicit rather than assumed.
 const ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW',
-  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+  'BIF',
+  'CLP',
+  'DJF',
+  'GNF',
+  'ISK',
+  'JPY',
+  'KMF',
+  'KRW',
+  'PYG',
+  'RWF',
+  'UGX',
+  'VND',
+  'VUV',
+  'XAF',
+  'XOF',
+  'XPF',
 ]);
 const THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND',
+  'BHD',
+  'IQD',
+  'JOD',
+  'KWD',
+  'LYD',
+  'OMR',
+  'TND',
 ]);
 const FOUR_DECIMAL_CURRENCIES = new Set(['CLF', 'UYW']);
 

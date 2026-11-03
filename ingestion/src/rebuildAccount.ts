@@ -13,5 +13,9 @@ export const handler = async (event: {
   if (!event.accountId) {
     throw new Error('Missing accountId in the event payload');
   }
-  return rebuildAccount(dataApiClient, loadDataApiConfigFromEnv(), event.accountId);
+  return rebuildAccount(
+    dataApiClient,
+    loadDataApiConfigFromEnv(),
+    event.accountId,
+  );
 };

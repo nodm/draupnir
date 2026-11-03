@@ -120,6 +120,13 @@ export async function createAccount(
   if (!isNonEmptyString(input.currency)) {
     throw new InvalidAccountInputError('currency');
   }
+  // Statements carry uppercase ISO 4217 codes and imports compare them
+  // literally, so store the canonical form; 'eur' / ' EUR ' would otherwise
+  // create an account no import could ever match.
+  const currency = input.currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new InvalidAccountInputError('currency');
+  }
   if (!isNonEmptyString(input.displayName)) {
     throw new InvalidAccountInputError('displayName');
   }
@@ -146,7 +153,7 @@ export async function createAccount(
         id,
         bank: input.bank,
         iban,
-        currency: input.currency,
+        currency,
         displayName: input.displayName,
         openedOn: dateParameter(input.openedOn),
         openingBalance: input.openingBalanceMinorUnits,
@@ -174,7 +181,7 @@ export async function createAccount(
     id,
     bank: input.bank,
     iban,
-    currency: input.currency,
+    currency,
     displayName: input.displayName,
     openedOn: input.openedOn,
     openingBalanceMinorUnits: input.openingBalanceMinorUnits,
