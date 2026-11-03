@@ -90,9 +90,10 @@ their statements.
   lock, and leaves the database unchanged
 
 ### Requirement: Migrations run as part of deployment, before application code
-Deploying the stack SHALL run the migration runner whenever the set of defined
-migrations has changed, through the same RDS Data API access path as the
-application (no VPC attachment, no direct Postgres connection). Application
+Deploying the stack SHALL run the migration runner whenever the migration code
+(the defined migrations or the runner) or the database target has changed,
+through the same RDS Data API access path as the application (no VPC
+attachment, no direct Postgres connection). Application
 functions that depend on the schema SHALL be updated only after the runner has
 succeeded, and a runner failure SHALL fail the deployment.
 
@@ -106,9 +107,15 @@ succeeded, and a runner failure SHALL fail the deployment.
 - **THEN** the deployment reports failure and application functions are not
   updated to code that expects the new schema
 
-#### Scenario: Unchanged migration set does not re-run
-- **WHEN** the stack is deployed with no change to the defined migrations
+#### Scenario: Unchanged deployment does not re-run
+- **WHEN** the stack is deployed with no change to the migration code (the
+  defined migrations and the runner) or to the database target
 - **THEN** the runner is not invoked
+
+#### Scenario: Runner-only change re-runs harmlessly
+- **WHEN** the runner code changes but no migration is pending
+- **THEN** the runner may be invoked on deploy and finishes without making a
+  schema change or writing a `schema_migrations` row
 
 #### Scenario: Paused cluster is resumed, not treated as a failure
 - **WHEN** the runner starts while the cluster is auto-paused
