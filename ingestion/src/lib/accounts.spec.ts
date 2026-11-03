@@ -6,7 +6,7 @@ import {
   InvalidBankError,
 } from './accounts';
 import { UnauthenticatedError } from './auth';
-import type { DataApiConfig } from './dataApi';
+import type { DataApiConfig } from 'shared';
 
 const config: DataApiConfig = {
   resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',

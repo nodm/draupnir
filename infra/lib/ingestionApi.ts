@@ -26,6 +26,7 @@ export function createIngestionApi(
   provider: aws.Provider,
   dbConfig: DbConfig,
   uploadsBucket: aws.s3.Bucket,
+  dependsOn: pulumi.Resource[] = [],
 ): IngestionApi {
   const withProvider = { provider };
 
@@ -143,6 +144,7 @@ export function createIngestionApi(
       },
       policyStatements: dataApiPolicyStatements(dbConfig),
       timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
+      dependsOn,
     },
     restApi,
     authorizer,
@@ -171,6 +173,7 @@ export function createIngestionApi(
         },
       ],
       timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
+      dependsOn,
     },
     restApi,
     authorizer,

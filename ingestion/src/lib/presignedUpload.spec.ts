@@ -3,7 +3,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AccountNotFoundError, createPresignedUpload } from './presignedUpload';
 import { UnauthenticatedError } from './auth';
-import type { DataApiConfig } from './dataApi';
+import type { DataApiConfig } from 'shared';
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: vi.fn(),
@@ -48,9 +48,7 @@ describe('createPresignedUpload', () => {
     );
 
     expect(result.url).toBe('https://s3.example/presigned');
-    expect(result.key).toMatch(
-      /^uploads\/user-123\/acc-1\/[0-9a-f-]+\.csv$/,
-    );
+    expect(result.key).toMatch(/^uploads\/user-123\/acc-1\/[0-9a-f-]+\.csv$/);
     expect(result.headers).toEqual({ 'If-None-Match': '*' });
 
     const [command] = send.mock.calls[0];

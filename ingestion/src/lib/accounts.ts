@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { BANKS, type Bank } from 'shared';
+import { BANKS, executeStatement, type Bank, type DataApiConfig } from 'shared';
 import { requireSub } from './auth';
-import { executeStatement, type DataApiConfig } from './dataApi';
 
 export interface CreateAccountInput {
   bank: string;

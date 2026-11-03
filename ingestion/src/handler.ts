@@ -1,7 +1,7 @@
 import type { S3Event, SQSHandler } from 'aws-lambda';
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { S3Client } from '@aws-sdk/client-s3';
-import { loadDataApiConfigFromEnv } from './lib/dataApi';
+import { loadDataApiConfigFromEnv } from 'shared';
 import { parseStatement as parseMonobank } from './lib/parsers/monobank';
 import { parseStatement as parseRevolut } from './lib/parsers/revolut';
 import { parseStatement as parseSeb } from './lib/parsers/seb';

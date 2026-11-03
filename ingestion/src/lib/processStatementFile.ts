@@ -9,7 +9,7 @@ import {
   executeStatement,
   rollbackTransaction,
   type DataApiConfig,
-} from './dataApi';
+} from 'shared';
 import type { StatementParser } from './parsers/types';
 
 export type ParserDispatch = Record<string, StatementParser>;
