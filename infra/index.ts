@@ -40,5 +40,6 @@ export const ingestionInvokeUrl = ingestionApi.invokeUrl;
 export const uploadsBucketName = ingestionPipeline.uploadsBucket.bucket;
 export const ingestionQueueUrl = ingestionPipeline.queue.url;
 export const ingestionDlqUrl = ingestionPipeline.deadLetterQueue.url;
+export const rebuildAccountFunctionName = ingestionPipeline.rebuildFunction.name;
 export const mcpApiId = mcpApi.restApi.id;
 export const mcpInvokeUrl = mcpApi.invokeUrl;

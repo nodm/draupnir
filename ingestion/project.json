@@ -14,7 +14,8 @@
         "additionalEntryPoints": [
           "ingestion/src/whoami.ts",
           "ingestion/src/accounts.ts",
-          "ingestion/src/presignedUpload.ts"
+          "ingestion/src/presignedUpload.ts",
+          "ingestion/src/rebuildAccount.ts"
         ],
         "tsConfig": "ingestion/tsconfig.lib.json",
         "assets": ["ingestion/*.md"],

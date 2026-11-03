@@ -2,22 +2,10 @@ import type { S3Event, SQSHandler } from 'aws-lambda';
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { S3Client } from '@aws-sdk/client-s3';
 import { loadDataApiConfigFromEnv } from 'shared';
-import { parseStatement as parseMonobank } from './lib/parsers/monobank';
-import { parseStatement as parseRevolut } from './lib/parsers/revolut';
-import { parseStatement as parseSeb } from './lib/parsers/seb';
-import {
-  processStatementFile,
-  type ParserDispatch,
-} from './lib/processStatementFile';
+import { processStatementFile } from './lib/processStatementFile';
 
 const dataApiClient = new RDSDataClient({});
 const s3Client = new S3Client({});
-
-const parsers: ParserDispatch = {
-  seb: parseSeb,
-  revolut: parseRevolut,
-  monobank: parseMonobank,
-};
 
 export const handler: SQSHandler = async (event) => {
   const dataApiConfig = loadDataApiConfigFromEnv();
@@ -38,14 +26,25 @@ export const handler: SQSHandler = async (event) => {
         s3Record.s3.object.key.replace(/\+/g, ' '),
       );
 
-      await processStatementFile(
+      // A validation rejection is a recorded outcome, not a failure: only an
+      // unexpected error throws and takes the retry -> DLQ path.
+      const outcome = await processStatementFile(
         dataApiClient,
         dataApiConfig,
         s3Client,
-        parsers,
         bucket,
         key,
         s3Record.s3.object.size,
+      );
+      console.log(
+        JSON.stringify({
+          event: 'statement-processed',
+          key,
+          fileId: outcome.fileId,
+          status: outcome.status,
+          redelivered: outcome.redelivered,
+          reasons: outcome.reasons.length,
+        }),
       );
     }
   }

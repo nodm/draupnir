@@ -66,7 +66,13 @@ export interface IngestionPipeline {
   queue: aws.sqs.Queue;
   deadLetterQueue: aws.sqs.Queue;
   ingestFunction: aws.lambda.Function;
+  rebuildFunction: aws.lambda.Function;
 }
+
+// Re-deriving one account's transactions holds its account lock and rewrites
+// every one of its rows; generous headroom for a large history plus an Aurora
+// resume from pause.
+const REBUILD_FUNCTION_TIMEOUT_SECONDS = 300;
 
 export function createIngestionPipeline(
   provider: aws.Provider,
@@ -183,6 +189,52 @@ export function createIngestionPipeline(
     { ...withProvider, dependsOn },
   );
 
+  // Internal maintenance operation, invoked manually with
+  // {"accountId": "..."} (`aws lambda invoke`); no trigger and no HTTP surface.
+  // Data API only: it reads raw rows from the database, never S3.
+  const rebuildRole = new aws.iam.Role(
+    'rebuild-account',
+    { assumeRolePolicy: LAMBDA_ASSUME_ROLE_POLICY },
+    withProvider,
+  );
+
+  new aws.iam.RolePolicyAttachment(
+    'rebuild-account-logs',
+    { role: rebuildRole.name, policyArn: LAMBDA_BASIC_EXECUTION_POLICY_ARN },
+    withProvider,
+  );
+
+  const rebuildRolePolicy = new aws.iam.RolePolicy(
+    'rebuild-account-policy',
+    {
+      role: rebuildRole.id,
+      policy: pulumi.jsonStringify({
+        Version: '2012-10-17',
+        Statement: dataApiPolicyStatements(dbConfig),
+      }),
+    },
+    withProvider,
+  );
+
+  const rebuildFunction = new aws.lambda.Function(
+    'rebuild-account',
+    {
+      role: rebuildRole.arn,
+      runtime: aws.lambda.Runtime.NodeJS24dX,
+      handler: 'rebuildAccount.handler',
+      timeout: REBUILD_FUNCTION_TIMEOUT_SECONDS,
+      code: new pulumi.asset.FileArchive('../dist/ingestion'),
+      environment: {
+        variables: {
+          DB_CLUSTER_ARN: dbConfig.clusterArn,
+          DB_SECRET_ARN: dbConfig.secretArn,
+          DB_NAME: dbConfig.name,
+        },
+      },
+    },
+    { ...withProvider, dependsOn: [...dependsOn, rebuildRolePolicy] },
+  );
+
   new aws.lambda.EventSourceMapping(
     'ingest',
     {
@@ -196,5 +248,11 @@ export function createIngestionPipeline(
     { ...withProvider, dependsOn: [rolePolicy] },
   );
 
-  return { uploadsBucket, queue, deadLetterQueue, ingestFunction };
+  return {
+    uploadsBucket,
+    queue,
+    deadLetterQueue,
+    ingestFunction,
+    rebuildFunction,
+  };
 }

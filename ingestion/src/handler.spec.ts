@@ -1,6 +1,12 @@
 import type { SQSEvent } from 'aws-lambda';
 
-const processStatementFile = vi.fn().mockResolvedValue(undefined);
+const processStatementFile = vi.fn().mockResolvedValue({
+  fileId: 'file-1',
+  status: 'approved',
+  reasons: [],
+  warningsByAccount: {},
+  redelivered: false,
+});
 
 vi.mock('./lib/processStatementFile', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/processStatementFile')>()),
@@ -59,7 +65,6 @@ describe('ingest handler', () => {
     await handler(event, {} as never, () => undefined);
 
     expect(processStatementFile).toHaveBeenCalledWith(
-      expect.anything(),
       expect.anything(),
       expect.anything(),
       expect.anything(),
