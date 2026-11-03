@@ -1,54 +1,51 @@
 ## Why
 
-`provision-mcp-base-api` shipped the deployed transport (Lambda + API Gateway +
-Cognito authorizer) with only a proof-of-wiring `whoami` tool; its design.md
-explicitly deferred real data tools to a follow-up. Right now the `mcp` server
-exposes no way for an MCP client to read a user's own accounts or transactions —
-this change adds that.
+`provision-mcp-base-api` shipped the deployed MCP transport (Lambda + API
+Gateway + Cognito authorizer) with only a proof-of-wiring `whoami` tool. MCP
+clients (Claude Desktop, Claude Code) still can't read any of the user's data.
+`add-bot-ai-chat` defines the read-only data tools once, in `shared`, for the
+Telegram AI chat. Exposing the same tools over MCP gives both AI surfaces
+exactly the same, caller-scoped view of the data, without a second
+implementation.
+
+Depends on `add-bot-ai-chat` (tool definitions, indexes) and, through it, on
+`add-db-migrations`, `redesign-statement-data-model`, and
+`add-row-level-security`.
 
 ## What Changes
 
-- Add MCP tools `list_accounts` and `list_transactions` to `mcp/src/lib/mcp.ts`,
-  registered via `server.registerTool` the same way `whoami` is.
-- Both tools are read-only and scope every row to the caller: owned rows, plus
-  rows shared with the caller via `share_grants`, using
-  `shared`'s `ownershipPredicate` — its first real caller (`shareGrants.spec.ts`
-  only exercises the generated SQL string today; no route runs it against the
-  database yet).
-- `list_transactions` supports filtering by `account_id` and paginates with a
-  keyset cursor; `list_accounts` returns the caller's full account list
-  unpaginated (see design.md for why account count doesn't need paging yet).
-- Give `mcp` its own Aurora Data API wiring (`DataApiConfig` + `RDSDataClient`),
-  mirroring `ingestion/src/lib/dataApi.ts` — `mcp` has none today.
-- No writes, no new table/column definitions in `shared`, no changes to
-  `ingestion`. This change does apply `share_grants`'s already-defined DDL to
-  the live cluster for the first time (never applied by an earlier change)
-  and adds two indexes to `transactions` — see Impact and design.md.
+- Register the shared `data-tools` (`list_accounts`, `list_transactions`,
+  `summarize_transactions`, `get_account_coverage`) on the MCP server in
+  `mcp/src/lib/mcp.ts`, through a thin adapter to `server.registerTool`
+  (schema, description, handler, error mapping). `mcp` contains no data logic.
+- Every tool call runs as the caller via `withCaller(sub)`, with `sub` taken
+  only from the authorizer-injected claim (`resolveCallerSub`). An unresolved
+  `sub` returns a tool error without querying.
+- `mcp`'s Lambda gets Data API access with the `draupnir_app` credential (RLS
+  applies), using `shared`'s Data API helper.
+- `whoami` is unchanged.
+- Out of scope: MCP OAuth discovery / client registration for Claude clients
+  (ADR-0001/0002's open item). Any write tools.
 
 ## Capabilities
 
 ### New Capabilities
-- `mcp-data-tools`: the `list_accounts` and `list_transactions` MCP tools —
-  their input/output shape, row-level scoping via ownership + share grants, and
-  `list_transactions`'s account filter and pagination.
+- `mcp-data-tools`: how the MCP server exposes the shared `data-tools`, which
+  tools, where the identity comes from, and behavior without an identity. The
+  tools' own inputs, outputs, and scoping are defined by `data-tools`.
 
 ### Modified Capabilities
-(none — `mcp-server-api`'s transport/auth requirements are unchanged; this
-change only adds tools on top of that existing wiring)
+(none — `mcp-server-api`'s transport and auth requirements are unchanged)
 
 ## Impact
 
-- `mcp/src/lib/mcp.ts`: register `list_accounts`/`list_transactions`, read
-  `ctx.http?.authInfo?.extra?.sub` the same way `callerSub` does for `whoami`.
-- `mcp/src/lib/`: new Data API wiring (config loader, `RDSDataClient` construction)
-  and query helpers for the two tools, mirroring `ingestion/src/lib/dataApi.ts`.
-- `mcp/package.json`: new dependency on `@aws-sdk/client-rds-data`.
-- `infra/`: `mcp`'s Lambda needs `DB_CLUSTER_ARN`/`DB_SECRET_ARN`/`DB_NAME` env
-  vars and Data API IAM permissions granted to `ingestion`'s Lambda today —
-  wire the same grants onto `mcp`'s role.
-- Live cluster: apply `share_grants`'s already-defined DDL for the first time
-  (a prerequisite — no earlier change applied it, see design.md's Context),
-  and add two indexes to `transactions` supporting the keyset query
-  (design.md's Decisions). Neither is a new table/column definition in code.
-- No changes to `ingestion`'s API, schema, or data; no changes to `shared`'s
-  exports (`ownershipPredicate` already exists and is reused as-is).
+- `mcp/src/lib/mcp.ts`: `resolveCallerSub`, the tool adapter, and registration.
+- `mcp/package.json`: depends on `shared` (already allowed by module
+  boundaries) and `@aws-sdk/client-rds-data` (runtime dependency of the shared
+  helper, installed by the existing `install-deps` target).
+- `infra/lib/mcpApi.ts`:
+  - `DB_CLUSTER_ARN` / `DB_SECRET_ARN` (app secret) / `DB_NAME` env vars;
+  - IAM for `rds-data:ExecuteStatement`, `BeginTransaction`,
+    `CommitTransaction`, and `RollbackTransaction` on the cluster;
+  - `secretsmanager:GetSecretValue` on the app secret only.
+- No schema changes: indexes and tables come from earlier changes.

@@ -1,0 +1,58 @@
+## ADDED Requirements
+
+### Requirement: The database enforces membership on every account-scoped read
+The database SHALL return rows of account-scoped tables (`accounts`,
+`account_members`, `statement_files`, `raw_rows`, `transactions`,
+`transaction_sources`) only for accounts the identified caller is a member of.
+This SHALL hold even when a query contains no membership filter.
+
+#### Scenario: Filterless query returns only the caller's accounts' rows
+- **WHEN** user B, a member of no account owned by user A, runs
+  `SELECT * FROM transactions` with no `WHERE` clause
+- **THEN** no transaction of user A's accounts is returned
+
+#### Scenario: Shared account is visible to its viewer
+- **WHEN** user B is a `viewer` member of account A1 and runs a filterless
+  query on `transactions`
+- **THEN** account A1's transactions are returned, and transactions of user A's
+  other accounts are not
+
+### Requirement: The database allows writes only to owners
+The database SHALL reject inserts, updates, and deletes on account-scoped tables
+unless the identified caller is an `owner` member of the affected row's account.
+The one exception: an identified caller MAY create a new account, which records
+that caller as its first `owner` member.
+
+#### Scenario: Viewer cannot write through the database
+- **WHEN** a `viewer` member of an account attempts to insert a
+  `statement_files` row or a `transactions` row for that account directly
+- **THEN** the database rejects the write
+
+#### Scenario: Creating an account makes the caller its owner
+- **WHEN** an identified caller creates an account
+- **THEN** the account exists and the caller is its only `owner` member
+
+#### Scenario: Caller cannot add themselves to someone else's account
+- **WHEN** an identified caller who is not a member of an account attempts to
+  insert an `account_members` row naming themselves for that account
+- **THEN** the database rejects the write
+
+### Requirement: An unidentified caller sees and changes nothing
+When no caller identity has been set for the current database transaction, the
+database SHALL return no rows from account-scoped tables and SHALL reject every
+write to them.
+
+#### Scenario: Query without identity returns nothing
+- **WHEN** application code runs a query on `accounts` without first setting a
+  caller identity
+- **THEN** the query returns zero rows rather than an error-free full result
+
+### Requirement: Caller identity is scoped to one database transaction
+The caller identity used by the database SHALL be set for a single database
+transaction only, and SHALL NOT persist into any later transaction, even one
+served by the same pooled database session.
+
+#### Scenario: Identity does not leak into the next request
+- **WHEN** a transaction runs with user A's identity and commits, and the next
+  transaction on the same database session sets no identity
+- **THEN** the next transaction sees no rows from account-scoped tables

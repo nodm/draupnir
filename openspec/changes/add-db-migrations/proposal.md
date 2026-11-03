@@ -57,7 +57,7 @@ unchanged; this change only changes how that schema reaches the database)
   that invocation.
 - Live cluster: `schema_migrations` and `share_grants` are created on first run;
   existing `accounts`/`transactions` rows are untouched.
-- `openspec/changes/add-mcp-data-tools` (parked): its task 1.3 (manually apply
-  `share_grants`) becomes obsolete; it will be revised later anyway.
+- `openspec/changes/add-mcp-data-tools` no longer needs its own `share_grants`
+  bootstrap or Data API copy (revised to build on the later changes).
 - Docs: `docs/adr/0007-stay-on-aws.md`; `docs/architecture.md` gains the
   migration Lambda.

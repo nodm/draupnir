@@ -75,6 +75,4 @@
 
 ## 6. Wrap-up
 
-- [ ] 6.1 Verify `pnpm exec nx run-many -t lint test build` passes and add a note to the parked
-      `openspec/changes/add-mcp-data-tools/tasks.md` task 1.3 that it is superseded by
-      migration `0001`.
+- [ ] 6.1 Verify `pnpm exec nx run-many -t lint test build` passes.
