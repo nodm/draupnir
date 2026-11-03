@@ -58,6 +58,17 @@ graph TB
     Cluster -. "manageMasterUserPassword" .-> Secret
   end
 
+  subgraph Migrations["Database Migrations (databaseMigrations.ts)"]
+    MigrateFn["λ migrate-database<br/>no VPC, 5 min timeout"]
+    MigrateInvocation["Pulumi Invocation<br/>re-runs when the bundle changes"]
+
+    MigrateInvocation -- "invokes" --> MigrateFn
+  end
+  MigrateFn -- "RDS Data API<br/>schema_migrations + DDL" --> Cluster
+  MigrateInvocation -. "dependsOn: schema before code" .-> IngestFn
+  MigrateInvocation -. "dependsOn" .-> AccountsFn
+  MigrateInvocation -. "dependsOn" .-> UploadFn
+
   UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
   UploadFn -- "RDS Data API" --> Cluster
   AccountsFn -- "RDS Data API" --> Cluster
@@ -70,6 +81,7 @@ graph TB
 - **No direct network path to Aurora.** Every DB-backed Lambda talks to the cluster exclusively through the RDS Data API's HTTPS endpoint (ADR-0003) — the security group has no ingress rules, and the VPC has no NAT/internet gateway.
 - **Aurora scales to zero** (`minCapacity: 0`, `secondsUntilAutoPause: 300`) — near-zero idle cost, at the price of a resume delay (seconds to ~1 minute) on the first request after idle. DB-backed API routes are given a 29s timeout (API Gateway's ceiling without a quota increase) to absorb this.
 - **`whoami`** is the one API route that doesn't touch Aurora or S3 — no DB/bucket environment variables, no extra IAM policy statements beyond basic Lambda execution.
+- **Schema before code.** `pulumi up` invokes `migrate-database` (the runner in `shared/src/lib/migrations`) before any DB-backed Lambda is created or updated; a failed migration fails the deploy. The Invocation re-runs when the migration bundle changes (it hashes the esbuild output, which inlines `MIGRATIONS`); the runner is idempotent, so a re-run with nothing pending is a no-op. Migrations are append-only — see the `db-migrations` spec.
 - Deletion protection + a final snapshot are enabled on the Aurora cluster since it holds live account/transaction data.
 
 See the ADRs in `docs/adr/` for the reasoning behind these choices, and `infra/lib/*.ts` for the resource definitions.

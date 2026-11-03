@@ -135,6 +135,14 @@ function error fails the Invocation, which fails `pulumi up`. The ingestion and
 mcp Lambdas take `dependsOn` on the Invocation so they update only after
 migrations succeed.
 
+- **Trigger deviation (implementation):** the Pulumi program runs under ts-node
+  and cannot import `shared` at runtime (no tsconfig paths; `shared`'s `main`
+  points at a non-existent `./src/index.js`). The `triggers` value is therefore
+  a SHA-256 of the built `migrateDatabase.cjs` bundle, which inlines
+  `MIGRATIONS`, instead of `migrationSetChecksum(MIGRATIONS)`. It also changes
+  when runner code changes; the runner is idempotent, so the extra re-run is
+  harmless.
+
 - **Alternative: local script run by the deployer.** Simplest, but it is the
   same "remember to run it" step that failed for `share_grants`, and it does
   not order schema before code.
