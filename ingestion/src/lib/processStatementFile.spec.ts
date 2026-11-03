@@ -301,6 +301,37 @@ describe('processStatementFile', () => {
       expect(outcome.reasons[0]?.code).toBe('unrecognized-format');
     });
 
+    it('acknowledges an unrecorded not-owner rejection when ownership lapses before an early rejection is written', async () => {
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      let revoked = false;
+
+      // Invalid format: rejected by validation, written by recordRejection,
+      // after the early ownership check already passed.
+      const outcome = await upload('foo,bar\n1,2\n', {
+        accountId: 'R',
+        hook: async (command) => {
+          const sql = command.input['sql'];
+          if (
+            !revoked &&
+            typeof sql === 'string' &&
+            sql.includes('INSERT INTO statement_files')
+          ) {
+            revoked = true;
+            await db.exec(
+              `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'other-owner', 'owner');
+               DELETE FROM account_members WHERE account_id = 'R' AND user_id = 'user-1'`,
+            );
+          }
+        },
+      });
+
+      expect(revoked).toBe(true);
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.fileId).toBeNull();
+      expect(outcome.reasons[0]?.code).toBe('not-owner');
+      expect(await count('statement_files')).toBe(0);
+    });
+
     it('rejects a currency mismatch naming the row', async () => {
       await account({
         id: 'R',

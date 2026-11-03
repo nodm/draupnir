@@ -123,9 +123,17 @@ export function createPgliteDataApiClient(
         };
       }
       case 'BatchExecuteStatementCommand': {
-        for (const set of input['parameterSets'] as SqlParameterLike[][]) {
-          const { text, values } = toPositional(input['sql'] as string, set);
-          await db.query(text, values);
+        // Same scoping as a single statement: outside a transaction the role
+        // runs with no caller identity, never as the owner.
+        const unscoped = role && !input['transactionId'];
+        if (unscoped) await db.exec(`SET ROLE "${role}"`);
+        try {
+          for (const set of input['parameterSets'] as SqlParameterLike[][]) {
+            const { text, values } = toPositional(input['sql'] as string, set);
+            await db.query(text, values);
+          }
+        } finally {
+          if (unscoped) await db.exec('RESET ROLE');
         }
         return { updateResults: [] };
       }

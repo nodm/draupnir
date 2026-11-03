@@ -230,29 +230,58 @@ async function recordRejection(
   facts: FileFacts,
   reasons: ValidationReason[],
 ): Promise<StatementOutcome> {
-  return withCaller(ctx.client, ctx.config, ctx.sub, async (transactionId) => {
-    const { fileId, inserted } = await insertRejected(
-      ctx,
-      facts,
-      reasons,
-      transactionId,
+  try {
+    return await withCaller(
+      ctx.client,
+      ctx.config,
+      ctx.sub,
+      async (transactionId) => {
+        const { fileId, inserted } = await insertRejected(
+          ctx,
+          facts,
+          reasons,
+          transactionId,
+        );
+        if (!inserted) {
+          const recorded = await readRecordedOutcome(
+            ctx,
+            facts.s3Key,
+            transactionId,
+          );
+          if (recorded) return recorded;
+        }
+        return {
+          fileId,
+          status: 'rejected' as const,
+          reasons,
+          warningsByAccount: {},
+          redelivered: false,
+        };
+      },
     );
-    if (!inserted) {
-      const recorded = await readRecordedOutcome(
-        ctx,
-        facts.s3Key,
-        transactionId,
-      );
-      if (recorded) return recorded;
+  } catch (error) {
+    // The uploader's ownership can lapse between the early check and this
+    // write; RLS then refuses the statement_files row. That is the same
+    // unrecorded not-owner rejection, not an error that retries into the DLQ.
+    if (isStatementFilesPolicyViolation(error)) {
+      return unrecordedRejection([
+        {
+          code: 'not-owner',
+          message: 'The uploader is no longer an owner of the selected account',
+        },
+      ]);
     }
-    return {
-      fileId,
-      status: 'rejected' as const,
-      reasons,
-      warningsByAccount: {},
-      redelivered: false,
-    };
-  });
+    throw error;
+  }
+}
+
+function isStatementFilesPolicyViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes(
+      'violates row-level security policy for table "statement_files"',
+    )
+  );
 }
 
 async function resolveRowAccounts(
