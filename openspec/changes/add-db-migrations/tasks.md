@@ -43,9 +43,14 @@
       Verify pglite tests for every `db-migrations` scenario that is testable in-process:
       ordered apply, fresh database, idempotent re-run, failing second statement rolls back
       the whole migration and stops later ones, earlier migration stays applied, edited
-      applied migration is refused with its id in the error, and the "already recorded while
-      waiting for the lock" re-check skips the migration (simulated by inserting the row
-      between the initial read and the per-migration transaction).
+      applied migration is refused with its id in the error, the "already recorded while
+      waiting for the lock" re-check skips the migration when the checksum matches and fails
+      naming the id when it differs (both simulated by inserting the row between the initial
+      read and the per-migration transaction), and `schema_migrations` is created inside a
+      bootstrap transaction that holds the lock. Lock acquisition uses
+      `pg_try_advisory_xact_lock` polling: verify with a fake clock and mocked executor that
+      it retries while the lock is taken, succeeds once released, and on reaching the
+      deadline rolls back and fails with the lock-timeout error.
 - [ ] 4.2 Add the resume retry to the Data API executor (retry only the resume-in-progress
       error, exponential backoff, ~2 minute cap); verify a unit test with a mocked
       `RDSDataClient` that fails twice with that error then succeeds, and one where a

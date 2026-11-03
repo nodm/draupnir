@@ -73,20 +73,49 @@ export const MIGRATIONS: readonly Migration[] = [m0001];
 
 ### 2. Runner algorithm: one Data API transaction per migration, advisory lock
 
-1. `CREATE TABLE IF NOT EXISTS schema_migrations (id text PRIMARY KEY,
-   checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`.
-2. Read all recorded rows; if any recorded id's checksum differs from the
+`acquireLock(tx)` is used in every transaction below:
+- It polls `SELECT pg_try_advisory_xact_lock(<fixed key>)` every 2 seconds
+  until it returns `true`.
+- It never uses the blocking `pg_advisory_xact_lock`. A blocking wait could
+  exceed Data API's 45-second synchronous statement timeout while another
+  runner applies a long migration, and the waiting run would fail instead of
+  waiting.
+- Each poll is a separate short call, so the Data API transaction also never
+  hits its 3-minute idle expiry.
+- Polling stops at an overall deadline: when the Lambda's remaining time
+  drops below 60 seconds, which leaves room to roll back. The runner then
+  rolls back and fails with "timed out waiting for the migration lock".
+
+Steps:
+1. **Bootstrap transaction:** `beginTransaction` → `acquireLock` →
+   `CREATE TABLE IF NOT EXISTS schema_migrations (id text PRIMARY KEY,
+   checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())` →
+   `commitTransaction`. Holding the lock serializes concurrent first runs on a
+   fresh database. `IF NOT EXISTS` alone doesn't, and two concurrent creates
+   can fail on the catalog's unique index.
+2. Read all recorded rows. If any recorded id's checksum differs from the
    defined migration's (or a recorded id no longer exists), fail naming it.
+   This is a fast pre-check without the lock; step 3 re-checks under the lock.
 3. For each defined migration not yet recorded, in id order:
-   `beginTransaction` → `SELECT pg_advisory_xact_lock(<fixed key>)` →
-   re-check `schema_migrations` for this id (skip if another run recorded it
-   while we waited) → execute each statement → insert the
-   `schema_migrations` row → `commitTransaction`. On any error,
-   `rollbackTransaction` and rethrow.
+   `beginTransaction` → `acquireLock` → read this id's row from
+   `schema_migrations`:
+   - **Recorded with the same checksum** (another run applied it while we
+     waited): `rollbackTransaction` and continue with the next migration.
+   - **Recorded with a different checksum** (a concurrent run deployed
+     different content for this id): `rollbackTransaction` and fail naming
+     the id. Silently accepting it would apply later migrations against an
+     unexpected schema.
+   - **Not recorded:** execute each statement, insert the `schema_migrations`
+     row, then `commitTransaction`.
+
+   On any error, `rollbackTransaction` and rethrow.
 - Postgres DDL is transactional, so step 3 gives the spec's atomicity.
 - The transaction-scoped advisory lock releases on commit/rollback, so a
-  crashed runner cannot leave a stale lock (Data API transactions also expire
+  crashed runner can't leave a stale lock (Data API transactions also expire
   after 3 minutes idle).
+- Each migration statement must itself finish within Data API's 45-second
+  synchronous limit. At this data size every planned DDL does. Long-running
+  backfills are out of scope (Non-Goals).
 - **Alternative:** one transaction for all pending migrations. Rejected: the
   spec wants earlier migrations to stay applied when a later one fails, which
   makes failures easier to localize.

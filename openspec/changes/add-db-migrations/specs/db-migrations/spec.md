@@ -65,6 +65,11 @@ migration changed.
 - **THEN** the runner fails, names `0001` in its error, and applies no pending
   migration
 
+#### Scenario: Concurrent run with different content for the same id
+- **WHEN** a run is waiting to apply migration `0002`, and meanwhile another run
+  records `0002` with different content
+- **THEN** the waiting run fails naming `0002` and applies no later migration
+
 ### Requirement: Concurrent runs cannot apply the same migration twice
 The runner SHALL serialize itself so that two runs started at the same time
 against the same database never apply the same migration twice or interleave
@@ -72,9 +77,15 @@ their statements.
 
 #### Scenario: Two simultaneous runs
 - **WHEN** two runner invocations start at the same time with the same pending
-  migration
+  migration, including against a fresh database without `schema_migrations`
 - **THEN** that migration is applied and recorded exactly once, and both
   invocations finish without error
+
+#### Scenario: Waiting for the lock is bounded
+- **WHEN** a run cannot acquire the migration lock before its time budget runs
+  out
+- **THEN** it rolls back, fails with an error saying it timed out waiting for the
+  lock, and leaves the database unchanged
 
 ### Requirement: Migrations run as part of deployment, before application code
 Deploying the stack SHALL run the migration runner whenever the set of defined
