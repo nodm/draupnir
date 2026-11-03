@@ -9,7 +9,6 @@ import {
   type DataApiConfig,
 } from 'shared';
 import {
-  MissingUploadAccountError,
   OversizedStatementFileError,
   processStatementFile,
   type StatementOutcome,
@@ -457,7 +456,11 @@ describe('processStatementFile', () => {
           ) {
             revoked = true;
             // Same pglite connection, so this lands inside the import's transaction window.
-            await db.exec("DELETE FROM account_members WHERE account_id = 'R'");
+            // An account always keeps an owner, so another owner removes the uploader.
+            await db.exec(
+              `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'other-owner', 'owner');
+               DELETE FROM account_members WHERE account_id = 'R' AND user_id = 'user-1'`,
+            );
           }
         },
       });
@@ -796,10 +799,21 @@ describe('processStatementFile', () => {
       expect(await count('transactions')).toBe(0);
     });
 
-    it('fails when the upload-selected account does not exist', async () => {
-      await expect(
-        upload(REVOLUT, { accountId: 'ghost' }),
-      ).rejects.toBeInstanceOf(MissingUploadAccountError);
+    it('acknowledges an unrecorded not-owner rejection when the account is not visible to the uploader', async () => {
+      // A nonexistent account and one the uploader was removed from are
+      // indistinguishable under RLS; neither may retry into the DLQ.
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      for (const accountId of ['ghost', 'R']) {
+        const outcome = await upload(REVOLUT, {
+          accountId,
+          sub: 'removed-user',
+        });
+
+        expect(outcome.status).toBe('rejected');
+        expect(outcome.fileId).toBeNull();
+        expect(outcome.reasons[0]?.code).toBe('not-owner');
+      }
+      expect(await count('statement_files')).toBe(0);
     });
 
     it('rejects an oversized file from the event size before touching S3', async () => {

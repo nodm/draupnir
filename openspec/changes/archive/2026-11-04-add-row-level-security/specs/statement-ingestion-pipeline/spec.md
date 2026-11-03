@@ -3,7 +3,8 @@
 ### Requirement: A rejection by a non-owner is reported but not recorded
 When the uploader is not an `owner` member of the upload-selected account at
 processing time (for example, ownership was revoked after the presigned URL was
-issued), the pipeline SHALL reject the file with the reason `not-owner` and
+issued), or the account is not visible to them at all (removed member, or the
+account no longer exists, which the database does not distinguish), the pipeline SHALL reject the file with the reason `not-owner` and
 SHALL NOT write a `statement_files` row, because the database refuses writes by
 non-owners. The message SHALL be acknowledged rather than retried, and nothing
 SHALL reach the dead-letter destination. The outcome has no file id.

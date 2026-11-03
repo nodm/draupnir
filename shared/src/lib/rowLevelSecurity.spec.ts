@@ -55,8 +55,13 @@ beforeAll(async () => {
     INSERT INTO statement_files (id, upload_account_id, uploaded_by, bank, sha256, s3_key, status, rejection_reasons) VALUES
       ('f1', 'acc1', 'alice', 'seb', 'h1', 'k1', 'approved', NULL),
       ('f2', 'acc1', 'alice', 'seb', 'h2', 'k2', 'rejected', '[{"code":"x"}]'),
-      ('f3', 'acc3', 'bob', 'seb', 'h3', 'k3', 'approved', NULL);
-    INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f1', 'acc1'), ('f3', 'acc3');
+      ('f3', 'acc3', 'bob', 'seb', 'h3', 'k3', 'approved', NULL),
+      -- uploaded for acc2 by alice but resolved to acc3 too (bob's account)
+      ('f4', 'acc2', 'alice', 'seb', 'h4', 'k4', 'approved', NULL),
+      -- uploaded by dave, who is not a member of acc2 (e.g. removed since)
+      ('f5', 'acc2', 'dave', 'seb', 'h5', 'k5', 'approved', NULL);
+    INSERT INTO statement_file_accounts (file_id, account_id) VALUES
+      ('f1', 'acc1'), ('f3', 'acc3'), ('f4', 'acc2'), ('f4', 'acc3');
     INSERT INTO raw_rows (id, file_id, account_id, row_number, bank, format_version, payload) VALUES
       ('r1', 'f1', 'acc1', 1, 'seb', 'v1', '{}'),
       ('r3', 'f3', 'acc3', 1, 'seb', 'v1', '{}');
@@ -129,10 +134,26 @@ describe('reads', () => {
   });
 
   it('rejected files are visible to the uploader only; approved to upload-account members', async () => {
-    expect(await ids('alice', 'statement_files')).toEqual(['f1', 'f2']);
+    expect(await ids('alice', 'statement_files')).toEqual([
+      'f1',
+      'f2',
+      'f4',
+      'f5',
+    ]);
     // bob: viewer of acc1 sees approved f1, not alice's rejected f2; own f3.
-    expect(await ids('bob', 'statement_files')).toEqual(['f1', 'f3']);
+    expect(await ids('bob', 'statement_files')).toContain('f1');
+    expect(await ids('bob', 'statement_files')).not.toContain('f2');
     expect(await ids('carol', 'statement_files')).toEqual([]);
+  });
+
+  it('an approved file is visible through any account it resolved to', async () => {
+    // f4 was uploaded for acc2, but bob owns acc3, which f4 resolved to.
+    expect(await ids('bob', 'statement_files')).toEqual(['f1', 'f3', 'f4']);
+  });
+
+  it('the uploader loses an approved file once removed from its upload account', async () => {
+    // dave uploaded f5 for acc2 but is not a member of it.
+    expect(await ids('dave', 'statement_files')).toEqual([]);
   });
 
   it('a temporary table named account_members cannot fake membership', async () => {
@@ -147,6 +168,115 @@ describe('reads', () => {
       return r.rows;
     });
     expect(seen).toEqual([]);
+  });
+});
+
+describe('statement_file_accounts links', () => {
+  it('an owner cannot link someone else’s file to their own account', async () => {
+    // f3 belongs to bob's acc3; alice owns acc2 but not acc3 and didn't upload f3.
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f3', 'acc2')`,
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    expect(await ids('alice', 'statement_files')).not.toContain('f3');
+  });
+
+  it('the uploader or an owner of the upload account can link a resolved account', async () => {
+    await asApp('alice', () =>
+      db.exec(
+        `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f2', 'acc2')`,
+      ),
+    );
+    await db.exec(
+      `DELETE FROM statement_file_accounts WHERE file_id = 'f2' AND account_id = 'acc2'`,
+    );
+  });
+
+  it('only new_transaction_count can be updated; links cannot be rewritten', async () => {
+    expect(
+      await affected(
+        'alice',
+        `UPDATE statement_file_accounts SET new_transaction_count = 3 WHERE file_id = 'f1'`,
+      ),
+    ).toBe(1);
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `UPDATE statement_file_accounts SET file_id = 'f3' WHERE file_id = 'f1'`,
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `UPDATE statement_file_accounts SET account_id = 'acc2' WHERE file_id = 'f1'`,
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('last owner', () => {
+  async function newAccount(owner: string, iban: string): Promise<string> {
+    return asApp(owner, async () => {
+      const r = await db.query<{ id: string }>(
+        `SELECT draupnir.create_account('seb', $1, 'EUR', 'n', '2024-01-01', 0) AS id`,
+        [iban],
+      );
+      return r.rows[0].id;
+    });
+  }
+
+  it('the only owner cannot be deleted or demoted', async () => {
+    const id = await newAccount('erin', 'IBANLO1');
+    await expect(
+      asApp('erin', () =>
+        db.query(`DELETE FROM account_members WHERE account_id = $1`, [id]),
+      ),
+    ).rejects.toThrow(/at least one owner/);
+    await expect(
+      asApp('erin', () =>
+        db.query(
+          `UPDATE account_members SET role = 'viewer' WHERE account_id = $1`,
+          [id],
+        ),
+      ),
+    ).rejects.toThrow(/at least one owner/);
+    await expect(
+      asApp('erin', () =>
+        db.query(
+          `UPDATE account_members SET user_id = 'other' WHERE account_id = $1`,
+          [id],
+        ),
+      ),
+    ).rejects.toThrow(/at least one owner/);
+  });
+
+  it('an owner can step down while another owner remains, but the last cannot', async () => {
+    const id = await newAccount('erin', 'IBANLO2');
+    await asApp('erin', () =>
+      db.query(
+        `INSERT INTO account_members (account_id, user_id, role) VALUES ($1, 'frank', 'owner')`,
+        [id],
+      ),
+    );
+    await asApp('erin', () =>
+      db.query(
+        `UPDATE account_members SET role = 'viewer' WHERE account_id = $1 AND user_id = 'erin'`,
+        [id],
+      ),
+    );
+    await expect(
+      asApp('frank', () =>
+        db.query(
+          `DELETE FROM account_members WHERE account_id = $1 AND user_id = 'frank'`,
+          [id],
+        ),
+      ),
+    ).rejects.toThrow(/at least one owner/);
   });
 });
 
@@ -306,7 +436,7 @@ async function tablesWithoutRls(): Promise<string[]> {
   const r = await db.query<{ relname: string }>(
     `SELECT c.relname FROM pg_class c
        JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'schema_migrations'
+      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname <> 'schema_migrations'
         AND (NOT c.relrowsecurity
              OR NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid))
       ORDER BY c.relname`,
@@ -340,13 +470,20 @@ describe('guards', () => {
   it('the guards fail for a table without policies and an unsafe function', async () => {
     await db.exec(`CREATE TABLE scratch_no_rls (id int)`);
     await db.exec(
+      `CREATE TABLE scratch_partitioned (id int) PARTITION BY RANGE (id)`,
+    );
+    await db.exec(
       `CREATE FUNCTION draupnir.scratch_unsafe() RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$`,
     );
     try {
-      expect(await tablesWithoutRls()).toEqual(['scratch_no_rls']);
+      expect(await tablesWithoutRls()).toEqual([
+        'scratch_no_rls',
+        'scratch_partitioned',
+      ]);
       expect(await unsafeDefinerFunctions()).toEqual(['scratch_unsafe']);
     } finally {
       await db.exec(`DROP TABLE scratch_no_rls`);
+      await db.exec(`DROP TABLE scratch_partitioned`);
       await db.exec(`DROP FUNCTION draupnir.scratch_unsafe()`);
     }
   });

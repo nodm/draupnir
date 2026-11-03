@@ -96,7 +96,7 @@ Three layers (ADR-0008); access is by account membership (`account_members`, rol
 ```mermaid
 graph LR
   CSV["Original CSV<br/>S3 uploads bucket, unchanged"]
-  Files["statement_files<br/>one row per import:<br/>approved | rejected + reasons<br/>(approved: upload-account members;<br/>rejected: uploader only)"]
+  Files["statement_files<br/>one row per import:<br/>approved | rejected + reasons<br/>(approved: members of the upload or a resolved account;<br/>rejected: uploader only)"]
   FileAccts["statement_file_accounts<br/>per resolved account: periods,<br/>balances, new count, warnings<br/>(account members)"]
   Raw["raw_rows<br/>every row as jsonb of strings,<br/>bank + format version + row number"]
   Tx["transactions<br/>common, derived, rebuildable<br/>UNIQUE (account_id, dedup_key)"]

@@ -54,3 +54,12 @@
 - [x] 4.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
       `docs/architecture.md` (two DB credentials, RLS) and the PR checklist in
       `.github/pull_request_template.md` to mention RLS policies for new tables.
+
+## 5. Review follow-ups
+
+- [x] 5.1 Migration `0006-rls-review-fixes`: last-owner trigger; `statement_files` select policy
+      rejected-uploader-only plus approved by upload-account or resolved-account membership.
+- [x] 5.2 Worker: an upload account not visible to the uploader is an unrecorded `not-owner`
+      rejection (no `MissingUploadAccountError`).
+- [x] 5.3 Guard test covers partitioned tables; tests for each fix.
+- [x] 5.4 Migration `0007-restrict-file-account-links`: link inserts require owning or uploading the file; update limited to `new_transaction_count`.
