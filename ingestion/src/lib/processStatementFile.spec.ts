@@ -8,7 +8,7 @@ import {
   UnresolvableRowIbanError,
   type ParserDispatch,
 } from './processStatementFile';
-import type { DataApiConfig } from './dataApi';
+import type { DataApiConfig } from 'shared';
 import type { NormalizedRow } from './parsers/types';
 
 const dataApiConfig: DataApiConfig = {
@@ -175,7 +175,7 @@ describe('processStatementFile', () => {
     // Regression test: BatchExecuteStatement (unlike ExecuteStatement) does
     // not implicitly cast a plain stringValue to a `date` column — verified
     // against a live cluster, where this failed with "column is of type
-    // date but expression is of type text" before dataApi.ts's
+    // date but expression is of type text" before shared's dataApi.ts
     // dateParameter() added an explicit typeHint.
     const send = fakeDataApiClient({
       accountsById: {

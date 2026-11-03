@@ -6,8 +6,8 @@ vi.mock('./lib/processStatementFile', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./lib/processStatementFile')>()),
   processStatementFile,
 }));
-vi.mock('./lib/dataApi', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./lib/dataApi')>()),
+vi.mock('shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('shared')>()),
   loadDataApiConfigFromEnv: () => ({
     resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',
     secretArn: 'arn:aws:secretsmanager:eu-north-1:123:secret:test',

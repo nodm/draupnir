@@ -3,7 +3,7 @@ import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { requireSub } from './auth';
-import { executeStatement, type DataApiConfig } from './dataApi';
+import { executeStatement, type DataApiConfig } from 'shared';
 
 const PRESIGNED_URL_TTL_SECONDS = 900;
 

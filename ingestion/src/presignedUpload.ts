@@ -6,7 +6,7 @@ import type {
 	Handler,
 } from "aws-lambda";
 import { UnauthenticatedError } from "./lib/auth";
-import { loadDataApiConfigFromEnv } from "./lib/dataApi";
+import { loadDataApiConfigFromEnv } from "shared";
 import {
 	AccountNotFoundError,
 	createPresignedUpload,

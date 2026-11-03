@@ -12,7 +12,7 @@ import {
   type CreateAccountInput,
 } from './lib/accounts';
 import { UnauthenticatedError } from './lib/auth';
-import { loadDataApiConfigFromEnv } from './lib/dataApi';
+import { loadDataApiConfigFromEnv } from 'shared';
 
 const client = new RDSDataClient({});
 
