@@ -1,12 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import {
   BANKS,
-  beginTransaction,
-  commitTransaction,
   dateParameter,
   executeStatement,
-  rollbackTransaction,
+  withCaller,
   type Bank,
   type DataApiConfig,
 } from 'shared';
@@ -138,39 +135,28 @@ export async function createAccount(
     throw new InvalidAccountInputError('openingBalanceMinorUnits');
   }
 
-  const id = randomUUID();
-
-  // The account and its owner membership exist together or not at all: an
-  // account with no owner could never be uploaded to or shared.
-  const transactionId = await beginTransaction(client, config);
+  // The account and its owner membership are created together by one
+  // SECURITY DEFINER function: the app role has no INSERT on accounts.
+  let id: string;
   try {
-    await executeStatement(
-      client,
-      config,
-      `INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units)
-       VALUES (:id, :bank, :iban, :currency, :displayName, :openedOn, :openingBalance)`,
-      {
-        id,
-        bank: input.bank,
-        iban,
-        currency,
-        displayName: input.displayName,
-        openedOn: dateParameter(input.openedOn),
-        openingBalance: input.openingBalanceMinorUnits,
-      },
-      transactionId,
-    );
-    await executeStatement(
-      client,
-      config,
-      `INSERT INTO account_members (account_id, user_id, role)
-       VALUES (:accountId, :userId, 'owner')`,
-      { accountId: id, userId: sub },
-      transactionId,
-    );
-    await commitTransaction(client, config, transactionId);
+    id = await withCaller(client, config, sub, async (transactionId) => {
+      const { rows } = await executeStatement(
+        client,
+        config,
+        `SELECT draupnir.create_account(:bank, :iban, :currency, :displayName, CAST(:openedOn AS date), CAST(:openingBalance AS bigint)) AS id`,
+        {
+          bank: input.bank,
+          iban,
+          currency,
+          displayName: input.displayName,
+          openedOn: dateParameter(input.openedOn),
+          openingBalance: input.openingBalanceMinorUnits,
+        },
+        transactionId,
+      );
+      return (rows[0] as { id: string }).id;
+    });
   } catch (error) {
-    await rollbackTransaction(client, config, transactionId);
     if (error instanceof Error && error.message.includes('duplicate key')) {
       throw new DuplicateIbanError();
     }

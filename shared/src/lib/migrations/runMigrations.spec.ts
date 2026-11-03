@@ -32,8 +32,14 @@ describe('runMigrations (pglite)', () => {
   function run(
     migrations: readonly Migration[],
     executor: MigrationExecutor = createPgliteExecutor(db),
+    extra: { appRolePassword?: string } = {},
   ) {
-    return runMigrations({ executor, migrations, lockDeadlineMs: NEVER });
+    return runMigrations({
+      executor,
+      migrations,
+      lockDeadlineMs: NEVER,
+      ...extra,
+    });
   }
 
   async function recordedIds(): Promise<string[]> {
@@ -198,9 +204,9 @@ describe('runMigrations (pglite)', () => {
         calls.push('begin');
         return inner.begin();
       },
-      async execute(sql, transactionId) {
+      async execute(sql, transactionId, parameters) {
         calls.push(sql.split('\n')[0].split('(')[0].trim());
-        return inner.execute(sql, transactionId);
+        return inner.execute(sql, transactionId, parameters);
       },
       async commit(transactionId) {
         calls.push('commit');
@@ -211,12 +217,36 @@ describe('runMigrations (pglite)', () => {
 
     await run([], executor);
 
-    expect(calls.slice(0, 4)).toEqual([
+    expect(calls.slice(0, 5)).toEqual([
       'begin',
       'SELECT pg_try_advisory_xact_lock',
       'CREATE TABLE IF NOT EXISTS schema_migrations',
+      'DO $$ BEGIN',
       'commit',
     ]);
+  });
+
+  it('creates the app role and sets its password without putting it in statement text', async () => {
+    const inner = createPgliteExecutor(db);
+    const statements: string[] = [];
+    const executor: MigrationExecutor = {
+      ...inner,
+      async execute(sql, transactionId, parameters) {
+        statements.push(sql);
+        return inner.execute(sql, transactionId, parameters);
+      },
+    };
+
+    await run([], executor, { appRolePassword: 's3cret-pw' });
+    await run([], executor, { appRolePassword: 's3cret-pw-2' });
+
+    const roles = await db.query<{ rolname: string; rolpassword: string }>(
+      `SELECT rolname, rolpassword FROM pg_authid WHERE rolname = 'draupnir_app'`,
+    );
+    expect(roles.rows).toHaveLength(1);
+    // Stored as a SCRAM/MD5 hash, never plaintext; changed by the second run.
+    expect(roles.rows[0].rolpassword).not.toContain('s3cret');
+    expect(statements.join('\n')).not.toContain('s3cret');
   });
 
   // 4.3 — migration 0001 against the hand-created live schema.
@@ -280,6 +310,10 @@ describe('runMigrations (pglite)', () => {
       '0002-statement-data-model',
       '0003-import-order-and-raw-row-account',
       '0004-backfill-import-seq',
+      '0005-row-level-security',
+      '0006-rls-review-fixes',
+      '0007-restrict-file-account-links',
+      '0008-link-requires-upload-account-owner',
     ]);
   });
 });

@@ -16,8 +16,10 @@ Depends on `redesign-statement-data-model` (policies target its tables).
   - `accounts`, `account_members`;
   - `statement_file_accounts`, `raw_rows`;
   - `transactions`, `transaction_sources`;
-  - `statement_files` (visible to the uploader only, since rejection reasons
-    can quote other accounts' rows).
+  - `statement_files` (approved files are visible to members of the upload
+    account, since rebuilds and duplicate checks need every owner's files;
+    rejected files only to their uploader, since rejection reasons can quote
+    other accounts' rows).
 
   Rows are visible only when the caller is a member of the row's account.
   Writes require `owner` membership, except creating a brand-new account,
@@ -30,6 +32,10 @@ Depends on `redesign-statement-data-model` (policies target its tables).
 - Every application database call runs inside a Data API transaction that first
   sets the caller's identity for that transaction only (`withCaller(sub, fn)`).
   The ingestion worker sets it from the S3 object key's `sub`.
+- The last owner of an account can't be removed or demoted, enforced by a
+  trigger (migration `0006`).
+- A `not-owner` rejection (the uploader lost ownership or can't see the account) is reported but not
+  recorded, since a non-owner can't write `statement_files`.
 - Application-level membership predicates stay in queries (defence in depth).
 
 ## Capabilities
@@ -38,6 +44,7 @@ Depends on `redesign-statement-data-model` (policies target its tables).
 (none)
 
 ### Modified Capabilities
+- `statement-ingestion-pipeline`: adds the unrecorded `not-owner` rejection.
 - `row-level-authorization`: adds database-level enforcement of membership
   visibility, owner-only writes, fail-closed behavior when no caller is
   identified, and per-transaction identity scoping.

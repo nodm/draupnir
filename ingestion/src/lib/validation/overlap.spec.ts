@@ -47,7 +47,7 @@ describe('findOverlapConflicts', () => {
         ('A', '2026-08-29', -1050, 'EUR', 'lidl', 'k1', 5000),
         ('B', '2026-08-29', -9999, 'EUR', 'other', 'k1', NULL);
     `);
-    client = createPgliteDataApiClient(db).client;
+    client = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
   });
   afterAll(async () => {
     await db.close();

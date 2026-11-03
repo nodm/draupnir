@@ -47,7 +47,7 @@ describe('membership on a real Postgres instance', () => {
   beforeAll(async () => {
     db = new PGlite();
     await applyMigrationsForTest(db);
-    client = createPgliteDataApiClient(db).client;
+    client = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
   });
 
   afterAll(async () => {

@@ -190,3 +190,38 @@ export async function rollbackTransaction(
     }),
   );
 }
+
+// Runs `fn` in one Data API transaction scoped to `sub`. The identity is set
+// with set_config(..., is_local = true), so it lasts only for this transaction
+// and can't leak to the next request on a pooled session. Database access
+// outside withCaller has no identity, so RLS returns nothing (fails closed).
+export async function withCaller<T>(
+  client: RDSDataClient,
+  config: DataApiConfig,
+  sub: string,
+  fn: (transactionId: string) => Promise<T>,
+): Promise<T> {
+  if (!sub) {
+    throw new Error('withCaller requires a non-empty sub');
+  }
+  const transactionId = await beginTransaction(client, config);
+  try {
+    await executeStatement(
+      client,
+      config,
+      `SELECT set_config('app.sub', :sub, true)`,
+      { sub },
+      transactionId,
+    );
+    const result = await fn(transactionId);
+    await commitTransaction(client, config, transactionId);
+    return result;
+  } catch (error) {
+    try {
+      await rollbackTransaction(client, config, transactionId);
+    } catch {
+      // surface the original error
+    }
+    throw error;
+  }
+}

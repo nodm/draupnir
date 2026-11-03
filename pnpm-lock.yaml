@@ -298,12 +298,18 @@ importers:
       '@aws-sdk/client-rds-data':
         specifier: 3.1121.0
         version: 3.1121.0
+      '@aws-sdk/client-secrets-manager':
+        specifier: 3.1121.0
+        version: 3.1121.0
       '@pulumi/aws':
         specifier: ^7.43.0
         version: 7.43.0(supports-color@11.0.0)(ts-node@10.9.1(@types/node@22.20.1)(typescript@6.0.3))(typescript@6.0.3)
       '@pulumi/pulumi':
         specifier: ^3.259.0
         version: 3.259.0(supports-color@11.0.0)(ts-node@10.9.1(@types/node@22.20.1)(typescript@6.0.3))(typescript@6.0.3)
+      '@pulumi/random':
+        specifier: ^4.21.6
+        version: 4.21.6(supports-color@11.0.0)(ts-node@10.9.1(@types/node@22.20.1)(typescript@6.0.3))(typescript@6.0.3)
       shared:
         specifier: workspace:*
         version: link:../shared
@@ -449,6 +455,10 @@ packages:
 
   '@aws-sdk/client-s3@3.1121.0':
     resolution: {integrity: sha512-hBnoqaVBeWdkgXcJElMXA2yUZWkBCBntu2qmN+tfqmzC+j4LzJC3ox8qIgS2WdMS1cb8UwyBogUVrkRXybNm0A==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-secrets-manager@3.1121.0':
+    resolution: {integrity: sha512-kx66Imv5DomVdd5uwai10Dhf0zZg9Z3EODxJCYRGjmaD0GR08GkvuIPPIqE+ZmpHANCWbur9UKpgyXGJzk60pg==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.977.9':
@@ -2261,6 +2271,9 @@ packages:
         optional: true
       typescript:
         optional: true
+
+  '@pulumi/random@4.21.6':
+    resolution: {integrity: sha512-HsWUATAcKxceBcvNzPIdkC7sXyWWiGZmd/y4eZKF5nSAwCgpOPReZ+LLFbkl2bvKGHc3nNX5vIM84YU2dpSD1Q==}
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     resolution: {integrity: sha512-DLe/i+l8ynIBY7XEQ191TeZvCoowIGa18R+dIV30GW7DiOtp74i/xX8hs8GUjW5ARV7VZuie3d6AumSmCwbeRA==}
@@ -5778,6 +5791,17 @@ snapshots:
       '@smithy/types': 4.17.2
       tslib: 2.8.1
 
+  '@aws-sdk/client-secrets-manager@3.1121.0':
+    dependencies:
+      '@aws-sdk/core': 3.977.9
+      '@aws-sdk/credential-provider-node': 3.972.81
+      '@aws-sdk/types': 3.974.5
+      '@smithy/core': 3.33.3
+      '@smithy/fetch-http-handler': 5.7.2
+      '@smithy/node-http-handler': 4.11.3
+      '@smithy/types': 4.17.2
+      tslib: 2.8.1
+
   '@aws-sdk/core@3.977.9':
     dependencies:
       '@aws-sdk/types': 3.974.5
@@ -8227,6 +8251,14 @@ snapshots:
       typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
+
+  '@pulumi/random@4.21.6(supports-color@11.0.0)(ts-node@10.9.1(@types/node@22.20.1)(typescript@6.0.3))(typescript@6.0.3)':
+    dependencies:
+      '@pulumi/pulumi': 3.259.0(supports-color@11.0.0)(ts-node@10.9.1(@types/node@22.20.1)(typescript@6.0.3))(typescript@6.0.3)
+    transitivePeerDependencies:
+      - supports-color
+      - ts-node
+      - typescript
 
   '@rolldown/binding-android-arm-eabi@1.2.5':
     optional: true

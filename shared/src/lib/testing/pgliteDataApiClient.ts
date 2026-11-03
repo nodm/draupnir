@@ -69,8 +69,21 @@ export interface PgliteDataApiClient {
   commands: string[];
 }
 
-export function createPgliteDataApiClient(db: PGlite): PgliteDataApiClient {
+export interface PgliteDataApiClientOptions {
+  // Run statements as this (non-owner) role, as production does, so row-level
+  // security applies. Transactions use SET LOCAL ROLE; a statement sent
+  // outside a transaction runs as the role with no caller identity.
+  role?: string;
+}
+
+export function createPgliteDataApiClient(
+  db: PGlite,
+  options: PgliteDataApiClientOptions = {},
+): PgliteDataApiClient {
   const commands: string[] = [];
+  const { role } = options;
+  // Role names come from test code, never callers; quote anyway.
+  const setRole = role ? `SET LOCAL ROLE "${role.replace(/"/g, '""')}"` : null;
 
   const send = async (command: unknown): Promise<unknown> => {
     const name = (command as { constructor: { name: string } }).constructor
@@ -81,6 +94,7 @@ export function createPgliteDataApiClient(db: PGlite): PgliteDataApiClient {
     switch (name) {
       case 'BeginTransactionCommand':
         await db.exec('BEGIN');
+        if (setRole) await db.exec(setRole);
         return { transactionId: 'pglite-tx' };
       case 'CommitTransactionCommand':
         await db.exec('COMMIT');
@@ -93,18 +107,33 @@ export function createPgliteDataApiClient(db: PGlite): PgliteDataApiClient {
           input['sql'] as string,
           (input['parameters'] as SqlParameterLike[] | undefined) ?? [],
         );
-        const result = await db.query<Record<string, unknown>>(text, values, {
-          parsers: PARSERS,
-        });
+        const unscoped = role && !input['transactionId'];
+        if (unscoped) await db.exec(`SET ROLE "${role}"`);
+        let result;
+        try {
+          result = await db.query<Record<string, unknown>>(text, values, {
+            parsers: PARSERS,
+          });
+        } finally {
+          if (unscoped) await db.exec('RESET ROLE');
+        }
         return {
           formattedRecords: JSON.stringify(result.rows),
           numberOfRecordsUpdated: result.affectedRows ?? 0,
         };
       }
       case 'BatchExecuteStatementCommand': {
-        for (const set of input['parameterSets'] as SqlParameterLike[][]) {
-          const { text, values } = toPositional(input['sql'] as string, set);
-          await db.query(text, values);
+        // Same scoping as a single statement: outside a transaction the role
+        // runs with no caller identity, never as the owner.
+        const unscoped = role && !input['transactionId'];
+        if (unscoped) await db.exec(`SET ROLE "${role}"`);
+        try {
+          for (const set of input['parameterSets'] as SqlParameterLike[][]) {
+            const { text, values } = toPositional(input['sql'] as string, set);
+            await db.query(text, values);
+          }
+        } finally {
+          if (unscoped) await db.exec('RESET ROLE');
         }
         return { updateResults: [] };
       }

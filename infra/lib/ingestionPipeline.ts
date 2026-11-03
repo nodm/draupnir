@@ -83,11 +83,7 @@ export function createIngestionPipeline(
 
   const uploadsBucket = new aws.s3.Bucket('uploads', {}, withProvider);
 
-  const deadLetterQueue = new aws.sqs.Queue(
-    'ingestion-dlq',
-    {},
-    withProvider,
-  );
+  const deadLetterQueue = new aws.sqs.Queue('ingestion-dlq', {}, withProvider);
 
   const queue = new aws.sqs.Queue(
     'ingestion',

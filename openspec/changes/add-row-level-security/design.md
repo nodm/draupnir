@@ -103,7 +103,7 @@ A pglite guard test enforces the rule (decision 5).
 |---|---|---|
 | `accounts` | `is_member(id, 'viewer')` | no direct INSERT grant; UPDATE/DELETE `is_member(id, 'owner')` |
 | `account_members` | `is_member(account_id, 'viewer')` | `is_member(account_id, 'owner')` |
-| `statement_files` | `uploaded_by = draupnir.current_sub()` (file-level reasons can quote other accounts' rows) | INSERT `WITH CHECK (uploaded_by = draupnir.current_sub() AND draupnir.is_member(upload_account_id, 'owner'))`; no UPDATE/DELETE grant |
+| `statement_files` | `(status = 'rejected' AND uploaded_by = draupnir.current_sub()) OR (status = 'approved' AND (draupnir.is_member(upload_account_id, 'viewer') OR draupnir.is_file_member(id)))` (only rejected files carry reasons that can quote other accounts' rows; `rebuildAccount` and the duplicate-sha256 check need every member's approved files, including those uploaded for another account but resolved to this one; the uploader branch is rejected-only so a removed member can't keep reading approved metadata). Migration `0006`, since `0005` was already applied | INSERT `WITH CHECK (uploaded_by = draupnir.current_sub() AND draupnir.is_member(upload_account_id, 'owner'))`; no UPDATE/DELETE grant |
 | `statement_file_accounts`, `raw_rows`, `transactions`, `transaction_sources` | `is_member(account_id, 'viewer')` | `USING` and `WITH CHECK`: `is_member(account_id, 'owner')` |
 
 - Every account-scoped child table carries its own `account_id`.
@@ -123,15 +123,49 @@ A pglite guard test enforces the rule (decision 5).
   problem without opening a general INSERT policy.
 - `schema_migrations` gets no grant to `draupnir_app`.
 
+### 4a. Last owner is enforced by a trigger
+
+The generic owner write policies would let an owner delete or demote the final
+owner row. A `BEFORE UPDATE OR DELETE` trigger on `account_members`
+(`draupnir.keep_last_owner()`, `SECURITY DEFINER`, migration `0006`) rejects any
+change that leaves an account without an owner. It locks the remaining owner
+rows (`FOR UPDATE`) so two owners can't remove each other concurrently. The
+application's `LastOwnerError` check stays as the first line of defence.
+
+### 4b. File-account links can't be forged
+
+A `statement_file_accounts` row grants visibility of its file to the account's
+members, so it must not be forgeable. Its INSERT policy also requires the caller
+to currently own the file's upload account
+(`draupnir.can_link_file()`, `SECURITY DEFINER`, migrations `0007`/`0008`; an
+uploader who left the account can't re-expose their file); UPDATE is
+column-limited to `new_transaction_count`, so `file_id`/`account_id` can't be
+rewritten.
+
 ### 5. Guard against new tables without RLS
 
-A pglite test asserts that every table in `public` except `schema_migrations`
+A pglite test asserts that every table (`relkind` `r` or `p`, so partitioned tables count) in `public` except `schema_migrations`
 has RLS enabled (`pg_class.relrowsecurity`) and at least one policy. A second
 guard asserts that every `SECURITY DEFINER` function in `public` and `draupnir`
 has `search_path=pg_catalog, pg_temp` in `pg_proc.proconfig` and is not
 executable by `PUBLIC`. Every
 later change that adds a table (bot, AI chat) then fails CI until it adds
 policies.
+
+### 5a. Rejections by non-owners are not recorded
+
+The `statement_files` INSERT policy requires owner membership of the upload
+account, so the worker can't persist a `not-owner` rejection (uploader lost
+ownership). The worker returns a rejected outcome with a null file id and logs
+it. The decision is deterministic, so a redelivery repeats it. The same
+outcome covers an upload account that isn't visible to the uploader (removed
+member, or the account no longer exists): RLS makes those indistinguishable,
+and a retry would only end in the DLQ.
+
+- **Alternatives considered:** letting the uploader insert `rejected` rows
+  regardless of membership, or a `SECURITY DEFINER` recording function. Both
+  keep an audit row but let a non-member write rows referencing accounts they
+  can't see (and leak account-id existence through FK errors).
 
 ### 6. Who sets which identity
 

@@ -5,8 +5,10 @@
   "type": "commonjs",
   "dependencies": {
     "@aws-sdk/client-rds-data": "3.1121.0",
+    "@aws-sdk/client-secrets-manager": "3.1121.0",
     "@pulumi/aws": "^7.43.0",
     "@pulumi/pulumi": "^3.259.0",
+    "@pulumi/random": "^4.21.6",
     "shared": "workspace:*",
     "tslib": "^2.3.0"
   }

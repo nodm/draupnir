@@ -2,13 +2,11 @@ import { createHash } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
-  beginTransaction,
-  commitTransaction,
   dateParameter,
   executeStatement,
   getMemberRole,
   memberPredicate,
-  rollbackTransaction,
+  withCaller,
   type Bank,
   type DataApiConfig,
 } from 'shared';
@@ -42,13 +40,6 @@ const LOCK_TIMEOUT = '30s';
 
 const DUPLICATE_APPROVED_INDEX = 'statement_files_approved_sha256_idx';
 
-export class MissingUploadAccountError extends Error {
-  constructor() {
-    super('The upload-selected account no longer exists');
-    this.name = 'MissingUploadAccountError';
-  }
-}
-
 export class OversizedStatementFileError extends Error {
   constructor(sizeBytes: number) {
     super(
@@ -59,7 +50,9 @@ export class OversizedStatementFileError extends Error {
 }
 
 export interface StatementOutcome {
-  fileId: string;
+  // Null for a rejection that couldn't be recorded: the uploader no longer owns
+  // the upload account, so row-level security refuses the statement_files row.
+  fileId: string | null;
   status: 'approved' | 'rejected';
   // Hard reasons; empty for an approved file.
   reasons: ValidationReason[];
@@ -67,6 +60,19 @@ export interface StatementOutcome {
   warningsByAccount: Record<string, ValidationReason[]>;
   // True when this call only returned the outcome recorded by an earlier one.
   redelivered: boolean;
+}
+
+// An uploader who isn't an owner of the upload account can't write a
+// statement_files row (row-level security), so this rejection is reported but
+// not recorded. It is deterministic, so a redelivery reaches the same outcome.
+function unrecordedRejection(reasons: ValidationReason[]): StatementOutcome {
+  return {
+    fileId: null,
+    status: 'rejected',
+    reasons,
+    warningsByAccount: {},
+    redelivered: false,
+  };
 }
 
 interface ObjectKeyParts {
@@ -96,6 +102,21 @@ interface AccountRecord {
 interface Context {
   client: RDSDataClient;
   config: DataApiConfig;
+  // The uploader, taken from the S3 object key: every database access runs as
+  // them, so row-level security applies to the worker like to any caller.
+  sub: string;
+}
+
+// Runs `work` inside `transactionId` when one is open, else in its own
+// transaction as the uploader.
+function inCallerTransaction<T>(
+  ctx: Context,
+  transactionId: string | undefined,
+  work: (transactionId: string) => Promise<T>,
+): Promise<T> {
+  return transactionId === undefined
+    ? withCaller(ctx.client, ctx.config, ctx.sub, work)
+    : work(transactionId);
 }
 
 function parseJsonColumn<T>(value: unknown, fallback: T): T {
@@ -105,9 +126,19 @@ function parseJsonColumn<T>(value: unknown, fallback: T): T {
 
 // Returns the outcome already committed for this S3 object, if any.
 async function findRecordedOutcome(
-  { client, config }: Context,
+  ctx: Context,
   key: string,
   transactionId?: string,
+): Promise<StatementOutcome | null> {
+  return inCallerTransaction(ctx, transactionId, (tx) =>
+    readRecordedOutcome(ctx, key, tx),
+  );
+}
+
+async function readRecordedOutcome(
+  { client, config }: Context,
+  key: string,
+  transactionId: string,
 ): Promise<StatementOutcome | null> {
   const { rows } = await executeStatement(
     client,
@@ -199,46 +230,81 @@ async function recordRejection(
   facts: FileFacts,
   reasons: ValidationReason[],
 ): Promise<StatementOutcome> {
-  const transactionId = await beginTransaction(ctx.client, ctx.config);
   try {
-    const { fileId, inserted } = await insertRejected(
-      ctx,
-      facts,
-      reasons,
-      transactionId,
+    return await withCaller(
+      ctx.client,
+      ctx.config,
+      ctx.sub,
+      async (transactionId) => {
+        const { fileId, inserted } = await insertRejected(
+          ctx,
+          facts,
+          reasons,
+          transactionId,
+        );
+        if (!inserted) {
+          const recorded = await readRecordedOutcome(
+            ctx,
+            facts.s3Key,
+            transactionId,
+          );
+          if (recorded) return recorded;
+        }
+        return {
+          fileId,
+          status: 'rejected' as const,
+          reasons,
+          warningsByAccount: {},
+          redelivered: false,
+        };
+      },
     );
-    await commitTransaction(ctx.client, ctx.config, transactionId);
-    if (!inserted) {
-      const recorded = await findRecordedOutcome(ctx, facts.s3Key);
-      if (recorded) return recorded;
-    }
-    return {
-      fileId,
-      status: 'rejected',
-      reasons,
-      warningsByAccount: {},
-      redelivered: false,
-    };
   } catch (error) {
-    await rollbackTransaction(ctx.client, ctx.config, transactionId);
+    // The uploader's ownership can lapse between the early check and this
+    // write; RLS then refuses the statement_files row. That is the same
+    // unrecorded not-owner rejection, not an error that retries into the DLQ.
+    if (isStatementFilesPolicyViolation(error)) {
+      return unrecordedRejection([
+        {
+          code: 'not-owner',
+          message: 'The uploader is no longer an owner of the selected account',
+        },
+      ]);
+    }
     throw error;
   }
 }
 
+function isStatementFilesPolicyViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes(
+      'violates row-level security policy for table "statement_files"',
+    )
+  );
+}
+
 async function resolveRowAccounts(
-  { client, config }: Context,
+  ctx: Context,
   uploaderSub: string,
   parsed: ParsedStatement,
 ): Promise<Map<string, AccountRecord>> {
   const ibans = [...new Set(parsed.rows.map((row) => row.iban))];
-  const { rows } = await executeStatement(
-    client,
-    config,
-    `SELECT a.id, a.bank, a.iban, a.currency, a.opened_on, a.opening_balance_minor_units
+  const { rows } = await withCaller(
+    ctx.client,
+    ctx.config,
+    ctx.sub,
+    (transactionId) =>
+      executeStatement(
+        ctx.client,
+        ctx.config,
+        `SELECT a.id, a.bank, a.iban, a.currency, a.opened_on, a.opening_balance_minor_units
        FROM accounts a
       WHERE a.iban IN (SELECT jsonb_array_elements_text(CAST(:ibans AS jsonb)))
         AND ${memberPredicate('a', 'id', 'owner')}`,
-    { ibans: JSON.stringify(ibans), sub: uploaderSub },
+        { ibans: JSON.stringify(ibans), sub: uploaderSub },
+        transactionId,
+      ),
   );
   return new Map(
     (rows as unknown as AccountRecord[]).map((account) => [
@@ -350,17 +416,6 @@ function activityBounds(rows: readonly ParsedRow[]): {
   };
 }
 
-async function rollbackQuietly(
-  ctx: Context,
-  transactionId: string,
-): Promise<void> {
-  try {
-    await rollbackTransaction(ctx.client, ctx.config, transactionId);
-  } catch {
-    // The original error is the one worth surfacing.
-  }
-}
-
 export async function processStatementFile(
   dataApiClient: RDSDataClient,
   dataApiConfig: DataApiConfig,
@@ -369,11 +424,18 @@ export async function processStatementFile(
   key: string,
   objectSizeBytes: number,
 ): Promise<StatementOutcome> {
-  const ctx: Context = { client: dataApiClient, config: dataApiConfig };
-
   if (objectSizeBytes > MAX_UPLOAD_SIZE_BYTES) {
     throw new OversizedStatementFileError(objectSizeBytes);
   }
+
+  // Only the presigned-URL endpoint issues keys, and it checked owner
+  // membership first, so the `sub` in the key is the identity the worker acts as.
+  const { uploaderSub, accountId } = parseObjectKey(key);
+  const ctx: Context = {
+    client: dataApiClient,
+    config: dataApiConfig,
+    sub: uploaderSub,
+  };
 
   // A redelivered message for an object whose outcome is already committed
   // returns that outcome — it must not be validated again, or the file would
@@ -381,16 +443,31 @@ export async function processStatementFile(
   const alreadyProcessed = await findRecordedOutcome(ctx, key);
   if (alreadyProcessed) return alreadyProcessed;
 
-  const { uploaderSub, accountId } = parseObjectKey(key);
-
-  const { rows: accountRows } = await executeStatement(
+  const { rows: accountRows } = await withCaller(
     dataApiClient,
     dataApiConfig,
-    'SELECT id, bank, iban, currency FROM accounts WHERE id = :accountId',
-    { accountId },
+    uploaderSub,
+    (transactionId) =>
+      executeStatement(
+        dataApiClient,
+        dataApiConfig,
+        'SELECT id, bank, iban, currency FROM accounts WHERE id = :accountId',
+        { accountId },
+        transactionId,
+      ),
   );
+  // RLS hides an account from a caller who isn't a member, so "the uploader was
+  // removed" and "the account is gone" look the same here (as at the
+  // presigned-URL endpoint). Both are an acknowledged, unrecorded not-owner
+  // rejection, never a retry that would end in the DLQ.
   if (accountRows.length === 0) {
-    throw new MissingUploadAccountError();
+    return unrecordedRejection([
+      {
+        code: 'not-owner',
+        message:
+          'The uploader is not an owner of the selected account, or it no longer exists',
+      },
+    ]);
   }
   const uploadAccount = accountRows[0] as unknown as AccountRecord;
 
@@ -433,7 +510,7 @@ export async function processStatementFile(
       uploaderSub,
     )) !== 'owner'
   ) {
-    return recordRejection(ctx, facts, [
+    return unrecordedRejection([
       {
         code: 'not-owner',
         message: 'The uploader is not an owner of the selected account',
@@ -475,250 +552,258 @@ export async function processStatementFile(
 
   // From here on the checks depend on stored history, so they run inside the
   // write transaction with every involved account locked.
-  const transactionId = await beginTransaction(dataApiClient, dataApiConfig);
   try {
-    await executeStatement(
+    return await withCaller(
       dataApiClient,
       dataApiConfig,
-      `SET LOCAL lock_timeout = '${LOCK_TIMEOUT}'`,
-      {},
-      transactionId,
-    );
-    // Id order keeps two multi-account files from deadlocking each other.
-    const lockIds = [...new Set([uploadAccount.id, ...groups.keys()])];
-    const { rows: lockedRows } = await executeStatement(
-      dataApiClient,
-      dataApiConfig,
-      `SELECT id, bank, iban, currency, opened_on, opening_balance_minor_units
+      uploaderSub,
+      async (transactionId) => {
+        await executeStatement(
+          dataApiClient,
+          dataApiConfig,
+          `SET LOCAL lock_timeout = '${LOCK_TIMEOUT}'`,
+          {},
+          transactionId,
+        );
+        // Id order keeps two multi-account files from deadlocking each other.
+        const lockIds = [...new Set([uploadAccount.id, ...groups.keys()])];
+        const { rows: lockedRows } = await executeStatement(
+          dataApiClient,
+          dataApiConfig,
+          `SELECT id, bank, iban, currency, opened_on, opening_balance_minor_units
          FROM accounts
         WHERE id IN (SELECT jsonb_array_elements_text(CAST(:ids AS jsonb)))
         ORDER BY id FOR UPDATE`,
-      { ids: JSON.stringify(lockIds) },
-      transactionId,
-    );
-    const lockedById = new Map(
-      (lockedRows as unknown as AccountRecord[]).map((a) => [a.id, a]),
-    );
+          { ids: JSON.stringify(lockIds) },
+          transactionId,
+        );
+        const lockedById = new Map(
+          (lockedRows as unknown as AccountRecord[]).map((a) => [a.id, a]),
+        );
 
-    // A concurrent redelivery of this same object may have committed while we
-    // waited for the lock.
-    const committedMeanwhile = await findRecordedOutcome(
-      ctx,
-      key,
-      transactionId,
-    );
-    if (committedMeanwhile) {
-      await rollbackTransaction(dataApiClient, dataApiConfig, transactionId);
-      return committedMeanwhile;
-    }
+        // A concurrent redelivery of this same object may have committed while we
+        // waited for the lock.
+        const committedMeanwhile = await findRecordedOutcome(
+          ctx,
+          key,
+          transactionId,
+        );
+        if (committedMeanwhile) {
+          return committedMeanwhile;
+        }
 
-    const reasons: ValidationReason[] = [];
+        const reasons: ValidationReason[] = [];
 
-    // Ownership was checked before this transaction, so re-check it here and
-    // hold a share lock on the owner rows until commit. `removeMember` and
-    // `changeMemberRole` lock a membership with FOR UPDATE, so a revocation
-    // either finished before this read (and is seen) or waits for this commit.
-    const { rows: ownerRows } = await executeStatement(
-      dataApiClient,
-      dataApiConfig,
-      `SELECT account_id FROM account_members
+        // Ownership was checked before this transaction, so re-check it here and
+        // hold a share lock on the owner rows until commit. `removeMember` and
+        // `changeMemberRole` lock a membership with FOR UPDATE, so a revocation
+        // either finished before this read (and is seen) or waits for this commit.
+        const { rows: ownerRows } = await executeStatement(
+          dataApiClient,
+          dataApiConfig,
+          `SELECT account_id FROM account_members
         WHERE user_id = :sub AND role = 'owner'
           AND account_id IN (SELECT jsonb_array_elements_text(CAST(:ids AS jsonb)))
         ORDER BY account_id FOR SHARE`,
-      { sub: uploaderSub, ids: JSON.stringify(lockIds) },
-      transactionId,
-    );
-    const stillOwned = new Set(
-      (ownerRows as unknown as { account_id: string }[]).map(
-        (r) => r.account_id,
-      ),
-    );
-    for (const id of lockIds) {
-      if (!stillOwned.has(id)) {
-        reasons.push({
-          code: 'not-owner',
-          message: `The uploader is no longer an owner of account ${lockedById.get(id)?.iban ?? id}`,
-        });
-      }
-    }
+          { sub: uploaderSub, ids: JSON.stringify(lockIds) },
+          transactionId,
+        );
+        const stillOwned = new Set(
+          (ownerRows as unknown as { account_id: string }[]).map(
+            (r) => r.account_id,
+          ),
+        );
+        for (const id of lockIds) {
+          if (!stillOwned.has(id)) {
+            reasons.push({
+              code: 'not-owner',
+              message: `The uploader is no longer an owner of account ${lockedById.get(id)?.iban ?? id}`,
+            });
+          }
+        }
 
-    const { rows: duplicateRows } = await executeStatement(
-      dataApiClient,
-      dataApiConfig,
-      `SELECT id, processed_at FROM statement_files
+        const { rows: duplicateRows } = await executeStatement(
+          dataApiClient,
+          dataApiConfig,
+          `SELECT id, processed_at FROM statement_files
         WHERE upload_account_id = :accountId AND sha256 = :sha256 AND status = 'approved'`,
-      { accountId: uploadAccount.id, sha256 },
-      transactionId,
-    );
-    const duplicate = duplicateRows[0] as
-      | { id: string; processed_at: string }
-      | undefined;
-    if (duplicate) {
-      reasons.push({
-        code: 'duplicate-file',
-        message: `Duplicate of an earlier import (file ${duplicate.id}, processed ${String(duplicate.processed_at)})`,
-      });
-    }
+          { accountId: uploadAccount.id, sha256 },
+          transactionId,
+        );
+        const duplicate = duplicateRows[0] as
+          | { id: string; processed_at: string }
+          | undefined;
+        if (duplicate) {
+          reasons.push({
+            code: 'duplicate-file',
+            message: `Duplicate of an earlier import (file ${duplicate.id}, processed ${String(duplicate.processed_at)})`,
+          });
+        }
 
-    const warningsByAccount: Record<string, ValidationReason[]> = {};
-    const segmentByAccount = new Map<string, Segment>();
-    const fileId = newId();
-    for (const [id, { account, rows }] of groups) {
-      reasons.push(
-        ...(await findOverlapConflicts(
+        const warningsByAccount: Record<string, ValidationReason[]> = {};
+        const segmentByAccount = new Map<string, Segment>();
+        const fileId = newId();
+        for (const [id, { account, rows }] of groups) {
+          reasons.push(
+            ...(await findOverlapConflicts(
+              dataApiClient,
+              dataApiConfig,
+              transactionId,
+              id,
+              overlapCandidates(rows),
+            )),
+          );
+
+          const declared = parsed.declaredPeriods.find(
+            (p) => p.iban === account.iban,
+          );
+          const bounds = activityBounds(rows);
+          const accountBalances = balances.get(account.iban);
+          const segment: Segment = {
+            fileId,
+            declaredFrom: declared?.from ?? null,
+            declaredTo: declared?.to ?? null,
+            activityFrom: bounds.from,
+            activityTo: bounds.to,
+            openingBalanceMinorUnits:
+              accountBalances?.openingBalanceMinorUnits ?? null,
+            closingBalanceMinorUnits:
+              accountBalances?.closingBalanceMinorUnits ?? null,
+          };
+          segmentByAccount.set(id, segment);
+
+          // Missing only when ownership was lost since resolution (RLS hides the
+          // account from FOR UPDATE); a not-owner reason was already recorded.
+          const locked = lockedById.get(id);
+          if (!locked) continue;
+          const coverageAccount: CoverageAccount = {
+            currency: locked.currency,
+            openedOn: String(locked.opened_on),
+            openingBalanceMinorUnits: locked.opening_balance_minor_units,
+          };
+          warningsByAccount[id] = continuityWarnings(
+            coverageAccount,
+            await loadSegments(dataApiClient, dataApiConfig, id, transactionId),
+            segment,
+          );
+        }
+
+        if (reasons.length > 0) {
+          if (!stillOwned.has(uploadAccount.id)) {
+            return unrecordedRejection(reasons);
+          }
+          const { fileId: rejectedId, inserted } = await insertRejected(
+            ctx,
+            facts,
+            reasons,
+            transactionId,
+          );
+          if (!inserted) {
+            const recorded = await findRecordedOutcome(ctx, key, transactionId);
+            if (recorded) return recorded;
+          }
+          return {
+            fileId: rejectedId,
+            status: 'rejected' as const,
+            reasons,
+            warningsByAccount: {},
+            redelivered: false,
+          };
+        }
+
+        await executeStatement(
+          dataApiClient,
+          dataApiConfig,
+          `INSERT INTO statement_files
+         (id, upload_account_id, uploaded_by, bank, format_version, sha256, s3_key, status)
+       VALUES (:id, :uploadAccountId, :uploadedBy, :bank, :formatVersion, :sha256, :s3Key, 'approved')`,
+          {
+            id: fileId,
+            uploadAccountId: facts.uploadAccountId,
+            uploadedBy: facts.uploadedBy,
+            bank: facts.bank,
+            formatVersion: parsed.formatVersion,
+            sha256,
+            s3Key: key,
+          },
+          transactionId,
+        );
+
+        const rawIdByRow = new Map<number, string>();
+        await insertRawRows(
           dataApiClient,
           dataApiConfig,
           transactionId,
-          id,
-          overlapCandidates(rows),
-        )),
-      );
+          parsed.rows.map((row) => {
+            const id = newId();
+            rawIdByRow.set(row.rowNumber, id);
+            return {
+              id,
+              fileId,
+              accountId: (accountByIban.get(row.iban) as AccountRecord).id,
+              rowNumber: row.rowNumber,
+              bank: uploadAccount.bank,
+              formatVersion: parsed.formatVersion,
+              bankTransactionId: row.bankTransactionId,
+              payload: row.payload,
+            };
+          }),
+        );
 
-      const declared = parsed.declaredPeriods.find(
-        (p) => p.iban === account.iban,
-      );
-      const bounds = activityBounds(rows);
-      const accountBalances = balances.get(account.iban);
-      const segment: Segment = {
-        fileId,
-        declaredFrom: declared?.from ?? null,
-        declaredTo: declared?.to ?? null,
-        activityFrom: bounds.from,
-        activityTo: bounds.to,
-        openingBalanceMinorUnits:
-          accountBalances?.openingBalanceMinorUnits ?? null,
-        closingBalanceMinorUnits:
-          accountBalances?.closingBalanceMinorUnits ?? null,
-      };
-      segmentByAccount.set(id, segment);
+        const derivationFiles: DerivationFile[] = [...groups.values()].map(
+          ({ account, rows }) => ({
+            bank: uploadAccount.bank,
+            accountId: account.id,
+            accountIban: account.iban,
+            rows: rows.map((row) => ({
+              rawRowId: rawIdByRow.get(row.rowNumber) as string,
+              rowNumber: row.rowNumber,
+              payload: row.payload,
+            })),
+          }),
+        );
+        const { newTransactionsByAccount } = await writeDerivation(
+          dataApiClient,
+          dataApiConfig,
+          transactionId,
+          deriveTransactions(derivationFiles),
+        );
 
-      const locked = lockedById.get(id) as AccountRecord;
-      const coverageAccount: CoverageAccount = {
-        currency: locked.currency,
-        openedOn: String(locked.opened_on),
-        openingBalanceMinorUnits: locked.opening_balance_minor_units,
-      };
-      warningsByAccount[id] = continuityWarnings(
-        coverageAccount,
-        await loadSegments(dataApiClient, dataApiConfig, id, transactionId),
-        segment,
-      );
-    }
-
-    if (reasons.length > 0) {
-      const { fileId: rejectedId, inserted } = await insertRejected(
-        ctx,
-        facts,
-        reasons,
-        transactionId,
-      );
-      await commitTransaction(dataApiClient, dataApiConfig, transactionId);
-      if (!inserted) {
-        const recorded = await findRecordedOutcome(ctx, key);
-        if (recorded) return recorded;
-      }
-      return {
-        fileId: rejectedId,
-        status: 'rejected',
-        reasons,
-        warningsByAccount: {},
-        redelivered: false,
-      };
-    }
-
-    await executeStatement(
-      dataApiClient,
-      dataApiConfig,
-      `INSERT INTO statement_files
-         (id, upload_account_id, uploaded_by, bank, format_version, sha256, s3_key, status)
-       VALUES (:id, :uploadAccountId, :uploadedBy, :bank, :formatVersion, :sha256, :s3Key, 'approved')`,
-      {
-        id: fileId,
-        uploadAccountId: facts.uploadAccountId,
-        uploadedBy: facts.uploadedBy,
-        bank: facts.bank,
-        formatVersion: parsed.formatVersion,
-        sha256,
-        s3Key: key,
-      },
-      transactionId,
-    );
-
-    const rawIdByRow = new Map<number, string>();
-    await insertRawRows(
-      dataApiClient,
-      dataApiConfig,
-      transactionId,
-      parsed.rows.map((row) => {
-        const id = newId();
-        rawIdByRow.set(row.rowNumber, id);
-        return {
-          id,
-          fileId,
-          accountId: (accountByIban.get(row.iban) as AccountRecord).id,
-          rowNumber: row.rowNumber,
-          bank: uploadAccount.bank,
-          formatVersion: parsed.formatVersion,
-          bankTransactionId: row.bankTransactionId,
-          payload: row.payload,
-        };
-      }),
-    );
-
-    const derivationFiles: DerivationFile[] = [...groups.values()].map(
-      ({ account, rows }) => ({
-        bank: uploadAccount.bank,
-        accountId: account.id,
-        accountIban: account.iban,
-        rows: rows.map((row) => ({
-          rawRowId: rawIdByRow.get(row.rowNumber) as string,
-          rowNumber: row.rowNumber,
-          payload: row.payload,
-        })),
-      }),
-    );
-    const { newTransactionsByAccount } = await writeDerivation(
-      dataApiClient,
-      dataApiConfig,
-      transactionId,
-      deriveTransactions(derivationFiles),
-    );
-
-    for (const [id, segment] of segmentByAccount) {
-      await executeStatement(
-        dataApiClient,
-        dataApiConfig,
-        `INSERT INTO statement_file_accounts
+        for (const [id, segment] of segmentByAccount) {
+          await executeStatement(
+            dataApiClient,
+            dataApiConfig,
+            `INSERT INTO statement_file_accounts
            (file_id, account_id, declared_from, declared_to, activity_from, activity_to,
             opening_balance_minor_units, closing_balance_minor_units, new_transaction_count, warnings)
          VALUES (:fileId, :accountId, :declaredFrom, :declaredTo, :activityFrom, :activityTo,
                  :opening, :closing, :newCount, CAST(:warnings AS jsonb))`,
-        {
-          fileId,
-          accountId: id,
-          declaredFrom: nullableDate(segment.declaredFrom),
-          declaredTo: nullableDate(segment.declaredTo),
-          activityFrom: nullableDate(segment.activityFrom),
-          activityTo: nullableDate(segment.activityTo),
-          opening: segment.openingBalanceMinorUnits,
-          closing: segment.closingBalanceMinorUnits,
-          newCount: newTransactionsByAccount.get(id) ?? 0,
-          warnings: JSON.stringify(warningsByAccount[id] ?? []),
-        },
-        transactionId,
-      );
-    }
+            {
+              fileId,
+              accountId: id,
+              declaredFrom: nullableDate(segment.declaredFrom),
+              declaredTo: nullableDate(segment.declaredTo),
+              activityFrom: nullableDate(segment.activityFrom),
+              activityTo: nullableDate(segment.activityTo),
+              opening: segment.openingBalanceMinorUnits,
+              closing: segment.closingBalanceMinorUnits,
+              newCount: newTransactionsByAccount.get(id) ?? 0,
+              warnings: JSON.stringify(warningsByAccount[id] ?? []),
+            },
+            transactionId,
+          );
+        }
 
-    await commitTransaction(dataApiClient, dataApiConfig, transactionId);
-    return {
-      fileId,
-      status: 'approved',
-      reasons: [],
-      warningsByAccount,
-      redelivered: false,
-    };
+        return {
+          fileId,
+          status: 'approved' as const,
+          reasons: [],
+          warningsByAccount,
+          redelivered: false,
+        };
+      },
+    );
   } catch (error) {
-    await rollbackQuietly(ctx, transactionId);
     // Safety net: the partial unique index closes the race where the same file
     // is approved twice; the loser is a duplicate rejection, not an error.
     if (

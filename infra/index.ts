@@ -10,22 +10,26 @@ const provider = createAwsProvider();
 const authPool = createAuthPool(provider);
 const auroraCluster = createAuroraCluster(provider);
 const dbConfig = auroraCluster.dbConfig;
+// Master credential: the migration runner only. Everything else uses the
+// draupnir_app credential, which row-level security applies to.
 const migrations = createDatabaseMigrations(
   provider,
   dbConfig,
   auroraCluster.instance,
+  auroraCluster.appSecretVersion,
 );
+const appDbConfig = auroraCluster.appDbConfig;
 // Schema before code: application Lambdas update only after migrations succeed.
 const afterMigrations = [migrations.invocation];
 const ingestionPipeline = createIngestionPipeline(
   provider,
-  dbConfig,
+  appDbConfig,
   afterMigrations,
 );
 const ingestionApi = createIngestionApi(
   authPool.userPool,
   provider,
-  dbConfig,
+  appDbConfig,
   ingestionPipeline.uploadsBucket,
   afterMigrations,
 );
@@ -40,6 +44,7 @@ export const ingestionInvokeUrl = ingestionApi.invokeUrl;
 export const uploadsBucketName = ingestionPipeline.uploadsBucket.bucket;
 export const ingestionQueueUrl = ingestionPipeline.queue.url;
 export const ingestionDlqUrl = ingestionPipeline.deadLetterQueue.url;
-export const rebuildAccountFunctionName = ingestionPipeline.rebuildFunction.name;
+export const rebuildAccountFunctionName =
+  ingestionPipeline.rebuildFunction.name;
 export const mcpApiId = mcpApi.restApi.id;
 export const mcpInvokeUrl = mcpApi.invokeUrl;

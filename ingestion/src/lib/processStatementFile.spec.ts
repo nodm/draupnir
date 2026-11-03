@@ -9,7 +9,6 @@ import {
   type DataApiConfig,
 } from 'shared';
 import {
-  MissingUploadAccountError,
   OversizedStatementFileError,
   processStatementFile,
   type StatementOutcome,
@@ -117,7 +116,7 @@ describe('processStatementFile', () => {
     const key =
       opts.key ??
       `uploads/${opts.sub ?? 'user-1'}/${opts.accountId}/${counter}.csv`;
-    const real = createPgliteDataApiClient(db).client;
+    const real = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
     const client = {
       send: async (command: Parameters<Hook>[0]) => {
         const sql = command.input['sql'];
@@ -302,6 +301,37 @@ describe('processStatementFile', () => {
       expect(outcome.reasons[0]?.code).toBe('unrecognized-format');
     });
 
+    it('acknowledges an unrecorded not-owner rejection when ownership lapses before an early rejection is written', async () => {
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      let revoked = false;
+
+      // Invalid format: rejected by validation, written by recordRejection,
+      // after the early ownership check already passed.
+      const outcome = await upload('foo,bar\n1,2\n', {
+        accountId: 'R',
+        hook: async (command) => {
+          const sql = command.input['sql'];
+          if (
+            !revoked &&
+            typeof sql === 'string' &&
+            sql.includes('INSERT INTO statement_files')
+          ) {
+            revoked = true;
+            await db.exec(
+              `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'other-owner', 'owner');
+               DELETE FROM account_members WHERE account_id = 'R' AND user_id = 'user-1'`,
+            );
+          }
+        },
+      });
+
+      expect(revoked).toBe(true);
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.fileId).toBeNull();
+      expect(outcome.reasons[0]?.code).toBe('not-owner');
+      expect(await count('statement_files')).toBe(0);
+    });
+
     it('rejects a currency mismatch naming the row', async () => {
       await account({
         id: 'R',
@@ -348,6 +378,9 @@ describe('processStatementFile', () => {
       });
 
       expect(outcome.reasons[0]?.code).toBe('not-owner');
+      // Not recorded: a non-owner can't write statement_files (RLS).
+      expect(outcome.fileId).toBeNull();
+      expect(await count('statement_files')).toBe(0);
       expect(await count('transactions')).toBe(0);
     });
 
@@ -454,13 +487,19 @@ describe('processStatementFile', () => {
           ) {
             revoked = true;
             // Same pglite connection, so this lands inside the import's transaction window.
-            await db.exec("DELETE FROM account_members WHERE account_id = 'R'");
+            // An account always keeps an owner, so another owner removes the uploader.
+            await db.exec(
+              `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'other-owner', 'owner');
+               DELETE FROM account_members WHERE account_id = 'R' AND user_id = 'user-1'`,
+            );
           }
         },
       });
 
       expect(outcome.status).toBe('rejected');
       expect(outcome.reasons[0]?.code).toBe('not-owner');
+      expect(outcome.fileId).toBeNull();
+      expect(await count('statement_files')).toBe(0);
       expect(await count('raw_rows')).toBe(0);
       expect(await count('transactions')).toBe(0);
     });
@@ -791,10 +830,21 @@ describe('processStatementFile', () => {
       expect(await count('transactions')).toBe(0);
     });
 
-    it('fails when the upload-selected account does not exist', async () => {
-      await expect(
-        upload(REVOLUT, { accountId: 'ghost' }),
-      ).rejects.toBeInstanceOf(MissingUploadAccountError);
+    it('acknowledges an unrecorded not-owner rejection when the account is not visible to the uploader', async () => {
+      // A nonexistent account and one the uploader was removed from are
+      // indistinguishable under RLS; neither may retry into the DLQ.
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      for (const accountId of ['ghost', 'R']) {
+        const outcome = await upload(REVOLUT, {
+          accountId,
+          sub: 'removed-user',
+        });
+
+        expect(outcome.status).toBe('rejected');
+        expect(outcome.fileId).toBeNull();
+        expect(outcome.reasons[0]?.code).toBe('not-owner');
+      }
+      expect(await count('statement_files')).toBe(0);
     });
 
     it('rejects an oversized file from the event size before touching S3', async () => {
