@@ -171,6 +171,54 @@ describe('reads', () => {
   });
 });
 
+describe('statement_file_accounts links', () => {
+  it('an owner cannot link someone else’s file to their own account', async () => {
+    // f3 belongs to bob's acc3; alice owns acc2 but not acc3 and didn't upload f3.
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f3', 'acc2')`,
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    expect(await ids('alice', 'statement_files')).not.toContain('f3');
+  });
+
+  it('the uploader or an owner of the upload account can link a resolved account', async () => {
+    await asApp('alice', () =>
+      db.exec(
+        `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f2', 'acc2')`,
+      ),
+    );
+    await db.exec(
+      `DELETE FROM statement_file_accounts WHERE file_id = 'f2' AND account_id = 'acc2'`,
+    );
+  });
+
+  it('only new_transaction_count can be updated; links cannot be rewritten', async () => {
+    expect(
+      await affected(
+        'alice',
+        `UPDATE statement_file_accounts SET new_transaction_count = 3 WHERE file_id = 'f1'`,
+      ),
+    ).toBe(1);
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `UPDATE statement_file_accounts SET file_id = 'f3' WHERE file_id = 'f1'`,
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asApp('alice', () =>
+        db.exec(
+          `UPDATE statement_file_accounts SET account_id = 'acc2' WHERE file_id = 'f1'`,
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
 describe('last owner', () => {
   async function newAccount(owner: string, iban: string): Promise<string> {
     return asApp(owner, async () => {

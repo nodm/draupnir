@@ -62,3 +62,4 @@
 - [x] 5.2 Worker: an upload account not visible to the uploader is an unrecorded `not-owner`
       rejection (no `MissingUploadAccountError`).
 - [x] 5.3 Guard test covers partitioned tables; tests for each fix.
+- [x] 5.4 Migration `0007-restrict-file-account-links`: link inserts require owning or uploading the file; update limited to `new_transaction_count`.

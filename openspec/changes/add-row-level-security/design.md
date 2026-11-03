@@ -132,6 +132,15 @@ change that leaves an account without an owner. It locks the remaining owner
 rows (`FOR UPDATE`) so two owners can't remove each other concurrently. The
 application's `LastOwnerError` check stays as the first line of defence.
 
+### 4b. File-account links can't be forged
+
+A `statement_file_accounts` row grants visibility of its file to the account's
+members, so it must not be forgeable. Its INSERT policy also requires the caller
+to have uploaded the file or own its upload account
+(`draupnir.can_link_file()`, `SECURITY DEFINER`, migration `0007`); UPDATE is
+column-limited to `new_transaction_count`, so `file_id`/`account_id` can't be
+rewritten.
+
 ### 5. Guard against new tables without RLS
 
 A pglite test asserts that every table (`relkind` `r` or `p`, so partitioned tables count) in `public` except `schema_migrations`

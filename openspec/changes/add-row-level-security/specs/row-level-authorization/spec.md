@@ -32,6 +32,12 @@ temporary tables).
   an `owner` of B who is not a member of A queries `statement_files`
 - **THEN** the approved file is returned
 
+#### Scenario: A file cannot be exposed by forging a link
+- **WHEN** an `owner` of an account who neither uploaded a file nor owns its
+  upload account tries to link that file to their account, by inserting a
+  per-account record or by rewriting an existing one's file or account
+- **THEN** the database rejects the write and the file stays hidden from them
+
 #### Scenario: Removed uploader loses access to an approved file
 - **WHEN** the uploader of an approved file is no longer a member of any account
   the file belongs to and queries `statement_files`
