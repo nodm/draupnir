@@ -87,7 +87,14 @@ export function createDatabaseMigrations(
     {
       functionName: migrateFunction.name,
       input: JSON.stringify({}),
-      triggers: { bundle: bundleChecksum() },
+      // Target identity is part of the trigger: pointing at a new cluster or
+      // database must re-run migrations even if the bundle is unchanged.
+      triggers: {
+        bundle: bundleChecksum(),
+        clusterArn: dbConfig.clusterArn,
+        secretArn: dbConfig.secretArn,
+        database: dbConfig.name,
+      },
     },
     { ...withProvider, dependsOn: [database, rolePolicy] },
   );
