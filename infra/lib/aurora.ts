@@ -1,11 +1,15 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
+import * as random from '@pulumi/random';
 import type { DbConfig } from './ingestionPipeline';
 
 const DB_NAME = 'draupnir';
 // RDS's CreateDBCluster only accepts 1-16 letters or numbers here — no
 // underscores or other punctuation.
 const MASTER_USERNAME = 'draupniradmin';
+// Login role every application Lambda uses; owns nothing and can't bypass RLS.
+// The migration runner creates it and sets its password from the secret below.
+export const APP_DB_USERNAME = 'draupnir_app';
 
 // 0 lets the cluster pause to $0 compute between uses — Aurora PostgreSQL
 // 17.7 supports scale-to-zero — matching ADR-0001/ADR-0003's near-zero-
@@ -19,7 +23,12 @@ const MAX_CAPACITY_ACU = 1;
 const SECONDS_UNTIL_AUTO_PAUSE = 300;
 
 export interface AuroraCluster {
+  // Master credential: the migration runner only.
   dbConfig: DbConfig;
+  // draupnir_app credential: every application Lambda.
+  appDbConfig: DbConfig;
+  appSecret: aws.secretsmanager.Secret;
+  appSecretVersion: aws.secretsmanager.SecretVersion;
   vpc: aws.ec2.Vpc;
   cluster: aws.rds.Cluster;
   // Data API needs the instance (compute) to exist before it can run SQL.
@@ -126,7 +135,38 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
     withProvider,
   );
 
+  // Pulumi generates the app role's password and stores it as a Data
+  // API-compatible secret. The role itself is created by the migration runner,
+  // which sets its password from this secret on every run.
+  const appPassword = new random.RandomPassword('draupnir-app-db', {
+    length: 32,
+    special: false,
+  });
+  const appSecret = new aws.secretsmanager.Secret(
+    'draupnir-app-db',
+    { description: 'Credentials of the draupnir_app database role' },
+    withProvider,
+  );
+  const appSecretVersion = new aws.secretsmanager.SecretVersion(
+    'draupnir-app-db',
+    {
+      secretId: appSecret.id,
+      secretString: pulumi.jsonStringify({
+        username: APP_DB_USERNAME,
+        password: appPassword.result,
+      }),
+    },
+    withProvider,
+  );
+
   return {
+    appSecret,
+    appSecretVersion,
+    appDbConfig: {
+      clusterArn: cluster.arn,
+      secretArn: appSecret.arn,
+      name: DB_NAME,
+    },
     dbConfig: {
       clusterArn: cluster.arn,
       secretArn: cluster.masterUserSecrets.apply((secrets) => {

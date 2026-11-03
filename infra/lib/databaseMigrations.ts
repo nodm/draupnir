@@ -34,6 +34,7 @@ export function createDatabaseMigrations(
   provider: aws.Provider,
   dbConfig: DbConfig,
   database: pulumi.Resource,
+  appSecretVersion: aws.secretsmanager.SecretVersion,
 ): DatabaseMigrations {
   const withProvider = { provider };
 
@@ -55,7 +56,15 @@ export function createDatabaseMigrations(
       role: role.id,
       policy: pulumi.jsonStringify({
         Version: '2012-10-17',
-        Statement: dataApiPolicyStatements(dbConfig),
+        Statement: [
+          ...dataApiPolicyStatements(dbConfig),
+          // The runner sets draupnir_app's password from this secret.
+          {
+            Effect: 'Allow',
+            Action: 'secretsmanager:GetSecretValue',
+            Resource: appSecretVersion.arn,
+          },
+        ],
       }),
     },
     withProvider,
@@ -75,6 +84,7 @@ export function createDatabaseMigrations(
           DB_CLUSTER_ARN: dbConfig.clusterArn,
           DB_SECRET_ARN: dbConfig.secretArn,
           DB_NAME: dbConfig.name,
+          APP_DB_SECRET_ARN: appSecretVersion.arn,
         },
       },
     },
@@ -94,6 +104,8 @@ export function createDatabaseMigrations(
         clusterArn: dbConfig.clusterArn,
         secretArn: dbConfig.secretArn,
         database: dbConfig.name,
+        // A rotated app password re-runs the runner, which re-syncs the role.
+        appSecretVersion: appSecretVersion.versionId,
       },
     },
     { ...withProvider, dependsOn: [database, rolePolicy] },
