@@ -50,6 +50,7 @@ graph TB
     Cluster["Aurora PostgreSQL 17.7<br/>Serverless v2, 0-1 ACU<br/>RDS Data API enabled"]
     Instance["DB Instance<br/>db.serverless"]
     Secret[("Secrets Manager<br/>master user password")]
+    AppSecret[("Secrets Manager<br/>draupnir_app password<br/>(Pulumi RandomPassword)")]
 
     VPC --> SubnetA & SubnetB & SG
     SubnetA & SubnetB -- "DB subnet group" --> Cluster
@@ -64,17 +65,18 @@ graph TB
 
     MigrateInvocation -- "invokes" --> MigrateFn
   end
-  MigrateFn -- "RDS Data API<br/>schema_migrations + DDL" --> Cluster
+  MigrateFn -- "RDS Data API<br/>schema_migrations + DDL<br/>(master credential)" --> Cluster
+  MigrateFn -. "reads, sets role password" .-> AppSecret
   MigrateInvocation -. "dependsOn: schema before code" .-> IngestFn
   MigrateInvocation -. "dependsOn" .-> AccountsFn
   MigrateInvocation -. "dependsOn" .-> UploadFn
 
   UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
-  UploadFn -- "RDS Data API" --> Cluster
-  AccountsFn -- "RDS Data API" --> Cluster
+  UploadFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
+  AccountsFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   IngestFn -- "s3:GetObject" --> UploadsBucket
-  IngestFn -- "RDS Data API" --> Cluster
-  RebuildFn["λ rebuild-account<br/>manual invoke"] -- "RDS Data API" --> Cluster
+  IngestFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
+  RebuildFn["λ rebuild-account<br/>manual invoke"] -- "RDS Data API<br/>(draupnir_app)" --> Cluster
 ```
 
 ## Notes
@@ -83,7 +85,8 @@ graph TB
 - **Aurora scales to zero** (`minCapacity: 0`, `secondsUntilAutoPause: 300`) — near-zero idle cost, at the price of a resume delay (seconds to ~1 minute) on the first request after idle. DB-backed API routes are given a 29s timeout (API Gateway's ceiling without a quota increase) to absorb this.
 - **`whoami`** is the one API route that doesn't touch Aurora or S3 — no DB/bucket environment variables, no extra IAM policy statements beyond basic Lambda execution.
 - **Schema before code.** `pulumi up` invokes `migrate-database` (the runner in `shared/src/lib/migrations`) before any DB-backed Lambda is created or updated; a failed migration fails the deploy. The Invocation re-runs when the migration bundle changes (it hashes the esbuild output, which inlines `MIGRATIONS`); the runner is idempotent, so a re-run with nothing pending is a no-op. Migrations are append-only — see the `db-migrations` spec.
-- **Rebuild is manual.** `rebuild-account` (no trigger, no HTTP route) re-derives one account's transactions from its raw rows: `aws lambda invoke --function-name <rebuildAccountFunctionName> --payload '{"accountId":"<id>"}' --cli-binary-format raw-in-base64-out out.json`.
+- **Two database credentials, and row-level security.** The master credential (AWS-managed secret) is read only by `migrate-database`; it owns the tables and so bypasses RLS. Every other Lambda uses the `draupnir_app` credential (a Pulumi-generated password in its own secret): that role owns nothing and has no `BYPASSRLS`. The runner creates the role and re-syncs its password from the secret on every run, before applying migrations. Policies on every account-scoped table check membership through `draupnir.is_member()`, which reads the caller from `app.sub`. Application code sets it per transaction with `withCaller(sub, fn)` (`set_config(..., true)`, so it can't leak across Data API's pooled sessions); with no identity set, every policy returns no rows. A new table must ship with policies — a guard test in `shared` fails otherwise.
+- **Rebuild is manual.** `rebuild-account` (no trigger, no HTTP route) re-derives one account's transactions from its raw rows: `aws lambda invoke --function-name <rebuildAccountFunctionName> --payload '{"sub":"<owner sub>","accountId":"<id>"}' --cli-binary-format raw-in-base64-out out.json`.
 - Deletion protection + a final snapshot are enabled on the Aurora cluster since it holds live account/transaction data.
 
 ## Statement storage model
@@ -93,7 +96,7 @@ Three layers (ADR-0008); access is by account membership (`account_members`, rol
 ```mermaid
 graph LR
   CSV["Original CSV<br/>S3 uploads bucket, unchanged"]
-  Files["statement_files<br/>one row per import:<br/>approved | rejected + reasons<br/>(uploader only)"]
+  Files["statement_files<br/>one row per import:<br/>approved | rejected + reasons<br/>(approved: upload-account members;<br/>rejected: uploader only)"]
   FileAccts["statement_file_accounts<br/>per resolved account: periods,<br/>balances, new count, warnings<br/>(account members)"]
   Raw["raw_rows<br/>every row as jsonb of strings,<br/>bank + format version + row number"]
   Tx["transactions<br/>common, derived, rebuildable<br/>UNIQUE (account_id, dedup_key)"]

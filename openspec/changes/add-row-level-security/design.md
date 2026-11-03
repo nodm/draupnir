@@ -103,7 +103,7 @@ A pglite guard test enforces the rule (decision 5).
 |---|---|---|
 | `accounts` | `is_member(id, 'viewer')` | no direct INSERT grant; UPDATE/DELETE `is_member(id, 'owner')` |
 | `account_members` | `is_member(account_id, 'viewer')` | `is_member(account_id, 'owner')` |
-| `statement_files` | `uploaded_by = draupnir.current_sub()` (file-level reasons can quote other accounts' rows) | INSERT `WITH CHECK (uploaded_by = draupnir.current_sub() AND draupnir.is_member(upload_account_id, 'owner'))`; no UPDATE/DELETE grant |
+| `statement_files` | `uploaded_by = draupnir.current_sub() OR (status = 'approved' AND draupnir.is_member(upload_account_id, 'viewer'))` (only rejected files carry reasons that can quote other accounts' rows; `rebuildAccount` and the duplicate-sha256 check need every owner's approved files, or a rebuild would drop other owners' transactions) | INSERT `WITH CHECK (uploaded_by = draupnir.current_sub() AND draupnir.is_member(upload_account_id, 'owner'))`; no UPDATE/DELETE grant |
 | `statement_file_accounts`, `raw_rows`, `transactions`, `transaction_sources` | `is_member(account_id, 'viewer')` | `USING` and `WITH CHECK`: `is_member(account_id, 'owner')` |
 
 - Every account-scoped child table carries its own `account_id`.
@@ -132,6 +132,18 @@ has `search_path=pg_catalog, pg_temp` in `pg_proc.proconfig` and is not
 executable by `PUBLIC`. Every
 later change that adds a table (bot, AI chat) then fails CI until it adds
 policies.
+
+### 5a. Rejections by non-owners are not recorded
+
+The `statement_files` INSERT policy requires owner membership of the upload
+account, so the worker can't persist a `not-owner` rejection (uploader lost
+ownership). The worker returns a rejected outcome with a null file id and logs
+it. The decision is deterministic, so a redelivery repeats it.
+
+- **Alternatives considered:** letting the uploader insert `rejected` rows
+  regardless of membership, or a `SECURITY DEFINER` recording function. Both
+  keep an audit row but let a non-member write rows referencing accounts they
+  can't see (and leak account-id existence through FK errors).
 
 ### 6. Who sets which identity
 

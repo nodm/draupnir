@@ -4,8 +4,9 @@
 The database SHALL return rows of account-scoped tables (`accounts`,
 `account_members`, `statement_file_accounts`, `raw_rows`, `transactions`,
 `transaction_sources`) only for accounts the identified caller is a member of.
-File-level statement records (`statement_files`), whose rejection reasons can
-quote other accounts' rows, SHALL be returned only to their uploader. This
+File-level statement records (`statement_files`) SHALL be returned to members of
+their upload account when approved, and only to their uploader when rejected,
+because rejection reasons can quote other accounts' rows. This
 SHALL hold even when a query contains no membership filter, and SHALL NOT be
 influenced by any object the caller creates in their session (such as
 temporary tables).
@@ -15,9 +16,14 @@ temporary tables).
   `SELECT * FROM transactions` with no `WHERE` clause
 - **THEN** no transaction of user A's accounts is returned
 
-#### Scenario: File-level record is visible only to its uploader
+#### Scenario: Rejected file is visible only to its uploader
 - **WHEN** a `viewer` of the upload-selected account queries `statement_files`
-- **THEN** files uploaded by other users are not returned
+- **THEN** rejected files uploaded by other users are not returned
+
+#### Scenario: Approved file is visible to members of its upload account
+- **WHEN** an `owner` of the upload-selected account queries `statement_files`
+- **THEN** approved files uploaded by other members are returned, and approved
+  files of accounts the caller is not a member of are not
 
 #### Scenario: Temporary table cannot fake membership
 - **WHEN** a caller creates a temporary table named `account_members` containing
