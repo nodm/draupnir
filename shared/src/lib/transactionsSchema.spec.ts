@@ -3,20 +3,25 @@
 // jsdom (this project's default test environment) does not implement.
 import { parse } from 'pgsql-ast-parser';
 import { PGlite } from '@electric-sql/pglite';
-import {
-  ACCOUNTS_TABLE_DDL,
-  TRANSACTIONS_TABLE_DDL,
-} from './transactionsSchema';
+import { m0001 } from './migrations/0001-initial-schema';
+import { applyMigrationsForTest } from './migrations/applyMigrationsForTest';
 
-describe('ACCOUNTS_TABLE_DDL', () => {
+function createTableStatement(name: string) {
+  const statement = m0001.statements
+    .flatMap((sql) => parse(sql))
+    .find(
+      (parsed) => parsed.type === 'create table' && parsed.name.name === name,
+    );
+  if (statement?.type !== 'create table') {
+    throw new Error(`expected a create table statement for ${name}`);
+  }
+  return statement;
+}
+
+describe('accounts migration', () => {
   it('parses as a valid Postgres CREATE TABLE statement', () => {
-    const [statement] = parse(ACCOUNTS_TABLE_DDL);
+    const statement = createTableStatement('accounts');
 
-    expect(statement.type).toBe('create table');
-    if (statement.type !== 'create table') {
-      throw new Error('expected a create table statement');
-    }
-    expect(statement.name.name).toBe('accounts');
     expect(statement.columns.map((column) => column.name.name)).toEqual([
       'id',
       'owner_user_id',
@@ -29,15 +34,10 @@ describe('ACCOUNTS_TABLE_DDL', () => {
   });
 });
 
-describe('TRANSACTIONS_TABLE_DDL', () => {
+describe('transactions migration', () => {
   it('parses as a valid Postgres CREATE TABLE statement', () => {
-    const [statement] = parse(TRANSACTIONS_TABLE_DDL);
+    const statement = createTableStatement('transactions');
 
-    expect(statement.type).toBe('create table');
-    if (statement.type !== 'create table') {
-      throw new Error('expected a create table statement');
-    }
-    expect(statement.name.name).toBe('transactions');
     expect(statement.columns.map((column) => column.name.name)).toEqual([
       'id',
       'owner_user_id',
@@ -56,13 +56,12 @@ describe('TRANSACTIONS_TABLE_DDL', () => {
   });
 });
 
-describe('schema applied to a real Postgres instance', () => {
+describe('migrated schema on a real Postgres instance', () => {
   let db: PGlite;
 
   beforeEach(async () => {
     db = new PGlite();
-    await db.exec(ACCOUNTS_TABLE_DDL);
-    await db.exec(TRANSACTIONS_TABLE_DDL);
+    await applyMigrationsForTest(db);
   });
 
   afterEach(async () => {

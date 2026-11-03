@@ -1,14 +1,3 @@
-export const SHARE_GRANTS_TABLE_DDL = `
-CREATE TABLE share_grants (
-  grantor_user_id text NOT NULL,
-  grantee_user_id text NOT NULL,
-  resource_type text NOT NULL,
-  resource_id text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (grantee_user_id, resource_type, resource_id)
-);
-`.trim();
-
 export type ResourceType = 'account' | 'category';
 
 export function ownershipPredicate(

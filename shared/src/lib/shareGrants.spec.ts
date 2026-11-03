@@ -1,21 +1,25 @@
 import { parse } from 'pgsql-ast-parser';
+import { m0001 } from './migrations/0001-initial-schema';
 import {
   assertCanMutateGrant,
   NotResourceOwnerError,
   ownershipPredicate,
-  SHARE_GRANTS_TABLE_DDL,
   type ResourceType,
 } from './shareGrants';
 
-describe('SHARE_GRANTS_TABLE_DDL', () => {
+describe('share_grants migration', () => {
   it('parses as a valid Postgres CREATE TABLE statement with the shape from ADR-0002', () => {
-    const [statement] = parse(SHARE_GRANTS_TABLE_DDL);
+    const statement = m0001.statements
+      .flatMap((sql) => parse(sql))
+      .find(
+        (parsed) =>
+          parsed.type === 'create table' && parsed.name.name === 'share_grants',
+      );
 
-    expect(statement.type).toBe('create table');
-    if (statement.type !== 'create table') {
+    expect(statement?.type).toBe('create table');
+    if (statement?.type !== 'create table') {
       throw new Error('expected a create table statement');
     }
-    expect(statement.name.name).toBe('share_grants');
     expect(statement.columns.map((column) => column.name.name)).toEqual([
       'grantor_user_id',
       'grantee_user_id',
