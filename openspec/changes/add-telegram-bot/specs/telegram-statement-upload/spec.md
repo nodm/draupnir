@@ -65,6 +65,15 @@ the outcome:
 - **WHEN** the same file's outcome is delivered to the bot twice
 - **THEN** the chat receives one report
 
+#### Scenario: Concurrent duplicate deliveries are reported once
+- **WHEN** the same file's outcome is delivered to two bot workers at the same
+  time
+- **THEN** exactly one of them sends the report
+
+#### Scenario: Crash before reporting is recovered
+- **WHEN** a worker takes responsibility for a report and stops before sending it
+- **THEN** the report is sent by a later delivery after a short delay
+
 #### Scenario: Rejected file report
 - **WHEN** a file is rejected for a broken balance chain at row 37
 - **THEN** the bot replies that the file was rejected and includes the row 37

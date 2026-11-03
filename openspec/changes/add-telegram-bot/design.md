@@ -72,11 +72,28 @@ EventBridge Scheduler (every 30 min) ──▶ retention λ ──▶ Telegram d
   - Redelivered upload messages re-emit the recorded outcome
     (`redesign-statement-data-model` design, decision 3b), so a retry never
     turns into a duplicate rejection.
-  - Delivery is at-least-once, so the bot de-duplicates by `file_id`:
-    `bot_pending_uploads.outcome_reported_at` is set when the report is sent,
-    and a second message for the same file is dropped.
-  - The outbox is accessed only through `SECURITY DEFINER` functions (insert,
-    due, mark published), since the sweeper has no user identity.
+  - Delivery is at-least-once, and two workers can receive the same outcome
+    at the same time, so reporting uses an **atomic claim with a lease**
+    instead of a "was it reported?" check:
+    - `bot_pending_uploads` has `report_state` (`pending` | `claimed` |
+      `reported`) and `report_claimed_at`.
+    - `draupnir.claim_outcome_report(s3_key)` runs a single
+      `UPDATE … SET report_state = 'claimed', report_claimed_at = now()
+      WHERE s3_key = :k AND (report_state = 'pending' OR (report_state =
+      'claimed' AND report_claimed_at < now() - interval '2 minutes'))
+      RETURNING chat_id, message_id`. Row-level locking means exactly one
+      concurrent caller gets a row back. The others get nothing and drop the
+      message.
+    - The winner sends the report, then sets `report_state = 'reported'`.
+    - If a worker crashes after claiming but before sending, the 2-minute
+      lease expires and the SQS redelivery (visibility timeout longer than
+      the lease) claims and sends it.
+    - Residual risk, accepted: a crash after `sendMessage` succeeds but before
+      `reported` is written can produce one duplicate report after the lease
+      expires. Telegram's `sendMessage` has no idempotency key, and a
+      duplicate notice is harmless; a lost one is not.
+  - The outbox is accessed only through `SECURITY DEFINER` functions, since
+    the sweeper has no user identity (see the RLS table in decision 3).
   - SNS fan-out was considered, but there is one consumer; it is easy to insert
     behind the outbox later.
 
@@ -128,8 +145,14 @@ whose Telegram account is asking and warns against exactly that.
 | `messenger_links(telegram_user_id UNIQUE, user_id UNIQUE, email, linked_at)` | identity | `user_id = current_sub()`; lookup by Telegram id only through `SECURITY DEFINER draupnir.sub_for_telegram_user()` |
 | `link_requests(state_hash PK, telegram_user_id, chat_id, telegram_display_name, pkce_verifier, expires_at, used_at, pending_sub, pending_email, code_hash, code_expires_at, code_attempts)` | pending links | no direct access (`USING (false)`); create/consume through `SECURITY DEFINER` functions |
 | `bot_conversations(user_id PK, kind, state jsonb, expires_at)` | guided-dialogue state | `user_id = current_sub()` |
-| `bot_pending_uploads(id, user_id, chat_id, message_id, telegram_file_id, s3_key NULL, expires_at, outcome_reported_at NULL)` | account choice and outcome routing | `user_id = current_sub()`; outcome lookup by `s3_key` through `SECURITY DEFINER` function |
+| `bot_pending_uploads(id, user_id, chat_id, message_id, telegram_file_id, s3_key NULL UNIQUE, expires_at, report_state, report_claimed_at NULL)` | account choice and outcome routing | `user_id = current_sub()`; the outcome consumer claims by `s3_key` only through `SECURITY DEFINER draupnir.claim_outcome_report()` / `draupnir.mark_outcome_reported()` |
 | `bot_messages(chat_id, message_id, user_id, sent_at, deleted_at, failed_at)` | retention | `user_id = current_sub()`; retention job uses `SECURITY DEFINER` due/mark functions |
+| `statement_outcome_outbox(file_id PK FK, s3_key, uploaded_by, payload jsonb, created_at, published_at NULL)` | outcome outbox | RLS enabled with a deny-all policy (`USING (false) WITH CHECK (false)`); **no** table privileges granted to `draupnir_app`. Access only through `SECURITY DEFINER` functions: `draupnir.enqueue_outcome(file_id, payload)` (inserts only if `statement_files.uploaded_by = draupnir.current_sub()` for that file, so it runs inside the uploader's import transaction), `draupnir.due_outcomes(limit)` (unpublished rows older than 1 minute, for the sweeper), `draupnir.mark_outcome_published(file_id)` |
+
+All functions above follow `add-row-level-security`'s `SECURITY DEFINER` rule
+(`search_path = pg_catalog, pg_temp`, schema-qualified, EXECUTE only for
+`draupnir_app`), so both guard tests (RLS on every table, pinned search path)
+pass with no exceptions.
 
 The worker first resolves `sub` from the Telegram user id, then runs everything
 else in `withCaller(sub, …)`.

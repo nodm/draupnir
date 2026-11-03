@@ -19,8 +19,11 @@
       functions from design.md decision 3; verify pglite tests: RLS guard test passes;
       a user can't read another user's `messenger_links`/`bot_conversations`; `link_requests`
       isn't directly readable; consume-state succeeds once, fails when reused or expired;
-      both `messenger_links` uniqueness rules hold; `statement_outcome_outbox` is only
-      reachable through its functions; every new `SECURITY DEFINER` function passes the
+      both `messenger_links` uniqueness rules hold; `statement_outcome_outbox` has RLS with a
+      deny-all policy and no direct grants (direct SELECT/INSERT as `draupnir_app` fails),
+      `enqueue_outcome` refuses a file the caller didn't upload; `claim_outcome_report`
+      returns a row to exactly one of two concurrent callers and re-grants after the lease
+      expires; every new `SECURITY DEFINER` function passes the
       search-path guard from `add-row-level-security`.
 
 ## 3. Webhook and worker
@@ -52,7 +55,8 @@
       commit, sweeper for unpublished rows) and consume outcomes in the bot worker with
       de-duplication by `file_id`; verify the `statement-ingestion-pipeline` outcome scenarios
       (no publish on rollback, recovery after a failed publish) and the report scenarios
-      (approved, rejected, delivered twice → reported once).
+      (approved, rejected, delivered twice → reported once, concurrent deliveries → one
+      report, crash after claim → reported after lease expiry).
 
 ## 6. Account commands
 
