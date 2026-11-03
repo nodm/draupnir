@@ -139,6 +139,12 @@ describe('migrated schema on a real Postgres instance', () => {
     accountId: string,
     rowNumber = 1,
   ): Promise<string> {
+    // A raw row must belong to an account the file resolved to.
+    await db.query(
+      `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [fileId, accountId],
+    );
     const result = await db.query<{ id: string }>(
       `INSERT INTO raw_rows (file_id, account_id, row_number, bank, format_version, payload)
        VALUES ($1, $2, $3, 'seb', 'v1', '{"Suma":"50,00"}'::jsonb) RETURNING id`,
@@ -404,6 +410,24 @@ describe('migrated schema on a real Postgres instance', () => {
     });
   });
 
+  describe('statement_files import order', () => {
+    it('assigns an increasing import_seq in insert order, independent of processed_at', async () => {
+      const accountId = await insertAccount();
+      const first = await insertFile(accountId, { sha256: 'a' });
+      const second = await insertFile(accountId, { sha256: 'b' });
+      // Make wall-clock order contradict insert order.
+      await db.query(
+        `UPDATE statement_files SET processed_at = now() + interval '1 hour' WHERE id = $1`,
+        [first],
+      );
+
+      const { rows } = await db.query<{ id: string }>(
+        'SELECT id FROM statement_files ORDER BY import_seq',
+      );
+      expect(rows.map((r) => r.id)).toEqual([first, second]);
+    });
+  });
+
   describe('raw_rows', () => {
     it('rejects a duplicate (file_id, row_number)', async () => {
       const accountId = await insertAccount();
@@ -411,6 +435,24 @@ describe('migrated schema on a real Postgres instance', () => {
       await insertRawRow(fileId, accountId, 1);
 
       await expect(insertRawRow(fileId, accountId, 1)).rejects.toThrow();
+    });
+
+    it('rejects a raw row for an account the file did not resolve to', async () => {
+      const a = await insertAccount();
+      const b = await insertAccount();
+      const fileId = await insertFile(a);
+      await db.query(
+        'INSERT INTO statement_file_accounts (file_id, account_id) VALUES ($1, $2)',
+        [fileId, a],
+      );
+
+      await expect(
+        db.query(
+          `INSERT INTO raw_rows (file_id, account_id, row_number, bank, format_version, payload)
+           VALUES ($1, $2, 1, 'seb', 'v1', '{}'::jsonb)`,
+          [fileId, b],
+        ),
+      ).rejects.toThrow();
     });
 
     it('stores the payload exactly as strings', async () => {

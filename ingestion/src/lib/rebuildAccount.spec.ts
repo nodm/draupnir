@@ -11,7 +11,11 @@ import {
 import { processStatementFile } from './processStatementFile';
 import { rebuildAccount, RebuildAccountNotFoundError } from './rebuildAccount';
 
-const config: DataApiConfig = { resourceArn: 'a', secretArn: 'a', database: 'd' };
+const config: DataApiConfig = {
+  resourceArn: 'a',
+  secretArn: 'a',
+  database: 'd',
+};
 const fixture = (name: string) =>
   readFileSync(join(__dirname, 'parsers/__fixtures__', name), 'utf8');
 const SEB = fixture('seb.csv');
@@ -98,8 +102,18 @@ describe('rebuildAccount', () => {
 
   it('reproduces the original transactions, sources and counts', async () => {
     await account('R', 'LT100000000000000077', 'revolut', 1000);
-    await upload([HEADER, row('02', 'Alpha', '9.00'), row('03', 'Bravo', '8.00')].join('\n'), 'R');
-    await upload([HEADER, row('03', 'Bravo', '8.00'), row('04', 'Charlie', '7.00')].join('\n'), 'R');
+    await upload(
+      [HEADER, row('02', 'Alpha', '9.00'), row('03', 'Bravo', '8.00')].join(
+        '\n',
+      ),
+      'R',
+    );
+    await upload(
+      [HEADER, row('03', 'Bravo', '8.00'), row('04', 'Charlie', '7.00')].join(
+        '\n',
+      ),
+      'R',
+    );
     const before = await snapshot('R');
 
     const result = await rebuildAccount(client, config, 'R');
@@ -112,14 +126,19 @@ describe('rebuildAccount', () => {
     await account('R', 'LT100000000000000077', 'revolut', 1000);
     await upload([HEADER, row('02', 'Alpha', '9.00')].join('\n'), 'R');
     // Simulate transactions derived by older, buggy normalization.
-    await db.exec(`UPDATE transactions SET description = 'STALE', amount_minor_units = 0`);
+    await db.exec(
+      `UPDATE transactions SET description = 'STALE', amount_minor_units = 0`,
+    );
 
     await rebuildAccount(client, config, 'R');
 
-    const { rows } = await db.query<{ description: string; amount_minor_units: string }>(
-      'SELECT description, amount_minor_units::text FROM transactions',
-    );
-    expect(rows).toEqual([{ description: 'alpha', amount_minor_units: '-100' }]);
+    const { rows } = await db.query<{
+      description: string;
+      amount_minor_units: string;
+    }>('SELECT description, amount_minor_units::text FROM transactions');
+    expect(rows).toEqual([
+      { description: 'alpha', amount_minor_units: '-100' },
+    ]);
   });
 
   it('rebuilds a non-selected account of a multi-account file and leaves the other untouched', async () => {
@@ -128,13 +147,44 @@ describe('rebuildAccount', () => {
     await upload(SEB, 'A');
     const aBefore = await snapshot('A');
     const bBefore = await snapshot('B');
-    await db.exec(`UPDATE transactions SET description = 'STALE' WHERE account_id = 'B'`);
+    await db.exec(
+      `UPDATE transactions SET description = 'STALE' WHERE account_id = 'B'`,
+    );
 
     const result = await rebuildAccount(client, config, 'B');
 
     expect(result.transactions).toBe(5);
     expect(await snapshot('B')).toEqual(bBefore);
     expect(await snapshot('A')).toEqual(aBefore);
+  });
+
+  it('replays imports in commit order (import_seq), not by processed_at', async () => {
+    await account('A', 'LT100000000000000001', 'seb');
+    await account('B', 'LT100000000000000002', 'seb');
+    const edited = SEB.replace(
+      'Withdraw money from savings deposit',
+      'Edited text',
+    );
+    expect(edited).not.toBe(SEB);
+    const first = await upload(SEB, 'A');
+    await upload(edited, 'A');
+    const description = async () =>
+      (
+        await db.query<{ description: string }>(
+          `SELECT description FROM transactions WHERE account_id = 'B' AND dedup_key = 'seb:RO1000000001L01'`,
+        )
+      ).rows[0]?.description;
+    const original = await description();
+    expect(original).toContain('withdraw money');
+    // Wall-clock order now contradicts commit order.
+    await db.query(
+      `UPDATE statement_files SET processed_at = now() + interval '1 day' WHERE id = $1`,
+      [first.fileId],
+    );
+
+    await rebuildAccount(client, config, 'B');
+
+    expect(await description()).toBe(original);
   });
 
   it('ignores rejected files', async () => {
@@ -149,9 +199,9 @@ describe('rebuildAccount', () => {
   });
 
   it('fails for an unknown account', async () => {
-    await expect(rebuildAccount(client, config, 'ghost')).rejects.toBeInstanceOf(
-      RebuildAccountNotFoundError,
-    );
+    await expect(
+      rebuildAccount(client, config, 'ghost'),
+    ).rejects.toBeInstanceOf(RebuildAccountNotFoundError);
   });
 
   it('rolls back when a write fails, leaving the old transactions in place', async () => {
@@ -159,7 +209,10 @@ describe('rebuildAccount', () => {
     await upload([HEADER, row('02', 'Alpha', '9.00')].join('\n'), 'R');
     const before = await snapshot('R');
     const failing = {
-      send: async (command: { constructor: { name: string }; input: { sql?: string } }) => {
+      send: async (command: {
+        constructor: { name: string };
+        input: { sql?: string };
+      }) => {
         if (command.input.sql?.includes('INSERT INTO transactions')) {
           throw new Error('boom');
         }

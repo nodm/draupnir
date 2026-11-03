@@ -278,6 +278,7 @@ describe('runMigrations (pglite)', () => {
     expect(await recordedIds()).toEqual([
       '0001-initial-schema',
       '0002-statement-data-model',
+      '0003-import-order-and-raw-row-account',
     ]);
   });
 });

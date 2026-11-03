@@ -206,7 +206,10 @@ describe('membership on a real Postgres instance', () => {
       const a = await newAccount({ own7: 'owner' });
 
       await expect(
-        removeMember(client, config, 'own7', { accountId: a, userId: 'nobody' }),
+        removeMember(client, config, 'own7', {
+          accountId: a,
+          userId: 'nobody',
+        }),
       ).rejects.toBeInstanceOf(MemberNotFoundError);
       await expect(
         changeMemberRole(client, config, 'own7', {

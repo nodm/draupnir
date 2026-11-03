@@ -73,7 +73,7 @@ export async function rebuildAccount(
          JOIN statement_files f ON f.id = r.file_id AND f.status = 'approved'
          JOIN statement_file_accounts fa ON fa.file_id = r.file_id AND fa.account_id = r.account_id
         WHERE r.account_id = :accountId
-        ORDER BY f.processed_at, f.id, r.row_number`,
+        ORDER BY f.import_seq, r.row_number`,
       { accountId },
       transactionId,
     );
@@ -84,7 +84,12 @@ export async function rebuildAccount(
     for (const raw of rows as unknown as StoredRawRow[]) {
       let file = fileIndex.get(raw.file_id);
       if (!file) {
-        file = { bank: raw.bank, accountId, accountIban: account.iban, rows: [] };
+        file = {
+          bank: raw.bank,
+          accountId,
+          accountIban: account.iban,
+          rows: [],
+        };
         fileIndex.set(raw.file_id, file);
         filesInOrder.push(file);
       }
@@ -135,7 +140,11 @@ export async function rebuildAccount(
       transactionId,
       `UPDATE statement_file_accounts SET new_transaction_count = :count
         WHERE file_id = :fileId AND account_id = :accountId`,
-      [...createdByFile].map(([fileId, count]) => ({ fileId, accountId, count })),
+      [...createdByFile].map(([fileId, count]) => ({
+        fileId,
+        accountId,
+        count,
+      })),
     );
 
     await commitTransaction(client, config, transactionId);
