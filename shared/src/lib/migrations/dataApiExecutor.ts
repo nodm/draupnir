@@ -58,12 +58,11 @@ export function createDataApiExecutor(
 ): MigrationExecutor {
   // Wrapping send() adds the retry to every Data API call without touching
   // dataApi.ts.
+  // Bound once so the SDK's send() keeps its client receiver.
+  const send = client.send.bind(client) as (c: unknown) => Promise<unknown>;
   const retryingClient = {
     send: (command: unknown) =>
-      withResumeRetry(
-        () => (client.send as (c: unknown) => Promise<unknown>)(command),
-        retryOptions,
-      ),
+      withResumeRetry(() => send(command), retryOptions),
   } as unknown as RDSDataClient;
 
   return {

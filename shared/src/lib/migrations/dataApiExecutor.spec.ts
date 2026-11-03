@@ -49,6 +49,27 @@ describe('createDataApiExecutor resume retry', () => {
   });
 });
 
+describe('createDataApiExecutor receiver', () => {
+  it('calls send with the client as its receiver, like the real SDK client', async () => {
+    // The real RDSDataClient.send reads this.config / this.middlewareStack.
+    class ReceiverSensitiveClient {
+      readonly config = { ok: true };
+      async send(): Promise<{ transactionId: string }> {
+        if (!this?.config?.ok) {
+          throw new TypeError('send called without its receiver');
+        }
+        return { transactionId: 'tx-1' };
+      }
+    }
+    const executor = createDataApiExecutor(
+      new ReceiverSensitiveClient() as unknown as RDSDataClient,
+      config,
+    );
+
+    await expect(executor.begin()).resolves.toBe('tx-1');
+  });
+});
+
 describe('withResumeRetry', () => {
   it('gives up once the total wait cap is spent', async () => {
     const call = vi.fn().mockRejectedValue(resumingError());
