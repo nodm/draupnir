@@ -21,6 +21,7 @@
         "assets": ["ingestion/*.md"],
         "platform": "node",
         "format": ["cjs"],
+        "thirdParty": true,
         "external": ["@aws-sdk/*"],
         "generatePackageJson": true
       }
