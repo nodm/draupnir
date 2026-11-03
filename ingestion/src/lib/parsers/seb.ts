@@ -127,7 +127,8 @@ export function readSebTable(fileContents: string): SebTable {
   };
   const flushBlock = () => {
     if (!block) return;
-    const ibans = block.rowIbans.size > 0 ? [...block.rowIbans] : [block.title.iban];
+    const ibans =
+      block.rowIbans.size > 0 ? [...block.rowIbans] : [block.title.iban];
     for (const iban of ibans) addPeriod(iban, block.title.from, block.title.to);
     block = undefined;
   };
@@ -247,10 +248,11 @@ export function parseStatement(fileContents: string): ParsedStatement {
     rowNumber,
     payload: toPayload(table.headers, cells),
   }));
-  const normalized = normalizeRows(raw, "");
+  const normalized = normalizeRows(raw, '');
   const rows: ParsedRow[] = raw.map(({ rowNumber, payload }) => ({
     rowNumber,
     iban: (payload['SĄSKAITOS NR'] as string).trim(),
+    currency: (payload['VALIUTA'] as string).trim(),
     payload,
     bankTransactionId: (payload['TRANSAKCIJOS KODAS'] as string).trim(),
     normalized: normalized.get(rowNumber),

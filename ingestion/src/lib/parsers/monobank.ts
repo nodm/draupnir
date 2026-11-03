@@ -77,7 +77,10 @@ export const normalizeRows: RowNormalizer = (rows, accountIban) => {
       currency: cardCurrency,
       description: input.normalizedDescription,
       dedupKey: dedupKeys[i] as string,
-      feeMinorUnits: optionalAmount(cells['Commission'] as string, cardCurrency),
+      feeMinorUnits: optionalAmount(
+        cells['Commission'] as string,
+        cardCurrency,
+      ),
       balanceAfterMinorUnits: toMinorUnits(
         parseFloat(cells['Balance'] as string),
         cardCurrency,
@@ -117,9 +120,11 @@ export function parseStatement(
     payload: toPayload(table.headers, cells),
   }));
   const normalized = normalizeRows(raw, uploadAccountIban);
+  const cardCurrency = monobankCardCurrencyOf(raw[0]?.payload ?? {}) ?? '';
   const rows: ParsedRow[] = raw.map(({ rowNumber, payload }) => ({
     rowNumber,
     iban: uploadAccountIban,
+    currency: cardCurrency,
     payload,
     bankTransactionId: null,
     normalized: normalized.get(rowNumber),

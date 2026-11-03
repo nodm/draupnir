@@ -118,7 +118,11 @@ async function findRecordedOutcome(
     transactionId,
   );
   const file = rows[0] as
-    | { id: string; status: 'approved' | 'rejected'; rejection_reasons: string | null }
+    | {
+        id: string;
+        status: 'approved' | 'rejected';
+        rejection_reasons: string | null;
+      }
     | undefined;
   if (!file) return null;
 
@@ -132,7 +136,10 @@ async function findRecordedOutcome(
       { fileId: file.id },
       transactionId,
     );
-    for (const r of perAccount as unknown as { account_id: string; warnings: string }[]) {
+    for (const r of perAccount as unknown as {
+      account_id: string;
+      warnings: string;
+    }[]) {
       warningsByAccount[r.account_id] = parseJsonColumn(r.warnings, []);
     }
   }
@@ -194,13 +201,24 @@ async function recordRejection(
 ): Promise<StatementOutcome> {
   const transactionId = await beginTransaction(ctx.client, ctx.config);
   try {
-    const { fileId, inserted } = await insertRejected(ctx, facts, reasons, transactionId);
+    const { fileId, inserted } = await insertRejected(
+      ctx,
+      facts,
+      reasons,
+      transactionId,
+    );
     await commitTransaction(ctx.client, ctx.config, transactionId);
     if (!inserted) {
       const recorded = await findRecordedOutcome(ctx, facts.s3Key);
       if (recorded) return recorded;
     }
-    return { fileId, status: 'rejected', reasons, warningsByAccount: {}, redelivered: false };
+    return {
+      fileId,
+      status: 'rejected',
+      reasons,
+      warningsByAccount: {},
+      redelivered: false,
+    };
   } catch (error) {
     await rollbackTransaction(ctx.client, ctx.config, transactionId);
     throw error;
@@ -223,7 +241,10 @@ async function resolveRowAccounts(
     { ibans: JSON.stringify(ibans), sub: uploaderSub },
   );
   return new Map(
-    (rows as unknown as AccountRecord[]).map((account) => [account.iban, account]),
+    (rows as unknown as AccountRecord[]).map((account) => [
+      account.iban,
+      account,
+    ]),
   );
 }
 
@@ -258,22 +279,46 @@ function accountReasons(
         message: `Row ${row.rowNumber}: account ${account.iban} belongs to ${account.bank}, not ${uploadBank}`,
       });
     }
-    if (row.normalized && row.normalized.currency !== account.currency) {
+    // Every row counts, including raw-only ones (e.g. a PENDING Revolut row):
+    // they are stored too, so a foreign-currency row can't slip in.
+    if (row.currency !== account.currency) {
       reasons.push({
         code: 'currency-mismatch',
         row: row.rowNumber,
-        message: `Row ${row.rowNumber}: currency ${row.normalized.currency} differs from the account's ${account.currency}`,
+        message: `Row ${row.rowNumber}: currency ${row.currency} differs from the account's ${account.currency}`,
       });
     }
   }
   return reasons;
 }
 
+// A raw payload this large can't be sent as one Data API parameter set (4 MiB
+// request cap), so a file carrying one is rejected up front rather than failing
+// as an unexpected error and retrying to the DLQ.
+const MAX_ROW_PAYLOAD_BYTES = 1024 * 1024;
+
+function oversizedRowReasons(parsed: ParsedStatement): ValidationReason[] {
+  return parsed.rows
+    .filter(
+      (row) =>
+        Buffer.byteLength(JSON.stringify(row.payload), 'utf8') >
+        MAX_ROW_PAYLOAD_BYTES,
+    )
+    .map((row) => ({
+      code: 'row-too-large',
+      row: row.rowNumber,
+      message: `Row ${row.rowNumber} is larger than ${MAX_ROW_PAYLOAD_BYTES} bytes`,
+    }));
+}
+
 function groupByAccount(
   parsed: ParsedStatement,
   accountByIban: Map<string, AccountRecord>,
 ): Map<string, { account: AccountRecord; rows: ParsedRow[] }> {
-  const groups = new Map<string, { account: AccountRecord; rows: ParsedRow[] }>();
+  const groups = new Map<
+    string,
+    { account: AccountRecord; rows: ParsedRow[] }
+  >();
   for (const row of parsed.rows) {
     const account = accountByIban.get(row.iban) as AccountRecord;
     const group = groups.get(account.id) ?? { account, rows: [] };
@@ -285,12 +330,19 @@ function groupByAccount(
 
 function overlapCandidates(rows: readonly ParsedRow[]): OverlapCandidate[] {
   return rows.flatMap((row) =>
-    row.normalized ? [{ rowNumber: row.rowNumber, normalized: row.normalized }] : [],
+    row.normalized
+      ? [{ rowNumber: row.rowNumber, normalized: row.normalized }]
+      : [],
   );
 }
 
-function activityBounds(rows: readonly ParsedRow[]): { from: string | null; to: string | null } {
-  const dates = rows.flatMap((r) => (r.normalized ? [r.normalized.postedDate] : []));
+function activityBounds(rows: readonly ParsedRow[]): {
+  from: string | null;
+  to: string | null;
+} {
+  const dates = rows.flatMap((r) =>
+    r.normalized ? [r.normalized.postedDate] : [],
+  );
   if (dates.length === 0) return { from: null, to: null };
   return {
     from: dates.reduce((a, b) => (a < b ? a : b)),
@@ -298,7 +350,10 @@ function activityBounds(rows: readonly ParsedRow[]): { from: string | null; to: 
   };
 }
 
-async function rollbackQuietly(ctx: Context, transactionId: string): Promise<void> {
+async function rollbackQuietly(
+  ctx: Context,
+  transactionId: string,
+): Promise<void> {
   try {
     await rollbackTransaction(ctx.client, ctx.config, transactionId);
   } catch {
@@ -339,7 +394,9 @@ export async function processStatementFile(
   }
   const uploadAccount = accountRows[0] as unknown as AccountRecord;
 
-  const object = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const object = await s3Client.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
   if (!object.Body) {
     throw new Error(`S3 object has no body: ${bucket}/${key}`);
   }
@@ -348,7 +405,10 @@ export async function processStatementFile(
   // upload could be overwritten with a large one before this Lambda picks
   // up the event. Re-check the actual object's size, from this GetObject
   // response itself, before buffering the body.
-  if (object.ContentLength !== undefined && object.ContentLength > MAX_UPLOAD_SIZE_BYTES) {
+  if (
+    object.ContentLength !== undefined &&
+    object.ContentLength > MAX_UPLOAD_SIZE_BYTES
+  ) {
     throw new OversizedStatementFileError(object.ContentLength);
   }
   const bytes = await object.Body.transformToByteArray();
@@ -365,14 +425,28 @@ export async function processStatementFile(
   };
 
   // The uploader may have lost ownership since the presigned URL was issued.
-  if ((await getMemberRole(dataApiClient, dataApiConfig, accountId, uploaderSub)) !== 'owner') {
+  if (
+    (await getMemberRole(
+      dataApiClient,
+      dataApiConfig,
+      accountId,
+      uploaderSub,
+    )) !== 'owner'
+  ) {
     return recordRejection(ctx, facts, [
-      { code: 'not-owner', message: 'The uploader is not an owner of the selected account' },
+      {
+        code: 'not-owner',
+        message: 'The uploader is not an owner of the selected account',
+      },
     ]);
   }
 
   // Everything that depends only on the file: format, every row, the chain.
-  const validation = validateStatementFile(uploadAccount.bank, fileContents, uploadAccount.iban);
+  const validation = validateStatementFile(
+    uploadAccount.bank,
+    fileContents,
+    uploadAccount.iban,
+  );
   if (!validation.ok) {
     return recordRejection(
       ctx,
@@ -384,7 +458,10 @@ export async function processStatementFile(
   facts.formatVersion = parsed.formatVersion;
 
   const accountByIban = await resolveRowAccounts(ctx, uploaderSub, parsed);
-  const preReasons = accountReasons(parsed, uploadAccount.bank, accountByIban);
+  const preReasons = [
+    ...oversizedRowReasons(parsed),
+    ...accountReasons(parsed, uploadAccount.bank, accountByIban),
+  ];
   const groups = groupByAccount(
     { ...parsed, rows: parsed.rows.filter((r) => accountByIban.has(r.iban)) },
     accountByIban,
@@ -425,13 +502,45 @@ export async function processStatementFile(
 
     // A concurrent redelivery of this same object may have committed while we
     // waited for the lock.
-    const committedMeanwhile = await findRecordedOutcome(ctx, key, transactionId);
+    const committedMeanwhile = await findRecordedOutcome(
+      ctx,
+      key,
+      transactionId,
+    );
     if (committedMeanwhile) {
       await rollbackTransaction(dataApiClient, dataApiConfig, transactionId);
       return committedMeanwhile;
     }
 
     const reasons: ValidationReason[] = [];
+
+    // Ownership was checked before this transaction, so re-check it here and
+    // hold a share lock on the owner rows until commit. `removeMember` and
+    // `changeMemberRole` lock a membership with FOR UPDATE, so a revocation
+    // either finished before this read (and is seen) or waits for this commit.
+    const { rows: ownerRows } = await executeStatement(
+      dataApiClient,
+      dataApiConfig,
+      `SELECT account_id FROM account_members
+        WHERE user_id = :sub AND role = 'owner'
+          AND account_id IN (SELECT jsonb_array_elements_text(CAST(:ids AS jsonb)))
+        ORDER BY account_id FOR SHARE`,
+      { sub: uploaderSub, ids: JSON.stringify(lockIds) },
+      transactionId,
+    );
+    const stillOwned = new Set(
+      (ownerRows as unknown as { account_id: string }[]).map(
+        (r) => r.account_id,
+      ),
+    );
+    for (const id of lockIds) {
+      if (!stillOwned.has(id)) {
+        reasons.push({
+          code: 'not-owner',
+          message: `The uploader is no longer an owner of account ${lockedById.get(id)?.iban ?? id}`,
+        });
+      }
+    }
 
     const { rows: duplicateRows } = await executeStatement(
       dataApiClient,
@@ -441,7 +550,9 @@ export async function processStatementFile(
       { accountId: uploadAccount.id, sha256 },
       transactionId,
     );
-    const duplicate = duplicateRows[0] as { id: string; processed_at: string } | undefined;
+    const duplicate = duplicateRows[0] as
+      | { id: string; processed_at: string }
+      | undefined;
     if (duplicate) {
       reasons.push({
         code: 'duplicate-file',
@@ -463,7 +574,9 @@ export async function processStatementFile(
         )),
       );
 
-      const declared = parsed.declaredPeriods.find((p) => p.iban === account.iban);
+      const declared = parsed.declaredPeriods.find(
+        (p) => p.iban === account.iban,
+      );
       const bounds = activityBounds(rows);
       const accountBalances = balances.get(account.iban);
       const segment: Segment = {
@@ -472,8 +585,10 @@ export async function processStatementFile(
         declaredTo: declared?.to ?? null,
         activityFrom: bounds.from,
         activityTo: bounds.to,
-        openingBalanceMinorUnits: accountBalances?.openingBalanceMinorUnits ?? null,
-        closingBalanceMinorUnits: accountBalances?.closingBalanceMinorUnits ?? null,
+        openingBalanceMinorUnits:
+          accountBalances?.openingBalanceMinorUnits ?? null,
+        closingBalanceMinorUnits:
+          accountBalances?.closingBalanceMinorUnits ?? null,
       };
       segmentByAccount.set(id, segment);
 
@@ -595,12 +710,21 @@ export async function processStatementFile(
     }
 
     await commitTransaction(dataApiClient, dataApiConfig, transactionId);
-    return { fileId, status: 'approved', reasons: [], warningsByAccount, redelivered: false };
+    return {
+      fileId,
+      status: 'approved',
+      reasons: [],
+      warningsByAccount,
+      redelivered: false,
+    };
   } catch (error) {
     await rollbackQuietly(ctx, transactionId);
     // Safety net: the partial unique index closes the race where the same file
     // is approved twice; the loser is a duplicate rejection, not an error.
-    if (error instanceof Error && error.message.includes(DUPLICATE_APPROVED_INDEX)) {
+    if (
+      error instanceof Error &&
+      error.message.includes(DUPLICATE_APPROVED_INDEX)
+    ) {
       return recordRejection(ctx, facts, [
         { code: 'duplicate-file', message: 'Duplicate of an earlier import' },
       ]);

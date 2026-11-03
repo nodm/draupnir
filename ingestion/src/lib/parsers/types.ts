@@ -36,6 +36,9 @@ export interface ParsedRow {
   // Account the row belongs to: the row's own IBAN (SEB) or the upload-selected
   // account's IBAN (Revolut, monobank). Set for raw-only rows too.
   iban: string;
+  // The row's own currency, set for raw-only rows too, so the account's
+  // currency can be enforced on every row of the file.
+  currency: string;
   // Original header -> original cell string, untouched.
   payload: Record<string, string>;
   bankTransactionId: string | null;

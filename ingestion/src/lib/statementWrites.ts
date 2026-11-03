@@ -16,6 +16,15 @@ import type { Derivation } from './derive';
 const MAX_BATCH_BYTES = 3 * 1024 * 1024;
 const MAX_BATCH_ITEMS = 500;
 
+export class OversizedParameterSetError extends Error {
+  constructor(sizeBytes: number, maxBytes: number) {
+    super(
+      `A single parameter set is ${sizeBytes} bytes, over the ${maxBytes}-byte batch limit`,
+    );
+    this.name = 'OversizedParameterSetError';
+  }
+}
+
 export function chunkBySize<T>(
   items: readonly T[],
   sizeOf: (item: T) => number,
@@ -27,7 +36,15 @@ export function chunkBySize<T>(
   let bytes = 0;
   for (const item of items) {
     const size = sizeOf(item);
-    if (current.length > 0 && (bytes + size > maxBytes || current.length >= maxItems)) {
+    // One item over the limit can't be split, and sending it would breach the
+    // Data API request cap; callers reject such input earlier.
+    if (size > maxBytes) {
+      throw new OversizedParameterSetError(size, maxBytes);
+    }
+    if (
+      current.length > 0 &&
+      (bytes + size > maxBytes || current.length >= maxItems)
+    ) {
       chunks.push(current);
       current = [];
       bytes = 0;
@@ -148,7 +165,12 @@ export async function writeDerivation(
   }
   const storedIdByAccountKey = new Map<string, string>();
   for (const [accountId, keys] of keysByAccount) {
-    for (const chunk of chunkBySize(keys, (k) => k.length + 8, 1024 * 1024, 2000)) {
+    for (const chunk of chunkBySize(
+      keys,
+      (k) => k.length + 8,
+      1024 * 1024,
+      2000,
+    )) {
       const { rows } = await executeStatement(
         client,
         config,
@@ -167,7 +189,9 @@ export async function writeDerivation(
   const storedIdByDerivedId = new Map<string, string>();
   const newTransactionsByAccount = new Map<string, number>();
   for (const { id, accountId, row } of derivation.transactions) {
-    const stored = storedIdByAccountKey.get(`${accountId}\u0000${row.dedupKey}`);
+    const stored = storedIdByAccountKey.get(
+      `${accountId}\u0000${row.dedupKey}`,
+    );
     if (!stored) {
       throw new Error(`Transaction not found after insert: ${row.dedupKey}`);
     }

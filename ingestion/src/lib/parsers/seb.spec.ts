@@ -4,12 +4,11 @@ import { parseStatement as parseSeb } from './seb';
 
 const parseStatement = parseSeb;
 const normalizedRows = (contents: string) =>
-  parseSeb(contents).rows.flatMap((row) => (row.normalized ? [row.normalized] : []));
+  parseSeb(contents).rows.flatMap((row) =>
+    row.normalized ? [row.normalized] : [],
+  );
 
-const fixture = readFileSync(
-  join(__dirname, '__fixtures__/seb.csv'),
-  'utf8',
-);
+const fixture = readFileSync(join(__dirname, '__fixtures__/seb.csv'), 'utf8');
 
 const TITLE_LINE =
   '"SĄSKAITOS  (LT100000000000000001) IŠRAŠAS (UŽ LAIKOTARPĮ: 2026-08-29-2026-08-29)";';
@@ -137,11 +136,9 @@ describe('SEB parseStatement', () => {
   });
 
   it('throws on a truncated row that happens to have 2 fields, instead of treating it as a title', () => {
-    const malformed = [
-      TITLE_LINE,
-      HEADER_LINE,
-      '"DP1000001";2026-08-29',
-    ].join('\n');
+    const malformed = [TITLE_LINE, HEADER_LINE, '"DP1000001";2026-08-29'].join(
+      '\n',
+    );
 
     expect(() => parseStatement(malformed)).toThrow(/Malformed SEB row/);
   });
@@ -149,17 +146,13 @@ describe('SEB parseStatement', () => {
   it('throws on a row with an empty TRANSAKCIJOS KODAS instead of building a degenerate dedup_key', () => {
     const malformed = [TITLE_LINE, HEADER_LINE, dataRow('D', '')].join('\n');
 
-    expect(() => parseStatement(malformed)).toThrow(
-      /empty TRANSAKCIJOS KODAS/,
-    );
+    expect(() => parseStatement(malformed)).toThrow(/empty TRANSAKCIJOS KODAS/);
   });
 
   it('produces the same dedup_key for the same provider transaction id', () => {
     const rowsA = normalizedRows(fixture);
     const rowsB = normalizedRows(fixture);
 
-    expect(rowsA.map((r) => r.dedupKey)).toEqual(
-      rowsB.map((r) => r.dedupKey),
-    );
+    expect(rowsA.map((r) => r.dedupKey)).toEqual(rowsB.map((r) => r.dedupKey));
   });
 });

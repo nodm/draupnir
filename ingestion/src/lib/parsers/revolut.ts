@@ -102,6 +102,7 @@ export function parseStatement(
   const rows: ParsedRow[] = raw.map(({ rowNumber, payload }) => ({
     rowNumber,
     iban: uploadAccountIban,
+    currency: (payload['Currency'] as string).trim(),
     payload,
     bankTransactionId: null,
     normalized: normalized.get(rowNumber),

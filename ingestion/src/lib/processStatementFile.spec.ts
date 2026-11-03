@@ -15,7 +15,11 @@ import {
   type StatementOutcome,
 } from './processStatementFile';
 
-const config: DataApiConfig = { resourceArn: 'a', secretArn: 'a', database: 'd' };
+const config: DataApiConfig = {
+  resourceArn: 'a',
+  secretArn: 'a',
+  database: 'd',
+};
 const fixture = (name: string) =>
   readFileSync(join(__dirname, 'parsers/__fixtures__', name), 'utf8');
 const SEB = fixture('seb.csv');
@@ -94,21 +98,31 @@ describe('processStatementFile', () => {
     }
   }
 
-  type Hook = (command: { constructor: { name: string }; input: Record<string, unknown> }) => void;
+  type Hook = (command: {
+    constructor: { name: string };
+    input: Record<string, unknown>;
+  }) => void | Promise<void>;
 
   function upload(
     contents: string,
-    opts: { accountId: string; sub?: string; key?: string; hook?: Hook; size?: number } ,
+    opts: {
+      accountId: string;
+      sub?: string;
+      key?: string;
+      hook?: Hook;
+      size?: number;
+    },
   ): Promise<StatementOutcome> {
     counter += 1;
     const key =
-      opts.key ?? `uploads/${opts.sub ?? 'user-1'}/${opts.accountId}/${counter}.csv`;
+      opts.key ??
+      `uploads/${opts.sub ?? 'user-1'}/${opts.accountId}/${counter}.csv`;
     const real = createPgliteDataApiClient(db).client;
     const client = {
       send: async (command: Parameters<Hook>[0]) => {
         const sql = command.input['sql'];
         if (typeof sql === 'string') sqlLog.push(sql);
-        opts.hook?.(command);
+        await opts.hook?.(command);
         return real.send(command as never);
       },
     } as unknown as typeof real;
@@ -124,7 +138,8 @@ describe('processStatementFile', () => {
 
   const count = async (table: string) =>
     Number(
-      (await db.query<{ n: string }>(`SELECT count(*) AS n FROM ${table}`)).rows[0]?.n,
+      (await db.query<{ n: string }>(`SELECT count(*) AS n FROM ${table}`))
+        .rows[0]?.n,
     );
 
   const revolutRow = (
@@ -138,12 +153,23 @@ describe('processStatementFile', () => {
 
   describe('approved files', () => {
     it('writes the file, per-account record, raw rows, transactions and sources', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
 
       const outcome = await upload(REVOLUT, { accountId: 'R' });
 
-      expect(outcome).toMatchObject({ status: 'approved', reasons: [], redelivered: false });
-      const file = (await db.query<Record<string, unknown>>('SELECT * FROM statement_files')).rows[0];
+      expect(outcome).toMatchObject({
+        status: 'approved',
+        reasons: [],
+        redelivered: false,
+      });
+      const file = (
+        await db.query<Record<string, unknown>>('SELECT * FROM statement_files')
+      ).rows[0];
       expect(file).toMatchObject({
         status: 'approved',
         bank: 'revolut',
@@ -152,7 +178,11 @@ describe('processStatementFile', () => {
         upload_account_id: 'R',
       });
       expect(file?.['sha256']).toMatch(/^[0-9a-f]{64}$/);
-      const perAccount = (await db.query<Record<string, unknown>>('SELECT * FROM statement_file_accounts')).rows[0];
+      const perAccount = (
+        await db.query<Record<string, unknown>>(
+          'SELECT * FROM statement_file_accounts',
+        )
+      ).rows[0];
       expect(perAccount).toMatchObject({
         account_id: 'R',
         new_transaction_count: 2,
@@ -166,7 +196,12 @@ describe('processStatementFile', () => {
     });
 
     it('keeps PENDING and non-Current rows raw-only', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
 
       await upload(REVOLUT_STATES, { accountId: 'R' });
 
@@ -175,7 +210,13 @@ describe('processStatementFile', () => {
     });
 
     it('stores raw values exactly as exported', async () => {
-      await account({ id: 'M', iban: MONO_IBAN, bank: 'monobank', currency: 'UAH', opening: 375158 + 0 });
+      await account({
+        id: 'M',
+        iban: MONO_IBAN,
+        bank: 'monobank',
+        currency: 'UAH',
+        opening: 375158 + 0,
+      });
 
       const outcome = await upload(MONOBANK, { accountId: 'M' });
 
@@ -212,7 +253,9 @@ describe('processStatementFile', () => {
       expect(perAccount.map((r) => r.account_id)).toEqual(['A', 'B']);
       expect(perAccount[0]?.declared_from).toBe('2026-08-29');
       const rawAccounts = (
-        await db.query<{ account_id: string }>('SELECT DISTINCT account_id FROM raw_rows ORDER BY 1')
+        await db.query<{ account_id: string }>(
+          'SELECT DISTINCT account_id FROM raw_rows ORDER BY 1',
+        )
       ).rows.map((r) => r.account_id);
       expect(rawAccounts).toEqual(['A', 'B']);
     });
@@ -241,7 +284,9 @@ describe('processStatementFile', () => {
 
       expect(outcome.status).toBe('rejected');
       expect(outcome.reasons.length).toBeGreaterThan(0);
-      const file = (await db.query<Record<string, unknown>>('SELECT * FROM statement_files')).rows[0];
+      const file = (
+        await db.query<Record<string, unknown>>('SELECT * FROM statement_files')
+      ).rows[0];
       expect(file?.['status']).toBe('rejected');
       expect(JSON.stringify(file?.['rejection_reasons'])).toContain('Row 1');
       expect(await count('raw_rows')).toBe(0);
@@ -258,12 +303,21 @@ describe('processStatementFile', () => {
     });
 
     it('rejects a currency mismatch naming the row', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', currency: 'USD', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        currency: 'USD',
+        opening: 1191,
+      });
 
       const outcome = await upload(REVOLUT, { accountId: 'R' });
 
       expect(outcome.status).toBe('rejected');
-      expect(outcome.reasons[0]).toMatchObject({ code: 'currency-mismatch', row: 1 });
+      expect(outcome.reasons[0]).toMatchObject({
+        code: 'currency-mismatch',
+        row: 1,
+      });
       expect(await count('transactions')).toBe(0);
     });
 
@@ -281,16 +335,29 @@ describe('processStatementFile', () => {
     });
 
     it('rejects an uploader who is only a viewer of the selected account', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', viewer: 'viewer-1' });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        viewer: 'viewer-1',
+      });
 
-      const outcome = await upload(REVOLUT, { accountId: 'R', sub: 'viewer-1' });
+      const outcome = await upload(REVOLUT, {
+        accountId: 'R',
+        sub: 'viewer-1',
+      });
 
       expect(outcome.reasons[0]?.code).toBe('not-owner');
       expect(await count('transactions')).toBe(0);
     });
 
     it('rejects a re-upload of the same bytes for the same account, naming the earlier import', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
       const first = await upload(REVOLUT, { accountId: 'R' });
 
       const second = await upload(REVOLUT, { accountId: 'R' });
@@ -303,8 +370,20 @@ describe('processStatementFile', () => {
     });
 
     it('does not treat the same bytes for a different account as a duplicate', async () => {
-      await account({ id: 'M1', iban: MONO_IBAN, bank: 'monobank', currency: 'UAH', opening: 375158 });
-      await account({ id: 'M2', iban: 'UA100000000000000078', bank: 'monobank', currency: 'UAH', opening: 375158 });
+      await account({
+        id: 'M1',
+        iban: MONO_IBAN,
+        bank: 'monobank',
+        currency: 'UAH',
+        opening: 375158,
+      });
+      await account({
+        id: 'M2',
+        iban: 'UA100000000000000078',
+        bank: 'monobank',
+        currency: 'UAH',
+        opening: 375158,
+      });
       await upload(MONOBANK, { accountId: 'M1' });
 
       const second = await upload(MONOBANK, { accountId: 'M2' });
@@ -312,8 +391,104 @@ describe('processStatementFile', () => {
       expect(second.status).toBe('approved');
     });
 
+    it('rejects a raw-only row whose currency differs from the account', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+      const csv = [
+        REVOLUT_HEADER,
+        'Card Payment,Current,2026-08-28 19:20:23,2026-08-29 08:00:00,Lidl,-0.29,0.00,EUR,COMPLETED,11.62',
+        'Card Payment,Current,2026-08-29 09:00:00,,Coffee,-3.50,0.00,USD,PENDING,',
+      ].join('\n');
+
+      const outcome = await upload(csv, { accountId: 'R' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons).toEqual([
+        expect.objectContaining({ code: 'currency-mismatch', row: 2 }),
+      ]);
+      expect(await count('raw_rows')).toBe(0);
+    });
+
+    it('rejects a file with a row too large for one Data API parameter set', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+      const csv = [
+        REVOLUT_HEADER,
+        `Card Payment,Current,2026-08-28 19:20:23,2026-08-29 08:00:00,${'x'.repeat(1_100_000)},-0.29,0.00,EUR,COMPLETED,11.62`,
+      ].join('\n');
+
+      const outcome = await upload(csv, { accountId: 'R' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons).toEqual([
+        expect.objectContaining({ code: 'row-too-large', row: 1 }),
+      ]);
+      expect(await count('raw_rows')).toBe(0);
+    });
+
+    it('rejects when ownership is revoked after the early check but before the write transaction commits', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+      let revoked = false;
+
+      const outcome = await upload(REVOLUT, {
+        accountId: 'R',
+        hook: async (command) => {
+          const sql = command.input['sql'];
+          if (
+            !revoked &&
+            typeof sql === 'string' &&
+            sql.includes('lock_timeout')
+          ) {
+            revoked = true;
+            // Same pglite connection, so this lands inside the import's transaction window.
+            await db.exec("DELETE FROM account_members WHERE account_id = 'R'");
+          }
+        },
+      });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons[0]?.code).toBe('not-owner');
+      expect(await count('raw_rows')).toBe(0);
+      expect(await count('transactions')).toBe(0);
+    });
+
+    it('holds a share lock on the owner rows inside the write transaction', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+
+      await upload(REVOLUT, { accountId: 'R' });
+
+      const joined = sqlLog.join('\n');
+      expect(joined).toMatch(/FROM account_members[\s\S]*FOR SHARE/);
+      expect(joined.indexOf('FOR SHARE')).toBeLessThan(
+        joined.indexOf('INSERT INTO statement_files'),
+      );
+    });
+
     it('maps the partial-unique-index race to a duplicate rejection', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
       await upload(REVOLUT, { accountId: 'R' });
 
       // Hide the duplicate pre-check so the insert itself hits the index.
@@ -322,7 +497,10 @@ describe('processStatementFile', () => {
         hook: (command) => {
           const sql = command.input['sql'];
           if (typeof sql === 'string' && sql.includes("status = 'approved'")) {
-            command.input['sql'] = sql.replace("status = 'approved'", "status = 'nonexistent'");
+            command.input['sql'] = sql.replace(
+              "status = 'approved'",
+              "status = 'nonexistent'",
+            );
           }
         },
       });
@@ -336,17 +514,46 @@ describe('processStatementFile', () => {
   describe('overlap with stored history', () => {
     const file1 = [
       REVOLUT_HEADER,
-      revolutRow('2026-01-02 10:00:00', '2026-01-02 10:00:00', 'Alpha', '-1.00', '9.00'),
-      revolutRow('2026-01-03 10:00:00', '2026-01-03 10:00:00', 'Bravo', '-1.00', '8.00'),
+      revolutRow(
+        '2026-01-02 10:00:00',
+        '2026-01-02 10:00:00',
+        'Alpha',
+        '-1.00',
+        '9.00',
+      ),
+      revolutRow(
+        '2026-01-03 10:00:00',
+        '2026-01-03 10:00:00',
+        'Bravo',
+        '-1.00',
+        '8.00',
+      ),
     ].join('\n');
     const file2 = [
       REVOLUT_HEADER,
-      revolutRow('2026-01-03 10:00:00', '2026-01-03 10:00:00', 'Bravo', '-1.00', '8.00'),
-      revolutRow('2026-01-04 10:00:00', '2026-01-04 10:00:00', 'Charlie', '-1.00', '7.00'),
+      revolutRow(
+        '2026-01-03 10:00:00',
+        '2026-01-03 10:00:00',
+        'Bravo',
+        '-1.00',
+        '8.00',
+      ),
+      revolutRow(
+        '2026-01-04 10:00:00',
+        '2026-01-04 10:00:00',
+        'Charlie',
+        '-1.00',
+        '7.00',
+      ),
     ].join('\n');
 
     it('adds a source to an overlapping transaction instead of duplicating it', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1000 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1000,
+      });
       await upload(file1, { accountId: 'R' });
 
       const outcome = await upload(file2, { accountId: 'R' });
@@ -371,52 +578,91 @@ describe('processStatementFile', () => {
     });
 
     it('rejects an overlapping row that conflicts with the stored transaction', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1000 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1000,
+      });
       await upload(file1, { accountId: 'R' });
       const conflicting = [
         REVOLUT_HEADER,
-        revolutRow('2026-01-03 10:00:00', '2026-01-03 10:00:00', 'Bravo', '-1.00', '7.50'),
+        revolutRow(
+          '2026-01-03 10:00:00',
+          '2026-01-03 10:00:00',
+          'Bravo',
+          '-1.00',
+          '7.50',
+        ),
       ].join('\n');
 
       const outcome = await upload(conflicting, { accountId: 'R' });
 
       expect(outcome.status).toBe('rejected');
-      expect(outcome.reasons[0]).toMatchObject({ code: 'conflicting-overlap', row: 1 });
+      expect(outcome.reasons[0]).toMatchObject({
+        code: 'conflicting-overlap',
+        row: 1,
+      });
       expect(await count('transactions')).toBe(2);
     });
 
     it('approves exactly one of two SEB files carrying the same provider id with different amounts', async () => {
       await account({ id: 'A', iban: IBAN_A });
       await account({ id: 'B', iban: IBAN_B });
-      const altered = SEB.replace('"EUR";50,00;"VARDENIS', '"EUR";51,00;"VARDENIS');
+      const altered = SEB.replace(
+        '"EUR";50,00;"VARDENIS',
+        '"EUR";51,00;"VARDENIS',
+      );
       expect(altered).not.toBe(SEB);
 
       const first = await upload(SEB, { accountId: 'A' });
       const second = await upload(altered, { accountId: 'A' });
 
-      expect([first.status, second.status].sort()).toEqual(['approved', 'rejected']);
+      expect([first.status, second.status].sort()).toEqual([
+        'approved',
+        'rejected',
+      ]);
       expect(second.reasons[0]?.code).toBe('conflicting-overlap');
     });
   });
 
   describe('continuity warnings', () => {
     it('approves an out-of-order file with a gap warning recorded on its account record', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1000 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1000,
+      });
       const march = [
         REVOLUT_HEADER,
-        revolutRow('2026-03-02 10:00:00', '2026-03-02 10:00:00', 'March', '-1.00', '16.00'),
+        revolutRow(
+          '2026-03-02 10:00:00',
+          '2026-03-02 10:00:00',
+          'March',
+          '-1.00',
+          '16.00',
+        ),
       ].join('\n');
       await upload(march, { accountId: 'R' });
       // opening 10.00 closing 9.00 ≠ March opening 17.00
       const january = [
         REVOLUT_HEADER,
-        revolutRow('2026-01-02 10:00:00', '2026-01-02 10:00:00', 'January', '-1.00', '9.00'),
+        revolutRow(
+          '2026-01-02 10:00:00',
+          '2026-01-02 10:00:00',
+          'January',
+          '-1.00',
+          '9.00',
+        ),
       ].join('\n');
 
       const outcome = await upload(january, { accountId: 'R' });
 
       expect(outcome.status).toBe('approved');
-      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual(['gap-after']);
+      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual([
+        'gap-after',
+      ]);
       const stored = (
         await db.query<{ warnings: { code: string }[] }>(
           'SELECT warnings FROM statement_file_accounts WHERE file_id = $1',
@@ -427,14 +673,31 @@ describe('processStatementFile', () => {
     });
 
     it('has no warning when the file connects to history and the opening', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1000 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1000,
+      });
       const jan = [
         REVOLUT_HEADER,
-        revolutRow('2026-01-02 10:00:00', '2026-01-02 10:00:00', 'Jan', '-1.00', '9.00'),
+        revolutRow(
+          '2026-01-02 10:00:00',
+          '2026-01-02 10:00:00',
+          'Jan',
+          '-1.00',
+          '9.00',
+        ),
       ].join('\n');
       const feb = [
         REVOLUT_HEADER,
-        revolutRow('2026-02-02 10:00:00', '2026-02-02 10:00:00', 'Feb', '-1.00', '8.00'),
+        revolutRow(
+          '2026-02-02 10:00:00',
+          '2026-02-02 10:00:00',
+          'Feb',
+          '-1.00',
+          '8.00',
+        ),
       ].join('\n');
       const first = await upload(jan, { accountId: 'R' });
 
@@ -446,24 +709,40 @@ describe('processStatementFile', () => {
     });
 
     it('warns when the first file does not match the account opening balance', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 5 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 5,
+      });
 
       const outcome = await upload(REVOLUT, { accountId: 'R' });
 
       expect(outcome.status).toBe('approved');
-      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual(['gap-opening']);
+      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual([
+        'gap-opening',
+      ]);
     });
   });
 
   describe('redelivery and failure', () => {
     it('returns the recorded outcome for a redelivered object without creating a second record', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
       const key = 'uploads/user-1/R/same-object.csv';
       const first = await upload(REVOLUT, { accountId: 'R', key });
 
       const again = await upload(REVOLUT, { accountId: 'R', key });
 
-      expect(again).toMatchObject({ fileId: first.fileId, status: 'approved', redelivered: true });
+      expect(again).toMatchObject({
+        fileId: first.fileId,
+        status: 'approved',
+        redelivered: true,
+      });
       expect(await count('statement_files')).toBe(1);
       expect(await count('raw_rows')).toBe(2);
     });
@@ -475,20 +754,32 @@ describe('processStatementFile', () => {
 
       const again = await upload('foo,bar\n', { accountId: 'R', key });
 
-      expect(again).toMatchObject({ fileId: first.fileId, status: 'rejected', redelivered: true });
+      expect(again).toMatchObject({
+        fileId: first.fileId,
+        status: 'rejected',
+        redelivered: true,
+      });
       expect(again.reasons).toEqual(first.reasons);
       expect(await count('statement_files')).toBe(1);
     });
 
     it('leaves no partial rows when a write fails partway, and surfaces the error', async () => {
-      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1191 });
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
 
       await expect(
         upload(REVOLUT, {
           accountId: 'R',
           hook: (command) => {
             const sql = command.input['sql'];
-            if (typeof sql === 'string' && sql.includes('INSERT INTO transactions')) {
+            if (
+              typeof sql === 'string' &&
+              sql.includes('INSERT INTO transactions')
+            ) {
               throw new Error('boom');
             }
           },
@@ -501,9 +792,9 @@ describe('processStatementFile', () => {
     });
 
     it('fails when the upload-selected account does not exist', async () => {
-      await expect(upload(REVOLUT, { accountId: 'ghost' })).rejects.toBeInstanceOf(
-        MissingUploadAccountError,
-      );
+      await expect(
+        upload(REVOLUT, { accountId: 'ghost' }),
+      ).rejects.toBeInstanceOf(MissingUploadAccountError);
     });
 
     it('rejects an oversized file from the event size before touching S3', async () => {
