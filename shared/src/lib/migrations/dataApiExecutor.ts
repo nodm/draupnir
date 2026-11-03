@@ -67,12 +67,12 @@ export function createDataApiExecutor(
 
   return {
     begin: () => beginTransaction(retryingClient, config),
-    async execute(sql, transactionId) {
+    async execute(sql, transactionId, parameters = {}) {
       const result = await executeStatement(
         retryingClient,
         config,
         sql,
-        {},
+        parameters,
         transactionId,
       );
       return result.rows;

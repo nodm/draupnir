@@ -1,4 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { toPositional } from '../testing/pgliteDataApiClient';
 import type { MigrationExecutor } from './runMigrations';
 
 // pglite is single-connection, so "transactions" are just BEGIN/COMMIT on it;
@@ -9,8 +10,15 @@ export function createPgliteExecutor(db: PGlite): MigrationExecutor {
       await db.exec('BEGIN');
       return 'pglite-tx';
     },
-    async execute(sql) {
-      const result = await db.query<Record<string, unknown>>(sql);
+    async execute(sql, _transactionId, parameters = {}) {
+      const { text, values } = toPositional(
+        sql,
+        Object.entries(parameters).map(([name, value]) => ({
+          name,
+          value: { stringValue: value },
+        })),
+      );
+      const result = await db.query<Record<string, unknown>>(text, values);
       return result.rows;
     },
     async commit() {

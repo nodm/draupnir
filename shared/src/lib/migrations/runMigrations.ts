@@ -7,6 +7,7 @@ export interface MigrationExecutor {
   execute(
     sql: string,
     transactionId?: string,
+    parameters?: Record<string, string>,
   ): Promise<Record<string, unknown>[]>;
   commit(transactionId: string): Promise<void>;
   rollback(transactionId: string): Promise<void>;
@@ -25,6 +26,10 @@ export interface RunMigrationsOptions {
   lockDeadlineMs: number;
   lockPollIntervalMs?: number;
   clock?: MigrationClock;
+  // Password for the `draupnir_app` login role. When given, the role's password
+  // is (re)set on every run; the role is created either way, because migrations
+  // grant to it.
+  appRolePassword?: string;
   log?: (message: string) => void;
 }
 
@@ -60,6 +65,7 @@ export class MigrationLockTimeoutError extends Error {
 
 // Arbitrary fixed key: 'draupnir' migrations.
 const MIGRATION_LOCK_KEY = 727_274_001;
+const APP_ROLE = 'draupnir_app';
 const DEFAULT_LOCK_POLL_INTERVAL_MS = 2000;
 
 const realClock: MigrationClock = {
@@ -136,6 +142,35 @@ async function readRecorded(
   );
 }
 
+// Not a migration: the password isn't static SQL. ALTER ROLE ... PASSWORD takes
+// no bind parameters, so the password goes in a transaction-local setting and
+// the DO block reads it; it never appears in statement text.
+async function ensureAppRole(
+  executor: MigrationExecutor,
+  transactionId: string,
+  password: string | undefined,
+): Promise<void> {
+  if (password !== undefined) {
+    await executor.execute(
+      `SELECT set_config('draupnir.app_role_password', :password, true)`,
+      transactionId,
+      { password },
+    );
+  }
+  await executor.execute(
+    `DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
+    CREATE ROLE ${APP_ROLE} LOGIN;
+  END IF;
+  IF current_setting('draupnir.app_role_password', true) IS NOT NULL
+     AND current_setting('draupnir.app_role_password', true) <> '' THEN
+    EXECUTE format('ALTER ROLE ${APP_ROLE} PASSWORD %L', current_setting('draupnir.app_role_password', true));
+  END IF;
+END $$`,
+    transactionId,
+  );
+}
+
 export async function runMigrations(
   options: RunMigrationsOptions,
 ): Promise<RunMigrationsResult> {
@@ -160,6 +195,7 @@ export async function runMigrations(
 )`,
       transactionId,
     );
+    await ensureAppRole(executor, transactionId, options.appRolePassword);
   });
 
   // Fast pre-check without the lock; re-checked per migration under the lock.

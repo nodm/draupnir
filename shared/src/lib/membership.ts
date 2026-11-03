@@ -1,11 +1,5 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import {
-  beginTransaction,
-  commitTransaction,
-  executeStatement,
-  rollbackTransaction,
-  type DataApiConfig,
-} from './dataApi';
+import { executeStatement, withCaller, type DataApiConfig } from './dataApi';
 
 export type MemberRole = 'owner' | 'viewer';
 
@@ -63,7 +57,8 @@ interface MemberRow {
 }
 
 // Membership is re-read on every call; nothing is cached, so a removal takes
-// effect on the very next request.
+// effect on the very next request. Without a transaction it runs as `userId`
+// (a member can always read their own membership row).
 export async function getMemberRole(
   client: RDSDataClient,
   config: DataApiConfig,
@@ -71,14 +66,19 @@ export async function getMemberRole(
   userId: string,
   transactionId?: string,
 ): Promise<MemberRole | null> {
-  const { rows } = await executeStatement(
-    client,
-    config,
-    'SELECT role FROM account_members WHERE account_id = :accountId AND user_id = :userId',
-    { accountId, userId },
-    transactionId,
-  );
-  return rows.length === 0 ? null : (rows[0] as { role: MemberRole }).role;
+  const read = async (tx: string): Promise<MemberRole | null> => {
+    const { rows } = await executeStatement(
+      client,
+      config,
+      'SELECT role FROM account_members WHERE account_id = :accountId AND user_id = :userId',
+      { accountId, userId },
+      tx,
+    );
+    return rows.length === 0 ? null : (rows[0] as { role: MemberRole }).role;
+  };
+  return transactionId === undefined
+    ? withCaller(client, config, userId, read)
+    : read(transactionId);
 }
 
 // Runs `change` with the account's member rows locked (SELECT … FOR UPDATE),
@@ -91,8 +91,9 @@ async function withLockedMembers<T>(
   accountId: string,
   change: (members: MemberRow[], transactionId: string) => Promise<T>,
 ): Promise<T> {
-  const transactionId = await beginTransaction(client, config);
-  try {
+  return withCaller(client, config, actingUserId, async (transactionId) => {
+    // FOR UPDATE also applies the owner-only UPDATE policy, so a non-owner
+    // locks (and sees) nothing and is refused below.
     const { rows } = await executeStatement(
       client,
       config,
@@ -105,13 +106,8 @@ async function withLockedMembers<T>(
     if (actor?.role !== 'owner') {
       throw new NotAccountOwnerError();
     }
-    const result = await change(members, transactionId);
-    await commitTransaction(client, config, transactionId);
-    return result;
-  } catch (error) {
-    await rollbackTransaction(client, config, transactionId);
-    throw error;
-  }
+    return change(members, transactionId);
+  });
 }
 
 function ownerCount(members: readonly MemberRow[]): number {
