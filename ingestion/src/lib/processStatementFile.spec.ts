@@ -117,7 +117,7 @@ describe('processStatementFile', () => {
     const key =
       opts.key ??
       `uploads/${opts.sub ?? 'user-1'}/${opts.accountId}/${counter}.csv`;
-    const real = createPgliteDataApiClient(db).client;
+    const real = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
     const client = {
       send: async (command: Parameters<Hook>[0]) => {
         const sql = command.input['sql'];
@@ -348,6 +348,9 @@ describe('processStatementFile', () => {
       });
 
       expect(outcome.reasons[0]?.code).toBe('not-owner');
+      // Not recorded: a non-owner can't write statement_files (RLS).
+      expect(outcome.fileId).toBeNull();
+      expect(await count('statement_files')).toBe(0);
       expect(await count('transactions')).toBe(0);
     });
 
@@ -461,6 +464,8 @@ describe('processStatementFile', () => {
 
       expect(outcome.status).toBe('rejected');
       expect(outcome.reasons[0]?.code).toBe('not-owner');
+      expect(outcome.fileId).toBeNull();
+      expect(await count('statement_files')).toBe(0);
       expect(await count('raw_rows')).toBe(0);
       expect(await count('transactions')).toBe(0);
     });

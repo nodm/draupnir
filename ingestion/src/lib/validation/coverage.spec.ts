@@ -287,6 +287,7 @@ describe('getAccountCoverage (database)', () => {
       INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units) VALUES
         ('A', 'seb', 'LT000000000000000001', 'EUR', 'A', '2026-01-01', 0),
         ('B', 'seb', 'LT000000000000000002', 'EUR', 'B', '2026-01-01', 0);
+      INSERT INTO account_members (account_id, user_id, role) VALUES ('A', 'u', 'owner'), ('B', 'u', 'owner');
       INSERT INTO statement_files (id, upload_account_id, uploaded_by, bank, format_version, sha256, s3_key, status) VALUES
         ('f1', 'A', 'u', 'seb', 'seb-v1', 's1', 'k1', 'approved'),
         ('f2', 'A', 'u', 'seb', 'seb-v1', 's2', 'k2', 'approved');
@@ -295,10 +296,10 @@ describe('getAccountCoverage (database)', () => {
         ('f1', 'B', '2026-01-01', '2026-01-31', '2026-01-06', '2026-01-20'),
         ('f2', 'A', '2026-03-01', '2026-03-31', '2026-03-02', '2026-03-30');
     `);
-    const { client } = createPgliteDataApiClient(db);
+    const { client } = createPgliteDataApiClient(db, { role: 'draupnir_app' });
 
-    const a = await getAccountCoverage(client, config, 'A');
-    const b = await getAccountCoverage(client, config, 'B');
+    const a = await getAccountCoverage(client, config, 'u', 'A');
+    const b = await getAccountCoverage(client, config, 'u', 'B');
 
     expect(a.periods.map((p) => [p.fileId, p.from, p.to])).toEqual([
       ['f1', '2026-01-01', '2026-01-31'],

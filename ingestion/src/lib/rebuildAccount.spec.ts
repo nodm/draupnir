@@ -33,7 +33,7 @@ describe('rebuildAccount', () => {
   beforeAll(async () => {
     db = new PGlite();
     await applyMigrationsForTest(db);
-    client = createPgliteDataApiClient(db).client;
+    client = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
   });
   afterAll(async () => {
     await db.close();
@@ -116,7 +116,7 @@ describe('rebuildAccount', () => {
     );
     const before = await snapshot('R');
 
-    const result = await rebuildAccount(client, config, 'R');
+    const result = await rebuildAccount(client, config, 'user-1', 'R');
 
     expect(result).toEqual({ accountId: 'R', transactions: 3, sources: 4 });
     expect(await snapshot('R')).toEqual(before);
@@ -130,7 +130,7 @@ describe('rebuildAccount', () => {
       `UPDATE transactions SET description = 'STALE', amount_minor_units = 0`,
     );
 
-    await rebuildAccount(client, config, 'R');
+    await rebuildAccount(client, config, 'user-1', 'R');
 
     const { rows } = await db.query<{
       description: string;
@@ -151,7 +151,7 @@ describe('rebuildAccount', () => {
       `UPDATE transactions SET description = 'STALE' WHERE account_id = 'B'`,
     );
 
-    const result = await rebuildAccount(client, config, 'B');
+    const result = await rebuildAccount(client, config, 'user-1', 'B');
 
     expect(result.transactions).toBe(5);
     expect(await snapshot('B')).toEqual(bBefore);
@@ -182,7 +182,7 @@ describe('rebuildAccount', () => {
       [first.fileId],
     );
 
-    await rebuildAccount(client, config, 'B');
+    await rebuildAccount(client, config, 'user-1', 'B');
 
     expect(await description()).toBe(original);
   });
@@ -191,7 +191,7 @@ describe('rebuildAccount', () => {
     await account('R', 'LT100000000000000077', 'revolut', 1000);
     await upload('foo,bar\n', 'R');
 
-    expect(await rebuildAccount(client, config, 'R')).toEqual({
+    expect(await rebuildAccount(client, config, 'user-1', 'R')).toEqual({
       accountId: 'R',
       transactions: 0,
       sources: 0,
@@ -200,7 +200,7 @@ describe('rebuildAccount', () => {
 
   it('fails for an unknown account', async () => {
     await expect(
-      rebuildAccount(client, config, 'ghost'),
+      rebuildAccount(client, config, 'user-1', 'ghost'),
     ).rejects.toBeInstanceOf(RebuildAccountNotFoundError);
   });
 
@@ -220,8 +220,57 @@ describe('rebuildAccount', () => {
       },
     } as unknown as typeof client;
 
-    await expect(rebuildAccount(failing, config, 'R')).rejects.toThrow('boom');
+    await expect(
+      rebuildAccount(failing, config, 'user-1', 'R'),
+    ).rejects.toThrow('boom');
 
     expect(await snapshot('R')).toEqual(before);
+  });
+
+  it('replays files uploaded by every owner, not just the caller’s', async () => {
+    await account('R', 'LT100000000000000077', 'revolut', 1000);
+    await db.exec(
+      `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'user-2', 'owner')`,
+    );
+    await upload([HEADER, row('02', 'Alpha', '9.00')].join('\n'), 'R');
+    // Second file uploaded by the other owner.
+    counter += 1;
+    const bytes = Buffer.from(
+      [HEADER, row('03', 'Beta', '8.00')].join('\n'),
+      'utf8',
+    );
+    await processStatementFile(
+      client,
+      config,
+      {
+        send: async () => ({
+          Body: { transformToByteArray: async () => new Uint8Array(bytes) },
+          ContentLength: bytes.length,
+        }),
+      } as unknown as S3Client,
+      'bucket',
+      `uploads/user-2/R/${counter}.csv`,
+      bytes.length,
+    );
+    const before = await snapshot('R');
+
+    const result = await rebuildAccount(client, config, 'user-1', 'R');
+
+    expect(result.transactions).toBe(2);
+    expect(await snapshot('R')).toEqual(before);
+  });
+
+  it('treats an account the caller does not own as not found', async () => {
+    await account('R', 'LT100000000000000077', 'revolut', 1000);
+    await db.exec(
+      `INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'viewer-1', 'viewer')`,
+    );
+
+    await expect(
+      rebuildAccount(client, config, 'viewer-1', 'R'),
+    ).rejects.toBeInstanceOf(RebuildAccountNotFoundError);
+    await expect(
+      rebuildAccount(client, config, 'stranger', 'R'),
+    ).rejects.toBeInstanceOf(RebuildAccountNotFoundError);
   });
 });

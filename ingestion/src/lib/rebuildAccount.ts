@@ -1,9 +1,7 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import {
-  beginTransaction,
-  commitTransaction,
   executeStatement,
-  rollbackTransaction,
+  withCaller,
   type Bank,
   type DataApiConfig,
 } from 'shared';
@@ -42,10 +40,12 @@ export class RebuildAccountNotFoundError extends Error {
 export async function rebuildAccount(
   client: RDSDataClient,
   config: DataApiConfig,
+  // An owner of the account: row-level security hides the account from anyone
+  // else, so a non-owner gets RebuildAccountNotFoundError.
+  sub: string,
   accountId: string,
 ): Promise<RebuildResult> {
-  const transactionId = await beginTransaction(client, config);
-  try {
+  return withCaller(client, config, sub, async (transactionId) => {
     await executeStatement(
       client,
       config,
@@ -147,18 +147,10 @@ export async function rebuildAccount(
       })),
     );
 
-    await commitTransaction(client, config, transactionId);
     return {
       accountId,
       transactions: derivation.transactions.length,
       sources: derivation.sources.length,
     };
-  } catch (error) {
-    try {
-      await rollbackTransaction(client, config, transactionId);
-    } catch {
-      // surface the original error
-    }
-    throw error;
-  }
+  });
 }

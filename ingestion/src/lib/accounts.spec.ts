@@ -131,7 +131,7 @@ describe('createAccount on a real Postgres instance', () => {
   beforeAll(async () => {
     db = new PGlite();
     await applyMigrationsForTest(db);
-    client = createPgliteDataApiClient(db).client;
+    client = createPgliteDataApiClient(db, { role: 'draupnir_app' }).client;
   });
   afterAll(async () => {
     await db.close();
@@ -241,12 +241,15 @@ describe('createAccount on a real Postgres instance', () => {
     expect(members.rows).toEqual([{ user_id: 'first' }]);
   });
 
-  it('creates no account when the membership insert fails', async () => {
+  it('creates no account when the transaction cannot commit', async () => {
     const real = client;
     const failing = {
-      send: async (command: { input: { sql?: string } }) => {
-        if (command.input.sql?.includes('INSERT INTO account_members')) {
-          throw new Error('membership failed');
+      send: async (command: {
+        constructor: { name: string };
+        input: object;
+      }) => {
+        if (command.constructor.name === 'CommitTransactionCommand') {
+          throw new Error('commit failed');
         }
         return real.send(command as never);
       },
@@ -254,7 +257,7 @@ describe('createAccount on a real Postgres instance', () => {
 
     await expect(
       createAccount(failing, config, { sub: 'u' }, validInput),
-    ).rejects.toThrow('membership failed');
+    ).rejects.toThrow('commit failed');
 
     expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(0);
   });

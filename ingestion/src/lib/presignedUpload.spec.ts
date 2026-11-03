@@ -17,10 +17,26 @@ const dataApiConfig: DataApiConfig = {
 
 const bucketConfig = { bucket: 'draupnir-uploads' };
 
+// withCaller wraps every query in begin / set identity / commit; those calls are
+// answered here so `send` only sees the query under test.
 function fakeDataApiClient(
   send: (command: unknown) => Promise<unknown>,
 ): RDSDataClient {
-  return { send } as unknown as RDSDataClient;
+  return {
+    send: (command: { constructor: { name: string }; input: object }) => {
+      switch (command.constructor.name) {
+        case 'BeginTransactionCommand':
+          return Promise.resolve({ transactionId: 'tx' });
+        case 'CommitTransactionCommand':
+        case 'RollbackTransactionCommand':
+          return Promise.resolve({});
+        default:
+          return (command.input as { sql?: string }).sql?.includes('set_config')
+            ? Promise.resolve({})
+            : send(command);
+      }
+    },
+  } as unknown as RDSDataClient;
 }
 
 function rowsResponse(rows: unknown[]) {

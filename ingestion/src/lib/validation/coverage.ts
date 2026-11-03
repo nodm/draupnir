@@ -1,5 +1,5 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { executeStatement, type DataApiConfig } from 'shared';
+import { executeStatement, withCaller, type DataApiConfig } from 'shared';
 import { formatMinorUnits } from '../dedupKey';
 import type { ValidationReason } from './types';
 
@@ -239,7 +239,7 @@ export async function loadSegments(
   client: RDSDataClient,
   config: DataApiConfig,
   accountId: string,
-  transactionId?: string,
+  transactionId: string,
 ): Promise<Segment[]> {
   const { rows } = await executeStatement(
     client,
@@ -261,33 +261,38 @@ export async function loadSegments(
   }));
 }
 
+// Runs as `sub`: an account the caller isn't a member of is "not found".
 export async function getAccountCoverage(
   client: RDSDataClient,
   config: DataApiConfig,
+  sub: string,
   accountId: string,
 ): Promise<Coverage> {
-  const { rows } = await executeStatement(
-    client,
-    config,
-    `SELECT currency, opened_on, opening_balance_minor_units FROM accounts WHERE id = :accountId`,
-    { accountId },
-  );
-  const account = rows[0] as
-    | {
-        currency: string;
-        opened_on: string;
-        opening_balance_minor_units: number;
-      }
-    | undefined;
-  if (!account) {
-    throw new Error(`Account not found: ${accountId}`);
-  }
-  return computeCoverage(
-    {
-      currency: account.currency,
-      openedOn: account.opened_on,
-      openingBalanceMinorUnits: account.opening_balance_minor_units,
-    },
-    await loadSegments(client, config, accountId),
-  );
+  return withCaller(client, config, sub, async (transactionId) => {
+    const { rows } = await executeStatement(
+      client,
+      config,
+      `SELECT currency, opened_on, opening_balance_minor_units FROM accounts WHERE id = :accountId`,
+      { accountId },
+      transactionId,
+    );
+    const account = rows[0] as
+      | {
+          currency: string;
+          opened_on: string;
+          opening_balance_minor_units: number;
+        }
+      | undefined;
+    if (!account) {
+      throw new Error(`Account not found: ${accountId}`);
+    }
+    return computeCoverage(
+      {
+        currency: account.currency,
+        openedOn: account.opened_on,
+        openingBalanceMinorUnits: account.opening_balance_minor_units,
+      },
+      await loadSegments(client, config, accountId, transactionId),
+    );
+  });
 }
