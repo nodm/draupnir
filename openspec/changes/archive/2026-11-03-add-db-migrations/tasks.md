@@ -4,13 +4,17 @@
       Deciders, Context, Decision, Trade-off Analysis, Consequences). Options: current AWS
       stack, Supabase free tier, Supabase + Cloudflare. Cover: SAA study goal; idle cost
       already near zero (Aurora scale-to-zero, no NAT, no VPC Lambdas) with the real monthly
-      bill from Cost Explorer filled in by the user; Supabase pros (RLS with JWT wiring, Google
+      bill from Cost Explorer (written as a `TODO` placeholder; see 1.2); Supabase pros (RLS with JWT wiring, Google
       auth built in, plain Postgres, low lock-in) and cons (no free backups, 7-day inactivity
       pause, $25/mo Pro, no SLA); Cloudflare pros (free Workers, MCP OAuth library, Email
       Workers, R2) and cons (free-plan CPU limit, non-Node runtime, second vendor); note that
       RLS is plain Postgres and is adopted on Aurora in a later change; revisit triggers
       (learning goal ends, or monthly bill exceeds an agreed threshold). Verify it is linked
       from the ADR list/`docs/architecture.md` the same way earlier ADRs are.
+- [ ] 1.2 Fill in the real monthly AWS bill from Cost Explorer and an agreed revisit threshold in
+      `docs/adr/0007-stay-on-aws.md` (user-supplied; still open, tracked in the ADR's Action
+      Items). Left unchecked deliberately: the figure was not available when this change was
+      archived.
 
 ## 2. Shared Data API helper
 
