@@ -82,7 +82,7 @@
 
 ## 7. Deploy and verify
 
-- [ ] 7.1 Ask the user to confirm the live `accounts`/`transactions`/`share_grants` rows are
+- [x] 7.1 Ask the user to confirm the live `accounts`/`transactions`/`share_grants` rows are
       disposable (or export them first); then `pnpm exec nx run infra:up` and verify
       `schema_migrations` records `0002` and the new tables exist.
 - [ ] 7.2 Live E2E: create an account with opening balance via `POST /accounts`, upload the
