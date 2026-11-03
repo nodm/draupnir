@@ -55,7 +55,7 @@ Depends on `redesign-statement-data-model` (policies target its tables).
 ## Impact
 
 - `shared/src/lib/`:
-  - migration `0003`: the role, grants, `SECURITY DEFINER` membership
+  - migrations `0005`–`0008`: the role, grants, `SECURITY DEFINER` membership
     function, policies, and an account-creation function;
   - a `withCaller` helper in `dataApi.ts`.
 - `ingestion/src/lib/`: every handler's database access is routed through
