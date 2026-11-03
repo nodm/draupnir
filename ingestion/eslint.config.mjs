@@ -13,7 +13,12 @@ export default [
             '{projectRoot}/esbuild.config.{js,ts,mjs,mts}',
             '{projectRoot}/vitest.config.{js,cjs,mjs,ts,cts,mts}',
           ],
-          ignoredDependencies: ['@types/aws-lambda', '@cucumber/cucumber'],
+          ignoredDependencies: [
+            '@types/aws-lambda',
+            '@cucumber/cucumber',
+            // test-only (pglite-backed specs); never bundled into a Lambda
+            '@electric-sql/pglite',
+          ],
         },
       ],
     },
