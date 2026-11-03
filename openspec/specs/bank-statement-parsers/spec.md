@@ -141,18 +141,38 @@ monobank commission) and per-row balance (`Balance`) into minor units on the
 normalized row. The SEB parser SHALL report fee as 0 and balance-after as
 absent, since its current export format has no per-row balance.
 
+The monobank parser SHALL express the normalized amount, fee, and balance in
+the card (account) currency, which its card-currency column headers state, so
+that the per-row balance chain stays in the account currency. When a row's
+operation currency differs from the card currency, the operation amount and
+currency SHALL be kept as the transaction's original amount and currency.
+
 #### Scenario: Revolut balance and fee are extracted
 - **WHEN** the Revolut parser processes a row with `Fee` `0.00` and `Balance`
   `11.33` in EUR
 - **THEN** the normalized row has `feeMinorUnits` 0 and
   `balanceAfterMinorUnits` 1133
 
+#### Scenario: monobank foreign-currency operation keeps the original amount
+- **WHEN** the monobank parser processes a row on a UAH card with card-currency
+  amount `-41.2`, operation amount `-1.0`, and operation currency `USD`
+- **THEN** the normalized row has amount -4120 in `UAH`, and original amount
+  -100 in `USD`
+
 ### Requirement: Revolut rows enter transactions only when completed
 The Revolut parser SHALL produce a normalized row only for rows whose `State`
-is `COMPLETED`. Rows in any other state (`PENDING`, `REVERTED`, `DECLINED`, …)
-SHALL be output with their raw payload only.
+is `COMPLETED` and whose `Product` is `Current`. Every other row — any other
+state (`PENDING`, `REVERTED`, `DECLINED`, …), or a completed row of another
+product (for example a savings vault) — SHALL be output with its raw payload
+only.
 
 #### Scenario: Pending row stays raw-only
 - **WHEN** the Revolut parser processes a row with `State` `PENDING`
+- **THEN** the row's raw payload is output and no normalized row is produced
+  for it
+
+#### Scenario: Completed non-Current row stays raw-only
+- **WHEN** the Revolut parser processes a `COMPLETED` row whose `Product` is
+  `Savings`
 - **THEN** the row's raw payload is output and no normalized row is produced
   for it

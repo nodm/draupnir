@@ -10,7 +10,8 @@ re-derived without re-uploading anything.
 ### Requirement: Every import attempt is recorded as a statement file
 The system SHALL record each processed upload as one file-level record with:
 - the account it was uploaded for and the uploading user;
-- bank and detected format version;
+- bank and detected format version (absent when the file's format was not
+  recognized, as in unknown-format and duplicate-header rejections);
 - the SHA-256 of the file contents and the file's S3 object key;
 - status `approved` or `rejected`;
 - rejection reasons (for `rejected`);
