@@ -85,7 +85,7 @@
 - [x] 7.1 Ask the user to confirm the live `accounts`/`transactions`/`share_grants` rows are
       disposable (or export them first); then `pnpm exec nx run infra:up` and verify
       `schema_migrations` records `0002` and the new tables exist.
-- [ ] 7.2 Live E2E: create an account with opening balance via `POST /accounts`, upload the
+- [x] 7.2 Live E2E: create an account with opening balance via `POST /accounts`, upload the
       Revolut and monobank fixtures via presigned URLs, and verify the files are `approved`,
       raw rows include the Revolut `PENDING` row, transactions exclude it, and re-uploading the
       same file is recorded as a duplicate rejection.
