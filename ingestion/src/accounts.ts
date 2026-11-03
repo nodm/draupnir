@@ -34,14 +34,20 @@ export const handler: Handler<
     return { statusCode: 201, body: JSON.stringify(account) };
   } catch (error) {
     if (error instanceof UnauthenticatedError) {
-      return { statusCode: 401, body: JSON.stringify({ error: error.message }) };
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: error.message }),
+      };
     }
     if (
       error instanceof InvalidBankError ||
       error instanceof DuplicateIbanError ||
       error instanceof InvalidAccountInputError
     ) {
-      return { statusCode: 400, body: JSON.stringify({ error: error.message }) };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: error.message }),
+      };
     }
     throw error;
   }

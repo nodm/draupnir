@@ -9,6 +9,9 @@ export default defineConfig(() => ({
   test: {
     name: 'shared',
     watch: false,
+    // pglite boots a WASM Postgres; give it room when projects run in parallel.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     globals: true,
     environment: 'jsdom',
     include: ['{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],

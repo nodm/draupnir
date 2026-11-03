@@ -3,13 +3,13 @@ import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { requireSub } from './auth';
-import { executeStatement, type DataApiConfig } from 'shared';
+import { getMemberRole, type DataApiConfig } from 'shared';
 
 const PRESIGNED_URL_TTL_SECONDS = 900;
 
 export class AccountNotFoundError extends Error {
   constructor() {
-    super('Account does not exist or is not owned by the caller');
+    super('Account does not exist or the caller is not an owner of it');
     this.name = 'AccountNotFoundError';
   }
 }
@@ -49,14 +49,15 @@ export async function createPresignedUpload(
 ): Promise<PresignedUpload> {
   const sub = requireSub(claims);
 
-  const { rows } = await executeStatement(
+  // Uploading changes an account's history, so only an owner may; a viewer, a
+  // non-member and a nonexistent account are indistinguishable to the caller.
+  const role = await getMemberRole(
     dataApiClient,
     dataApiConfig,
-    'SELECT id FROM accounts WHERE id = :accountId AND owner_user_id = :ownerUserId',
-    { accountId: input.accountId, ownerUserId: sub },
+    input.accountId,
+    sub,
   );
-
-  if (rows.length === 0) {
+  if (role !== 'owner') {
     throw new AccountNotFoundError();
   }
 

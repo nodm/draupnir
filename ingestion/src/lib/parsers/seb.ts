@@ -4,7 +4,22 @@ import {
   resolvePostedDate,
   toMinorUnits,
 } from '../dedupKey';
-import type { NormalizedRow } from './types';
+import { detectFormat, isRealIsoDatePart } from '../validation/formats';
+import type { ValidationReason } from '../validation/types';
+import {
+  duplicateHeaders,
+  toPayload,
+  UnrecognizedFormatError,
+  type Table,
+} from './table';
+import type {
+  DeclaredPeriod,
+  NormalizedRow,
+  ParsedRow,
+  ParsedStatement,
+  RawInputRow,
+  RowNormalizer,
+} from './types';
 
 // SEB exports one file with a title + header line repeated per account block
 // (see __fixtures__/seb.csv) — not a single flat table. A data row is any
@@ -17,6 +32,9 @@ const DATA_ROW_FIELD_COUNT = 19;
 // LAIKOTARPĮ: ...)") — a 2-field line alone isn't enough to recognize a
 // title, since a truncated data row can also happen to have 2 fields.
 const TITLE_LINE_PATTERN = /^SĄSKAITOS\s.*IŠRAŠAS/;
+// The same title also states the period the export covers for that account.
+const TITLE_PERIOD_PATTERN =
+  /^SĄSKAITOS\s+\(([A-Z0-9]+)\)\s+IŠRAŠAS\s+\(UŽ LAIKOTARPĮ:\s*(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})\)/;
 
 // Card purchases settled in a currency other than the account's embed the
 // original amount/currency and the conversion fee as free text inside
@@ -77,13 +95,43 @@ function parseSebAmountMinorUnits(
   return toMinorUnits(amountSign * magnitude, currency);
 }
 
-// Only takes `fileContents`: SEB rows carry their own account IBAN, so the
-// `uploadAccountIban` second parameter from the shared `StatementParser`
-// signature (which the dispatch map still calls with two arguments) is
-// unused here — TS structurally allows a shorter-arity implementation.
-export function parseStatement(fileContents: string): NormalizedRow[] {
-  const lines = parseCsv(fileContents, ';');
-  const rows: NormalizedRow[] = [];
+export interface SebTable extends Table {
+  declaredPeriods: DeclaredPeriod[];
+  // Lines that are neither title, header, nor a full-width data row. Reported
+  // by validation; the parser treats any of them as fatal.
+  malformed: ValidationReason[];
+}
+
+// Splits a SEB export into its header, data rows (trailing `;` field dropped),
+// and the declared period of each account block.
+export function readSebTable(fileContents: string): SebTable {
+  const lines = parseCsv(fileContents.replace(/^\uFEFF/, ''), ';');
+  let headers: string[] | undefined;
+  const records: Table['records'] = [];
+  const malformed: ValidationReason[] = [];
+  let rowNumber = 0;
+
+  // A title line states the period for the account block that follows it. The
+  // period is attributed to the IBANs of that block's own rows (their
+  // SĄSKAITOS NR), falling back to the title's IBAN for an empty block; a
+  // second block for the same account widens its period.
+  const periodByIban = new Map<string, DeclaredPeriod>();
+  let block: { title: DeclaredPeriod; rowIbans: Set<string> } | undefined;
+  const addPeriod = (iban: string, from: string, to: string) => {
+    const known = periodByIban.get(iban);
+    periodByIban.set(iban, {
+      iban,
+      from: known && known.from < from ? known.from : from,
+      to: known && known.to > to ? known.to : to,
+    });
+  };
+  const flushBlock = () => {
+    if (!block) return;
+    const ibans =
+      block.rowIbans.size > 0 ? [...block.rowIbans] : [block.title.iban];
+    for (const iban of ibans) addPeriod(iban, block.title.from, block.title.to);
+    block = undefined;
+  };
 
   for (const fields of lines) {
     // Title lines (one text field matching the real title shape + the
@@ -94,22 +142,74 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
       fields.length === 2 && TITLE_LINE_PATTERN.test(fields[0] ?? '');
     const isHeaderLine =
       fields.length === DATA_ROW_FIELD_COUNT && fields[0] === HEADER_MARKER;
-    if (isTitleLine || isHeaderLine) {
+    if (isTitleLine) {
+      flushBlock();
+      const period = TITLE_PERIOD_PATTERN.exec(fields[0] as string);
+      const invalidPeriod =
+        period &&
+        (!isRealIsoDatePart(period[2] as string) ||
+          !isRealIsoDatePart(period[3] as string) ||
+          (period[2] as string) > (period[3] as string));
+      if (period && invalidPeriod) {
+        // A bogus period would corrupt coverage and continuity, so the file is
+        // rejected rather than the period being ignored or normalized.
+        malformed.push({
+          code: 'invalid-declared-period',
+          message: `Invalid declared period ${period[2]} to ${period[3]} for ${period[1]}: not real dates, or start after end`,
+        });
+      } else if (period) {
+        block = {
+          title: {
+            iban: period[1] as string,
+            from: period[2] as string,
+            to: period[3] as string,
+          },
+          rowIbans: new Set(),
+        };
+      }
       continue;
     }
-    if (fields.length !== DATA_ROW_FIELD_COUNT) {
-      throw new Error(
-        `Malformed SEB row: expected ${DATA_ROW_FIELD_COUNT} fields, got ${fields.length}`,
-      );
+    if (isHeaderLine) {
+      headers ??= fields.slice(0, -1);
+      continue;
     }
 
-    const data = fields[1] as string;
-    const valiuta = fields[2] as string;
-    const suma = fields[3] as string;
-    const paskirtis = fields[9] as string;
-    const transakcijosKodas = fields[10] as string;
-    const debetasKreditas = fields[14] as string;
-    const saskaitosNr = fields[16] as string;
+    rowNumber += 1;
+    if (fields.length !== DATA_ROW_FIELD_COUNT) {
+      malformed.push({
+        code: 'malformed-row',
+        row: rowNumber,
+        message: `Malformed SEB row: expected ${DATA_ROW_FIELD_COUNT} fields, got ${fields.length}`,
+      });
+      continue;
+    }
+    records.push({ rowNumber, cells: fields.slice(0, -1) });
+    block?.rowIbans.add((fields[16] as string).trim());
+  }
+  flushBlock();
+
+  if (!headers) {
+    throw new UnrecognizedFormatError('no SEB header line found');
+  }
+  return {
+    headers,
+    records,
+    declaredPeriods: [...periodByIban.values()],
+    malformed,
+  };
+}
+
+// SEB rows carry their own account IBAN, so `accountIban` is unused.
+export const normalizeRows: RowNormalizer = (rows) => {
+  const out = new Map<number, NormalizedRow>();
+  for (const { rowNumber, payload } of rows) {
+    const data = payload['DATA'] as string;
+    const valiuta = payload['VALIUTA'] as string;
+    const suma = payload['SUMA'] as string;
+    const paskirtis = payload['MOKĖJIMO PASKIRTIS'] as string;
+    const transakcijosKodas = payload['TRANSAKCIJOS KODAS'] as string;
+    const debetasKreditas = payload['DEBETAS/KREDITAS'] as string;
+    const saskaitosNr = payload['SĄSKAITOS NR'] as string;
 
     if (transakcijosKodas.trim().length === 0) {
       // dedup_key is derived solely from this field (bank-statement-parsers
@@ -119,18 +219,60 @@ export function parseStatement(fileContents: string): NormalizedRow[] {
     }
 
     const amountSign = parseSebAmountSign(debetasKreditas);
-    const fxMetadata = parseSebFxMetadata(paskirtis, amountSign);
-
-    rows.push({
+    out.set(rowNumber, {
       iban: saskaitosNr.trim(),
       postedDate: resolvePostedDate(parseSebDate(data)),
       amountMinorUnits: parseSebAmountMinorUnits(suma, amountSign, valiuta),
       currency: valiuta.trim(),
       description: normalizeDescription(paskirtis),
       dedupKey: `seb:${transakcijosKodas.trim()}`,
-      ...fxMetadata,
+      // The SEB export has no fee column; the FX fee lives in the fx_*
+      // columns below.
+      feeMinorUnits: 0,
+      ...parseSebFxMetadata(paskirtis, amountSign),
     });
   }
+  return out;
+};
 
-  return rows;
+// Only takes `fileContents`: SEB rows carry their own account IBAN, so the
+// `uploadAccountIban` second parameter from the shared `StatementParser`
+// signature (which the dispatch map still calls with two arguments) is
+// unused here — TS structurally allows a shorter-arity implementation.
+export function parseStatement(fileContents: string): ParsedStatement {
+  const table = readSebTable(fileContents);
+  const firstMalformed = table.malformed[0];
+  if (firstMalformed) {
+    throw new Error(firstMalformed.message);
+  }
+  const format = detectFormat('seb', table.headers);
+  if (!format) {
+    throw new UnrecognizedFormatError('unknown SEB header');
+  }
+  const duplicates = duplicateHeaders(table.headers);
+  if (duplicates.length > 0) {
+    throw new UnrecognizedFormatError(
+      `duplicate column header: ${duplicates.join(', ')}`,
+    );
+  }
+
+  const raw: RawInputRow[] = table.records.map(({ rowNumber, cells }) => ({
+    rowNumber,
+    payload: toPayload(table.headers, cells),
+  }));
+  const normalized = normalizeRows(raw, '');
+  const rows: ParsedRow[] = raw.map(({ rowNumber, payload }) => ({
+    rowNumber,
+    iban: (payload['SĄSKAITOS NR'] as string).trim(),
+    currency: (payload['VALIUTA'] as string).trim(),
+    payload,
+    bankTransactionId: (payload['TRANSAKCIJOS KODAS'] as string).trim(),
+    normalized: normalized.get(rowNumber),
+  }));
+
+  return {
+    formatVersion: format.version,
+    rows,
+    declaredPeriods: table.declaredPeriods,
+  };
 }

@@ -3,6 +3,7 @@
 // jsdom (this project's default test environment) does not implement.
 import { PGlite } from '@electric-sql/pglite';
 import { migrationChecksum, type Migration } from './migration';
+import { m0001 } from './0001-initial-schema';
 import { MIGRATIONS } from './migrations';
 import { createPgliteExecutor } from './pgliteExecutor';
 import {
@@ -257,7 +258,7 @@ describe('runMigrations (pglite)', () => {
     const accountsBefore = await db.query('SELECT * FROM accounts');
     const transactionsBefore = await db.query('SELECT * FROM transactions');
 
-    await run(MIGRATIONS);
+    await run([m0001]);
 
     expect(await tableExists('share_grants')).toBe(true);
     expect((await db.query('SELECT * FROM accounts')).rows).toEqual(
@@ -267,6 +268,19 @@ describe('runMigrations (pglite)', () => {
       transactionsBefore.rows,
     );
     expect(await recordedIds()).toEqual(['0001-initial-schema']);
+
+    // 0002 then replaces the old single-owner schema (test data is dropped).
+    await run(MIGRATIONS);
+
+    expect(await tableExists('share_grants')).toBe(false);
+    expect(await tableExists('account_members')).toBe(true);
+    expect((await db.query('SELECT * FROM accounts')).rows).toEqual([]);
+    expect(await recordedIds()).toEqual([
+      '0001-initial-schema',
+      '0002-statement-data-model',
+      '0003-import-order-and-raw-row-account',
+      '0004-backfill-import-seq',
+    ]);
   });
 });
 

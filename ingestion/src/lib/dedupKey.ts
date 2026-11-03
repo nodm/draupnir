@@ -14,15 +14,35 @@ export function normalizeDescription(description: string): string {
 // 100 would become 10,000 minor units) rather than erroring, so this has
 // to be explicit rather than assumed.
 const ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW',
-  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+  'BIF',
+  'CLP',
+  'DJF',
+  'GNF',
+  'ISK',
+  'JPY',
+  'KMF',
+  'KRW',
+  'PYG',
+  'RWF',
+  'UGX',
+  'VND',
+  'VUV',
+  'XAF',
+  'XOF',
+  'XPF',
 ]);
 const THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND',
+  'BHD',
+  'IQD',
+  'JOD',
+  'KWD',
+  'LYD',
+  'OMR',
+  'TND',
 ]);
 const FOUR_DECIMAL_CURRENCIES = new Set(['CLF', 'UYW']);
 
-function minorUnitExponent(currency: string): number {
+export function minorUnitExponent(currency: string): number {
   const code = currency.trim().toUpperCase();
   if (ZERO_DECIMAL_CURRENCIES.has(code)) return 0;
   if (THREE_DECIMAL_CURRENCIES.has(code)) return 3;
@@ -32,6 +52,13 @@ function minorUnitExponent(currency: string): number {
 
 export function toMinorUnits(amount: number, currency: string): number {
   return Math.round(amount * 10 ** minorUnitExponent(currency));
+}
+
+// Inverse of toMinorUnits, for human-readable messages: (-1050, 'EUR') -> '-10.50'.
+export function formatMinorUnits(minor: number, currency: string): string {
+  return (minor / 10 ** minorUnitExponent(currency)).toFixed(
+    minorUnitExponent(currency),
+  );
 }
 
 export function resolvePostedDate(date: Date): string {

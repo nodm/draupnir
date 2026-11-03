@@ -36,7 +36,7 @@ describe('createPresignedUpload', () => {
   });
 
   it('issues a presigned URL scoped to the caller sub and the owned account', async () => {
-    const send = vi.fn().mockResolvedValue(rowsResponse([{ id: 'acc-1' }]));
+    const send = vi.fn().mockResolvedValue(rowsResponse([{ role: 'owner' }]));
 
     const result = await createPresignedUpload(
       fakeDataApiClient(send),
@@ -59,7 +59,8 @@ describe('createPresignedUpload', () => {
       ]),
     );
     expect(params['accountId']).toEqual({ stringValue: 'acc-1' });
-    expect(params['ownerUserId']).toEqual({ stringValue: 'user-123' });
+    expect(params['userId']).toEqual({ stringValue: 'user-123' });
+    expect(command.input.sql).toContain('account_members');
 
     const [, putCommand] = vi.mocked(getSignedUrl).mock.calls[0] as [
       unknown,
@@ -84,7 +85,23 @@ describe('createPresignedUpload', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('rejects an account owned by another user', async () => {
+  it('rejects an account the caller only views', async () => {
+    const send = vi.fn().mockResolvedValue(rowsResponse([{ role: 'viewer' }]));
+
+    await expect(
+      createPresignedUpload(
+        fakeDataApiClient(send),
+        dataApiConfig,
+        s3Client,
+        bucketConfig,
+        { sub: 'user-123' },
+        { accountId: 'shared-with-me' },
+      ),
+    ).rejects.toThrow(AccountNotFoundError);
+    expect(getSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects an account the caller is not a member of', async () => {
     const send = vi.fn().mockResolvedValue(rowsResponse([]));
 
     await expect(

@@ -1,0 +1,5 @@
+Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+Card Payment,Current,2026-08-28 19:20:23,2026-08-29 08:00:00,Lidl,-0.29,0.00,EUR,COMPLETED,11.62
+Card Payment,Current,2026-08-29 09:00:00,,Coffee,-3.50,0.00,EUR,PENDING,
+Card Payment,Current,2026-08-29 10:00:00,2026-08-29 10:05:00,Pharmacy,-0.29,0.10,EUR,COMPLETED,11.23
+Transfer,Savings,2026-08-29 11:00:00,2026-08-29 11:00:00,Vault,5.00,0.00,EUR,COMPLETED,105.00
