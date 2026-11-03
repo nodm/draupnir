@@ -154,6 +154,62 @@ describe('validateStatementFile — row validation', () => {
     ).toMatch(/Date and time is not a real calendar date/);
   });
 
+  it.each([
+    ['impossible date', '2026-02-31-2026-03-05'],
+    ['start after end', '2026-09-30-2026-09-01'],
+  ])('rejects a SEB declared period with %s', (_name, period) => {
+    const csv = seb.replace('2026-08-29-2026-08-29', period);
+
+    const found = reasons(validateStatementFile('seb', csv, IBAN));
+
+    expect(found[0]?.code).toBe('invalid-declared-period');
+  });
+
+  it.each([
+    [
+      'Revolut Amount',
+      'revolut',
+      revolut.replace(
+        ',-0.29,0.00,EUR,COMPLETED,11.62',
+        `,-${'9'.repeat(400)},0.00,EUR,COMPLETED,11.62`,
+      ),
+      /Amount is out of range/,
+    ],
+    [
+      'Revolut Balance',
+      'revolut',
+      revolut.replace(',11.62', `,${'9'.repeat(20)}`),
+      /Balance is out of range/,
+    ],
+    [
+      'monobank Balance',
+      'monobank',
+      monobank.replace('2531.58', '9'.repeat(30)),
+      /Balance is out of range/,
+    ],
+    [
+      'SEB SUMA',
+      'seb',
+      seb.replace(';50,00;"VARDENIS', `;${'9'.repeat(400)},00;"VARDENIS`),
+      /SUMA is out of range/,
+    ],
+  ] as const)(
+    'rejects a non-finite or oversized amount: %s',
+    (_name, bank, csv, message) => {
+      const found = reasons(validateStatementFile(bank, csv, IBAN));
+
+      expect(found.some((r) => message.test(r.message))).toBe(true);
+    },
+  );
+
+  it('accepts an amount at a realistic large magnitude', () => {
+    const csv = revolut
+      .replace(',11.62', ',123456789.62')
+      .replace(',11.33', ',123456789.33');
+
+    expect(validateStatementFile('revolut', csv, IBAN).ok).toBe(true);
+  });
+
   it('accepts a real leap day', () => {
     const csv = revolut.replace('2026-08-28 19:20:23', '2028-02-29 19:20:23');
 

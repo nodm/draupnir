@@ -29,7 +29,7 @@ function isRealDate(year: number, month: number, day: number): boolean {
   );
 }
 
-function isRealIsoDatePart(value: string): boolean {
+export function isRealIsoDatePart(value: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   return !m || isRealDate(Number(m[1]), Number(m[2]), Number(m[3]));
 }
@@ -41,8 +41,23 @@ function isRealDottedDatePart(value: string): boolean {
 
 const NOT_A_DATE = 'is not a real calendar date';
 
+// Amounts are converted to integer minor units (up to 4 decimals) and stored
+// in bigint columns; beyond this magnitude parseFloat loses precision or
+// overflows to Infinity, so such a cell is a rejection, not a silent value.
+export const MAX_AMOUNT_MAJOR_UNITS = 9e11;
+
+function isSafeAmount(value: string): boolean {
+  // A malformed shape is reported by the regex; don't also report it here.
+  if (!/^-?\d+([.,]\d+)?$/.test(value)) return true;
+  const n = Number.parseFloat(value.replace(',', '.'));
+  return Number.isFinite(n) && Math.abs(n) <= MAX_AMOUNT_MAJOR_UNITS;
+}
+
 const money = (label: string) =>
-  z.string().regex(/^-?\d+(\.\d+)?$/, `${label} must be a decimal number`);
+  z
+    .string()
+    .regex(/^-?\d+(\.\d+)?$/, `${label} must be a decimal number`)
+    .refine(isSafeAmount, `${label} is out of range`);
 const nonEmpty = (label: string) =>
   z.string().refine((v) => v.trim().length > 0, `${label} must not be empty`);
 
@@ -75,7 +90,10 @@ const sebRow = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'DATA must be YYYY-MM-DD')
     .refine(isRealIsoDatePart, `DATA ${NOT_A_DATE}`),
   VALIUTA: z.string().regex(/^[A-Z]{3}$/, 'VALIUTA must be a currency code'),
-  SUMA: z.string().regex(/^\d+(,\d+)?$/, 'SUMA must be a decimal like 50,00'),
+  SUMA: z
+    .string()
+    .regex(/^\d+(,\d+)?$/, 'SUMA must be a decimal like 50,00')
+    .refine(isSafeAmount, 'SUMA is out of range'),
   'MOKĖJIMO PASKIRTIS': z.string(),
   'TRANSAKCIJOS KODAS': nonEmpty('TRANSAKCIJOS KODAS'),
   'DEBETAS/KREDITAS': z.enum(['D', 'C'], {
@@ -157,6 +175,12 @@ const revolutRow = z
         path: ['Balance'],
         message: 'Balance must be a decimal number for a COMPLETED row',
       });
+    } else if (!isSafeAmount(row.Balance)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['Balance'],
+        message: 'Balance is out of range',
+      });
     }
   });
 
@@ -213,7 +237,8 @@ export function monobankCardCurrencyOf(
 const optionalMoney = (label: string) =>
   z
     .string()
-    .regex(/^(—|-?\d+(\.\d+)?)$/, `${label} must be a decimal number or —`);
+    .regex(/^(—|-?\d+(\.\d+)?)$/, `${label} must be a decimal number or —`)
+    .refine((v) => v === '—' || isSafeAmount(v), `${label} is out of range`);
 
 // Keys are the header texts, which for the three card-currency columns depend
 // on the account currency, so rows are validated after normalising those keys

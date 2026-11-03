@@ -4,7 +4,7 @@ import {
   resolvePostedDate,
   toMinorUnits,
 } from '../dedupKey';
-import { detectFormat } from '../validation/formats';
+import { detectFormat, isRealIsoDatePart } from '../validation/formats';
 import type { ValidationReason } from '../validation/types';
 import {
   duplicateHeaders,
@@ -145,7 +145,19 @@ export function readSebTable(fileContents: string): SebTable {
     if (isTitleLine) {
       flushBlock();
       const period = TITLE_PERIOD_PATTERN.exec(fields[0] as string);
-      if (period) {
+      const invalidPeriod =
+        period &&
+        (!isRealIsoDatePart(period[2] as string) ||
+          !isRealIsoDatePart(period[3] as string) ||
+          (period[2] as string) > (period[3] as string));
+      if (period && invalidPeriod) {
+        // A bogus period would corrupt coverage and continuity, so the file is
+        // rejected rather than the period being ignored or normalized.
+        malformed.push({
+          code: 'invalid-declared-period',
+          message: `Invalid declared period ${period[2]} to ${period[3]} for ${period[1]}: not real dates, or start after end`,
+        });
+      } else if (period) {
         block = {
           title: {
             iban: period[1] as string,
