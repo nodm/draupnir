@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { BANKS, executeStatement, type Bank, type DataApiConfig } from 'shared';
+import {
+  BANKS,
+  beginTransaction,
+  commitTransaction,
+  dateParameter,
+  executeStatement,
+  rollbackTransaction,
+  type Bank,
+  type DataApiConfig,
+} from 'shared';
 import { requireSub } from './auth';
 
 export interface CreateAccountInput {
@@ -8,6 +17,10 @@ export interface CreateAccountInput {
   iban: string;
   currency: string;
   displayName: string;
+  // YYYY-MM-DD, and the balance on that date in minor units; entered once at
+  // creation and the anchor for checking that imported history is complete.
+  openedOn: string;
+  openingBalanceMinorUnits: number;
 }
 
 export interface CreatedAccount {
@@ -16,6 +29,8 @@ export interface CreatedAccount {
   iban: string;
   currency: string;
   displayName: string;
+  openedOn: string;
+  openingBalanceMinorUnits: number;
 }
 
 export class InvalidBankError extends Error {
@@ -27,14 +42,16 @@ export class InvalidBankError extends Error {
 
 export class DuplicateIbanError extends Error {
   constructor() {
-    super('An account with this iban already exists');
+    super(
+      'An account with this iban already exists; ask one of its owners to add you as a member',
+    );
     this.name = 'DuplicateIbanError';
   }
 }
 
 export class InvalidAccountInputError extends Error {
   constructor(field: string) {
-    super(`${field} must be a non-empty string`);
+    super(`${field} is missing or invalid`);
     this.name = 'InvalidAccountInputError';
   }
 }
@@ -43,12 +60,20 @@ function isBank(value: string): value is Bank {
   return (BANKS as readonly string[]).includes(value);
 }
 
+function isValidIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
 // Canonical form so the UNIQUE constraint and the parsers' resolution
-// query (owner_user_id + iban) can't be bypassed by casing/whitespace —
+// per-row resolution query (owner membership + iban) can't be bypassed by casing/whitespace —
 // e.g. SEB statements carry uppercase, unspaced IBANs, so an account
 // created with lowercase or spaced input would never resolve a row.
 function canonicalizeIban(iban: string): string {
@@ -99,24 +124,46 @@ export async function createAccount(
     throw new InvalidAccountInputError('displayName');
   }
 
+  if (!isValidIsoDate(input.openedOn)) {
+    throw new InvalidAccountInputError('openedOn');
+  }
+  if (!Number.isSafeInteger(input.openingBalanceMinorUnits)) {
+    throw new InvalidAccountInputError('openingBalanceMinorUnits');
+  }
+
   const id = randomUUID();
 
+  // The account and its owner membership exist together or not at all: an
+  // account with no owner could never be uploaded to or shared.
+  const transactionId = await beginTransaction(client, config);
   try {
     await executeStatement(
       client,
       config,
-      `INSERT INTO accounts (id, owner_user_id, bank, iban, currency, display_name)
-       VALUES (:id, :ownerUserId, :bank, :iban, :currency, :displayName)`,
+      `INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units)
+       VALUES (:id, :bank, :iban, :currency, :displayName, :openedOn, :openingBalance)`,
       {
         id,
-        ownerUserId: sub,
         bank: input.bank,
         iban,
         currency: input.currency,
         displayName: input.displayName,
+        openedOn: dateParameter(input.openedOn),
+        openingBalance: input.openingBalanceMinorUnits,
       },
+      transactionId,
     );
+    await executeStatement(
+      client,
+      config,
+      `INSERT INTO account_members (account_id, user_id, role)
+       VALUES (:accountId, :userId, 'owner')`,
+      { accountId: id, userId: sub },
+      transactionId,
+    );
+    await commitTransaction(client, config, transactionId);
   } catch (error) {
+    await rollbackTransaction(client, config, transactionId);
     if (error instanceof Error && error.message.includes('duplicate key')) {
       throw new DuplicateIbanError();
     }
@@ -129,5 +176,7 @@ export async function createAccount(
     iban,
     currency: input.currency,
     displayName: input.displayName,
+    openedOn: input.openedOn,
+    openingBalanceMinorUnits: input.openingBalanceMinorUnits,
   };
 }

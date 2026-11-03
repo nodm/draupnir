@@ -1,4 +1,11 @@
+// @vitest-environment node
+import { PGlite } from '@electric-sql/pglite';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
+import {
+  applyMigrationsForTest,
+  createPgliteDataApiClient,
+  type DataApiConfig,
+} from 'shared';
 import {
   createAccount,
   DuplicateIbanError,
@@ -6,7 +13,6 @@ import {
   InvalidBankError,
 } from './accounts';
 import { UnauthenticatedError } from './auth';
-import type { DataApiConfig } from 'shared';
 
 const config: DataApiConfig = {
   resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',
@@ -14,143 +20,186 @@ const config: DataApiConfig = {
   database: 'draupnir',
 };
 
-function fakeClient(
-  send: (command: unknown) => Promise<unknown>,
-): RDSDataClient {
-  return { send } as unknown as RDSDataClient;
-}
-
 const validInput = {
   bank: 'seb',
   iban: 'LT121000011101001000',
   currency: 'EUR',
   displayName: 'SEB checking',
+  openedOn: '2024-01-15',
+  openingBalanceMinorUnits: 0,
 };
 
-describe('createAccount', () => {
-  it('creates an account owned by the caller sub', async () => {
-    const send = vi.fn().mockResolvedValue({ numberOfRecordsUpdated: 1 });
+function neverCalledClient() {
+  const send = vi.fn();
+  return { send, client: { send } as unknown as RDSDataClient };
+}
 
-    const account = await createAccount(
-      fakeClient(send),
-      config,
-      { sub: 'user-123' },
-      validInput,
-    );
-
-    expect(account).toEqual({
-      id: expect.any(String),
-      ...validInput,
-    });
-    expect(send).toHaveBeenCalledTimes(1);
-    const [command] = send.mock.calls[0];
-    const parameterNames = command.input.parameters.map(
-      (p: { name: string }) => p.name,
-    );
-    expect(parameterNames).toContain('ownerUserId');
-    const ownerParam = command.input.parameters.find(
-      (p: { name: string }) => p.name === 'ownerUserId',
-    );
-    expect(ownerParam.value).toEqual({ stringValue: 'user-123' });
-  });
-
+describe('createAccount validation (no database access)', () => {
   it('rejects when the caller has no sub claim', async () => {
-    const send = vi.fn();
+    const { send, client } = neverCalledClient();
 
-    await expect(
-      createAccount(fakeClient(send), config, {}, validInput),
-    ).rejects.toThrow(UnauthenticatedError);
+    await expect(createAccount(client, config, {}, validInput)).rejects.toThrow(
+      UnauthenticatedError,
+    );
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown bank value without querying the database', async () => {
-    const send = vi.fn();
+  it('rejects an unknown bank value', async () => {
+    const { send, client } = neverCalledClient();
 
     await expect(
-      createAccount(
-        fakeClient(send),
-        config,
-        { sub: 'user-123' },
-        { ...validInput, bank: 'chase' },
-      ),
+      createAccount(client, config, { sub: 'u' }, { ...validInput, bank: 'chase' }),
     ).rejects.toThrow(InvalidBankError);
     expect(send).not.toHaveBeenCalled();
   });
 
   it.each(['iban', 'currency', 'displayName'] as const)(
-    'rejects an empty %s without querying the database',
+    'rejects an empty %s',
     async (field) => {
-      const send = vi.fn();
+      const { send, client } = neverCalledClient();
 
       await expect(
-        createAccount(
-          fakeClient(send),
-          config,
-          { sub: 'user-123' },
-          { ...validInput, [field]: '  ' },
-        ),
+        createAccount(client, config, { sub: 'u' }, { ...validInput, [field]: '  ' }),
       ).rejects.toThrow(InvalidAccountInputError);
       expect(send).not.toHaveBeenCalled();
     },
   );
 
-  it('canonicalizes a lowercase, spaced iban before persisting and returning it', async () => {
-    const send = vi.fn().mockResolvedValue({ numberOfRecordsUpdated: 1 });
+  it.each(['LT10-0000-0000-0000-0001', 'LT000000000000000000'])(
+    'rejects the invalid iban %s',
+    async (iban) => {
+      const { send, client } = neverCalledClient();
 
-    const account = await createAccount(
-      fakeClient(send),
+      await expect(
+        createAccount(client, config, { sub: 'u' }, { ...validInput, iban }),
+      ).rejects.toThrow(InvalidAccountInputError);
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['openedOn', '15/01/2024'],
+    ['openedOn', '2024-02-31'],
+    ['openedOn', undefined],
+    ['openingBalanceMinorUnits', 10.5],
+    ['openingBalanceMinorUnits', '100'],
+    ['openingBalanceMinorUnits', undefined],
+  ])('rejects %s = %s', async (field, value) => {
+    const { send, client } = neverCalledClient();
+
+    await expect(
+      createAccount(
+        client,
+        config,
+        { sub: 'u' },
+        { ...validInput, [field]: value } as never,
+      ),
+    ).rejects.toThrow(InvalidAccountInputError);
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('createAccount on a real Postgres instance', () => {
+  let db: PGlite;
+  let client: RDSDataClient;
+
+  beforeAll(async () => {
+    db = new PGlite();
+    await applyMigrationsForTest(db);
+    client = createPgliteDataApiClient(db).client;
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  beforeEach(async () => {
+    await db.exec('TRUNCATE account_members, accounts CASCADE');
+  });
+
+  it('creates the account with its opening balance and records the caller as owner', async () => {
+    const account = await createAccount(client, config, { sub: 'user-123' }, validInput);
+
+    expect(account).toEqual({ id: expect.any(String), ...validInput });
+    const { rows } = await db.query<Record<string, unknown>>(
+      `SELECT a.bank, a.iban, a.opened_on::text AS opened_on, a.opening_balance_minor_units::text AS opening,
+              m.user_id, m.role
+         FROM accounts a JOIN account_members m ON m.account_id = a.id`,
+    );
+    expect(rows).toEqual([
+      {
+        bank: 'seb',
+        iban: 'LT121000011101001000',
+        opened_on: '2024-01-15',
+        opening: '0',
+        user_id: 'user-123',
+        role: 'owner',
+      },
+    ]);
+  });
+
+  it('takes the owner from the authenticated identity only', async () => {
+    await createAccount(
+      client,
       config,
-      { sub: 'user-123' },
+      { sub: 'real-user' },
+      { ...validInput, userId: 'attacker', ownerUserId: 'attacker' } as never,
+    );
+
+    const { rows } = await db.query<{ user_id: string }>('SELECT user_id FROM account_members');
+    expect(rows).toEqual([{ user_id: 'real-user' }]);
+  });
+
+  it('stores a negative opening balance', async () => {
+    await createAccount(
+      client,
+      config,
+      { sub: 'u' },
+      { ...validInput, openingBalanceMinorUnits: -12550 },
+    );
+
+    const { rows } = await db.query<{ v: string }>(
+      'SELECT opening_balance_minor_units::text AS v FROM accounts',
+    );
+    expect(rows[0]?.v).toBe('-12550');
+  });
+
+  it('canonicalizes a lowercase, spaced iban', async () => {
+    const account = await createAccount(
+      client,
+      config,
+      { sub: 'u' },
       { ...validInput, iban: 'lt12 1000 0111 0100 1000' },
     );
 
     expect(account.iban).toBe('LT121000011101001000');
-    const [command] = send.mock.calls[0];
-    const ibanParam = command.input.parameters.find(
-      (p: { name: string }) => p.name === 'iban',
-    );
-    expect(ibanParam.value).toEqual({ stringValue: 'LT121000011101001000' });
   });
 
-  it('rejects an iban with characters outside the canonical shape', async () => {
-    const send = vi.fn();
+  it('rejects a duplicate iban, telling the caller to ask an owner, and creates nothing new', async () => {
+    await createAccount(client, config, { sub: 'first' }, validInput);
 
-    await expect(
-      createAccount(
-        fakeClient(send),
-        config,
-        { sub: 'user-123' },
-        { ...validInput, iban: 'LT10-0000-0000-0000-0001' },
-      ),
-    ).rejects.toThrow(InvalidAccountInputError);
-    expect(send).not.toHaveBeenCalled();
+    const attempt = createAccount(client, config, { sub: 'second' }, validInput);
+
+    await expect(attempt).rejects.toThrow(DuplicateIbanError);
+    await expect(attempt).rejects.toThrow(/ask one of its owners to add you/);
+    expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(1);
+    const members = await db.query<{ user_id: string }>('SELECT user_id FROM account_members');
+    expect(members.rows).toEqual([{ user_id: 'first' }]);
   });
 
-  it('rejects an iban with the right shape but a failing checksum', async () => {
-    const send = vi.fn();
+  it('creates no account when the membership insert fails', async () => {
+    const real = client;
+    const failing = {
+      send: async (command: { input: { sql?: string } }) => {
+        if (command.input.sql?.includes('INSERT INTO account_members')) {
+          throw new Error('membership failed');
+        }
+        return real.send(command as never);
+      },
+    } as unknown as RDSDataClient;
 
     await expect(
-      createAccount(
-        fakeClient(send),
-        config,
-        { sub: 'user-123' },
-        { ...validInput, iban: 'LT000000000000000000' },
-      ),
-    ).rejects.toThrow(InvalidAccountInputError);
-    expect(send).not.toHaveBeenCalled();
-  });
+      createAccount(failing, config, { sub: 'u' }, validInput),
+    ).rejects.toThrow('membership failed');
 
-  it('rejects a duplicate iban', async () => {
-    const send = vi
-      .fn()
-      .mockRejectedValue(
-        new Error(
-          'duplicate key value violates unique constraint "accounts_iban_key"',
-        ),
-      );
-
-    await expect(
-      createAccount(fakeClient(send), config, { sub: 'user-123' }, validInput),
-    ).rejects.toThrow(DuplicateIbanError);
+    expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(0);
   });
 });
