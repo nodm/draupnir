@@ -24,10 +24,24 @@
         "generatePackageJson": true
       }
     },
+    "build-migrate-database": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/infra/migrateDatabase",
+        "main": "infra/src/migrateDatabase.ts",
+        "tsConfig": "infra/tsconfig.json",
+        "platform": "node",
+        "format": ["cjs"],
+        "external": ["@aws-sdk/*"],
+        "generatePackageJson": true
+      }
+    },
     "preview": {
       "executor": "nx:run-commands",
       "dependsOn": [
         "build-pre-sign-up-trigger",
+        "build-migrate-database",
         { "projects": ["ingestion"], "target": "build" },
         { "projects": ["mcp"], "target": "install-deps" }
       ],
@@ -40,6 +54,7 @@
       "executor": "nx:run-commands",
       "dependsOn": [
         "build-pre-sign-up-trigger",
+        "build-migrate-database",
         { "projects": ["ingestion"], "target": "build" },
         { "projects": ["mcp"], "target": "install-deps" }
       ],

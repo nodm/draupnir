@@ -27,6 +27,8 @@ export interface LambdaRouteConfig {
   environment?: Record<string, pulumi.Input<string>>;
   policyStatements?: pulumi.Input<Record<string, unknown>>[];
   timeoutSeconds?: number;
+  // Resources that must finish first, e.g. database migrations.
+  dependsOn?: pulumi.Resource[];
 }
 
 export interface LambdaRoute {
@@ -86,7 +88,7 @@ export function createLambdaRoute(
         ? { variables: config.environment }
         : undefined,
     },
-    withProvider,
+    { ...withProvider, dependsOn: config.dependsOn },
   );
 
   const resource = new aws.apigateway.Resource(

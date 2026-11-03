@@ -1,5 +1,6 @@
 import { createAuroraCluster } from './lib/aurora';
 import { createAuthPool } from './lib/cognito';
+import { createDatabaseMigrations } from './lib/databaseMigrations';
 import { createIngestionApi } from './lib/ingestionApi';
 import { createIngestionPipeline } from './lib/ingestionPipeline';
 import { createMcpApi } from './lib/mcpApi';
@@ -9,14 +10,26 @@ const provider = createAwsProvider();
 const authPool = createAuthPool(provider);
 const auroraCluster = createAuroraCluster(provider);
 const dbConfig = auroraCluster.dbConfig;
-const ingestionPipeline = createIngestionPipeline(provider, dbConfig);
+const migrations = createDatabaseMigrations(
+  provider,
+  dbConfig,
+  auroraCluster.instance,
+);
+// Schema before code: application Lambdas update only after migrations succeed.
+const afterMigrations = [migrations.invocation];
+const ingestionPipeline = createIngestionPipeline(
+  provider,
+  dbConfig,
+  afterMigrations,
+);
 const ingestionApi = createIngestionApi(
   authPool.userPool,
   provider,
   dbConfig,
   ingestionPipeline.uploadsBucket,
+  afterMigrations,
 );
-const mcpApi = createMcpApi(authPool.userPool, provider);
+const mcpApi = createMcpApi(authPool.userPool, provider, afterMigrations);
 
 export const userPoolId = authPool.userPool.id;
 export const userPoolArn = authPool.userPool.arn;

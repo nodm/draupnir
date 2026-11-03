@@ -22,6 +22,8 @@ export interface AuroraCluster {
   dbConfig: DbConfig;
   vpc: aws.ec2.Vpc;
   cluster: aws.rds.Cluster;
+  // Data API needs the instance (compute) to exist before it can run SQL.
+  instance: aws.rds.ClusterInstance;
 }
 
 export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
@@ -110,7 +112,7 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
     withProvider,
   );
 
-  new aws.rds.ClusterInstance(
+  const instance = new aws.rds.ClusterInstance(
     'aurora',
     {
       clusterIdentifier: cluster.id,
@@ -140,5 +142,6 @@ export function createAuroraCluster(provider: aws.Provider): AuroraCluster {
     },
     vpc,
     cluster,
+    instance,
   };
 }

@@ -71,6 +71,7 @@ export interface IngestionPipeline {
 export function createIngestionPipeline(
   provider: aws.Provider,
   dbConfig: DbConfig,
+  dependsOn: pulumi.Resource[] = [],
 ): IngestionPipeline {
   const withProvider = { provider };
 
@@ -179,7 +180,7 @@ export function createIngestionPipeline(
         },
       },
     },
-    withProvider,
+    { ...withProvider, dependsOn },
   );
 
   new aws.lambda.EventSourceMapping(

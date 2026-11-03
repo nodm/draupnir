@@ -10,6 +10,7 @@ export interface McpApi {
 export function createMcpApi(
   userPool: aws.cognito.UserPool,
   provider: aws.Provider,
+  dependsOn: pulumi.Resource[] = [],
 ): McpApi {
   const withProvider = { provider };
 
@@ -47,6 +48,7 @@ export function createMcpApi(
       httpMethod: 'POST',
       handler: 'handler.handler',
       codePath: '../dist/mcp',
+      dependsOn,
     },
     restApi,
     authorizer,
