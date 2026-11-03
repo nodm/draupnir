@@ -333,6 +333,23 @@ describe('runMigrations lock polling', () => {
     expect(events).toContain('commit');
   });
 
+  it('rejects a lock that only becomes available at the deadline', async () => {
+    const { clock } = fakeClock();
+    const { executor, events } = lockExecutor([false, true]);
+
+    const error = await runMigrations({
+      executor,
+      migrations: [],
+      lockDeadlineMs: 2000,
+      lockPollIntervalMs: 2000,
+      clock,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MigrationLockTimeoutError);
+    expect(events.at(-1)).toBe('rollback');
+    expect(events).not.toContain('commit');
+  });
+
   it('rolls back and fails with the lock-timeout error at the deadline', async () => {
     const { clock } = fakeClock();
     const { executor, events } = lockExecutor(Array(100).fill(false));

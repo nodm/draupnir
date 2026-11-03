@@ -88,12 +88,14 @@ async function acquireLock(
       `SELECT pg_try_advisory_xact_lock(${MIGRATION_LOCK_KEY}) AS locked`,
       transactionId,
     );
+    // Deadline first: a lock won at or after it would start a migration
+    // inside the rollback reserve.
+    if (options.clock.now() >= options.lockDeadlineMs) {
+      throw new MigrationLockTimeoutError();
+    }
     const locked = rows[0]?.['locked'];
     if (locked === true || locked === 't') {
       return;
-    }
-    if (options.clock.now() >= options.lockDeadlineMs) {
-      throw new MigrationLockTimeoutError();
     }
     await options.clock.sleep(options.lockPollIntervalMs);
   }
