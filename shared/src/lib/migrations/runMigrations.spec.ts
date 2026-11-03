@@ -279,6 +279,7 @@ describe('runMigrations (pglite)', () => {
       '0001-initial-schema',
       '0002-statement-data-model',
       '0003-import-order-and-raw-row-account',
+      '0004-backfill-import-seq',
     ]);
   });
 });
