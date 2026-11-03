@@ -197,8 +197,8 @@ and a retry would only end in the DLQ.
 1. Requires `redesign-statement-data-model` applied.
 2. `infra:up`:
    - creates the app secret;
-   - the runner ensures the role and applies migration `0003` (functions,
-     grants, policies);
+   - the runner ensures the role and applies migrations `0005`–`0008` (functions,
+     grants, policies, and the review follow-ups);
    - application Lambdas switch to the app secret afterwards (they depend on
      the migration Invocation).
 3. Rollback: point Lambdas back at the master secret (they own the tables and
