@@ -184,7 +184,22 @@ describe('statement_file_accounts links', () => {
     expect(await ids('alice', 'statement_files')).not.toContain('f3');
   });
 
-  it('the uploader or an owner of the upload account can link a resolved account', async () => {
+  it('an uploader who left the upload account cannot link their old file', async () => {
+    // dave uploaded f5 for acc2 but is not a member of it; he owns his own account.
+    await expect(
+      asApp('dave', async () => {
+        const r = await db.query<{ id: string }>(
+          `SELECT draupnir.create_account('seb', 'IBANDAVE', 'EUR', 'n', '2024-01-01', 0) AS id`,
+        );
+        await db.query(
+          `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f5', $1)`,
+          [r.rows[0].id],
+        );
+      }),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('an owner of the upload account can link a resolved account', async () => {
     await asApp('alice', () =>
       db.exec(
         `INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f2', 'acc2')`,

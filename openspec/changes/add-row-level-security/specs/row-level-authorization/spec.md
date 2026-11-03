@@ -33,7 +33,7 @@ temporary tables).
 - **THEN** the approved file is returned
 
 #### Scenario: A file cannot be exposed by forging a link
-- **WHEN** an `owner` of an account who neither uploaded a file nor owns its
+- **WHEN** an `owner` of an account who does not currently own a file's
   upload account tries to link that file to their account, by inserting a
   per-account record or by rewriting an existing one's file or account
 - **THEN** the database rejects the write and the file stays hidden from them

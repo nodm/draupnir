@@ -136,8 +136,9 @@ application's `LastOwnerError` check stays as the first line of defence.
 
 A `statement_file_accounts` row grants visibility of its file to the account's
 members, so it must not be forgeable. Its INSERT policy also requires the caller
-to have uploaded the file or own its upload account
-(`draupnir.can_link_file()`, `SECURITY DEFINER`, migration `0007`); UPDATE is
+to currently own the file's upload account
+(`draupnir.can_link_file()`, `SECURITY DEFINER`, migrations `0007`/`0008`; an
+uploader who left the account can't re-expose their file); UPDATE is
 column-limited to `new_transaction_count`, so `file_id`/`account_id` can't be
 rewritten.
 

@@ -63,3 +63,4 @@
       rejection (no `MissingUploadAccountError`).
 - [x] 5.3 Guard test covers partitioned tables; tests for each fix.
 - [x] 5.4 Migration `0007-restrict-file-account-links`: link inserts require owning or uploading the file; update limited to `new_transaction_count`.
+- [x] 5.5 Migration `0008`: link inserts require current ownership of the upload account (no uploader branch).
