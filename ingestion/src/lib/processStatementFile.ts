@@ -40,13 +40,6 @@ const LOCK_TIMEOUT = '30s';
 
 const DUPLICATE_APPROVED_INDEX = 'statement_files_approved_sha256_idx';
 
-export class MissingUploadAccountError extends Error {
-  constructor() {
-    super('The upload-selected account no longer exists');
-    this.name = 'MissingUploadAccountError';
-  }
-}
-
 export class OversizedStatementFileError extends Error {
   constructor(sizeBytes: number) {
     super(
@@ -434,8 +427,18 @@ export async function processStatementFile(
         transactionId,
       ),
   );
+  // RLS hides an account from a caller who isn't a member, so "the uploader was
+  // removed" and "the account is gone" look the same here (as at the
+  // presigned-URL endpoint). Both are an acknowledged, unrecorded not-owner
+  // rejection, never a retry that would end in the DLQ.
   if (accountRows.length === 0) {
-    throw new MissingUploadAccountError();
+    return unrecordedRejection([
+      {
+        code: 'not-owner',
+        message:
+          'The uploader is not an owner of the selected account, or it no longer exists',
+      },
+    ]);
   }
   const uploadAccount = accountRows[0] as unknown as AccountRecord;
 

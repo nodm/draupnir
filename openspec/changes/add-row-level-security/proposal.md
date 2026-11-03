@@ -32,7 +32,9 @@ Depends on `redesign-statement-data-model` (policies target its tables).
 - Every application database call runs inside a Data API transaction that first
   sets the caller's identity for that transaction only (`withCaller(sub, fn)`).
   The ingestion worker sets it from the S3 object key's `sub`.
-- A `not-owner` rejection (the uploader lost ownership) is reported but not
+- The last owner of an account can't be removed or demoted, enforced by a
+  trigger (migration `0006`).
+- A `not-owner` rejection (the uploader lost ownership or can't see the account) is reported but not
   recorded, since a non-owner can't write `statement_files`.
 - Application-level membership predicates stay in queries (defence in depth).
 

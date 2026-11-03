@@ -311,6 +311,7 @@ describe('runMigrations (pglite)', () => {
       '0003-import-order-and-raw-row-account',
       '0004-backfill-import-seq',
       '0005-row-level-security',
+      '0006-rls-review-fixes',
     ]);
   });
 });

@@ -3,6 +3,7 @@ import { m0002 } from './0002-statement-data-model';
 import { m0003 } from './0003-import-order-and-raw-row-account';
 import { m0004 } from './0004-backfill-import-seq';
 import { m0005 } from './0005-row-level-security';
+import { m0006 } from './0006-rls-review-fixes';
 import type { Migration } from './migration';
 
 // Append-only, ascending by id. Never edit or remove an applied migration.
@@ -12,4 +13,5 @@ export const MIGRATIONS: readonly Migration[] = [
   m0003,
   m0004,
   m0005,
+  m0006,
 ];

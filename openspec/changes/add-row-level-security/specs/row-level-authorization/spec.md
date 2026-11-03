@@ -4,9 +4,11 @@
 The database SHALL return rows of account-scoped tables (`accounts`,
 `account_members`, `statement_file_accounts`, `raw_rows`, `transactions`,
 `transaction_sources`) only for accounts the identified caller is a member of.
-File-level statement records (`statement_files`) SHALL be returned to members of
-their upload account when approved, and only to their uploader when rejected,
-because rejection reasons can quote other accounts' rows. This
+File-level statement records (`statement_files`) SHALL be returned when approved
+to members of their upload account or of any account the file resolved to, and
+when rejected only to their uploader, because rejection reasons can quote other
+accounts' rows. An uploader who is no longer a member SHALL NOT keep access to
+an approved file. This
 SHALL hold even when a query contains no membership filter, and SHALL NOT be
 influenced by any object the caller creates in their session (such as
 temporary tables).
@@ -24,6 +26,16 @@ temporary tables).
 - **WHEN** an `owner` of the upload-selected account queries `statement_files`
 - **THEN** approved files uploaded by other members are returned, and approved
   files of accounts the caller is not a member of are not
+
+#### Scenario: Approved file is visible through an account it resolved to
+- **WHEN** a file was uploaded for account A but also resolved to account B, and
+  an `owner` of B who is not a member of A queries `statement_files`
+- **THEN** the approved file is returned
+
+#### Scenario: Removed uploader loses access to an approved file
+- **WHEN** the uploader of an approved file is no longer a member of any account
+  the file belongs to and queries `statement_files`
+- **THEN** that file is not returned
 
 #### Scenario: Temporary table cannot fake membership
 - **WHEN** a caller creates a temporary table named `account_members` containing
@@ -56,6 +68,11 @@ that caller as its first `owner` member.
 #### Scenario: Creating an account makes the caller its owner
 - **WHEN** an identified caller creates an account
 - **THEN** the account exists and the caller is its only `owner` member
+
+#### Scenario: Database keeps the last owner
+- **WHEN** an `owner` deletes or demotes the only `owner` row of an account
+  directly through the database
+- **THEN** the database rejects the write
 
 #### Scenario: Caller cannot add themselves to someone else's account
 - **WHEN** an identified caller who is not a member of an account attempts to
