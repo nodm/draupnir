@@ -11,8 +11,10 @@ For each object created under `uploads/`, the pipeline SHALL:
    commit).
 
 For an approved file, that transaction SHALL contain the `statement_files` row,
-every `raw_rows` row, and the derived `transactions` and `transaction_sources`
-rows. Each derived transaction is written against its own resolved account
+one per-account record for each resolved account, every `raw_rows` row, and the
+derived `transactions` and `transaction_sources` rows. Checks that depend on
+stored history SHALL run inside that transaction, against history that can't
+change before it commits (see `statement-validation`). Each derived transaction is written against its own resolved account
 (see `account-management`'s per-row resolution requirement), which may differ
 from the upload-selected account when the file spans multiple accounts. For a
 rejected file, the transaction SHALL contain only the `statement_files` row

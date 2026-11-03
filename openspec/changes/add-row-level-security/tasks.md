@@ -2,8 +2,10 @@
 
 - [ ] 1.1 Add migration `0003-row-level-security` to `MIGRATIONS`: `draupnir` schema,
       `current_sub()`, `is_member()` (SECURITY DEFINER, pinned `search_path`),
-      `create_account()`, `ALTER TABLE … ENABLE ROW LEVEL SECURITY` and the policies from
-      design.md decision 4, grants to `draupnir_app` (role created by the runner, decision 1)
+      `create_account()` (every `SECURITY DEFINER` function with
+      `search_path = pg_catalog, pg_temp`, schema-qualified references, EXECUTE revoked
+      from `PUBLIC`), `ALTER TABLE … ENABLE ROW LEVEL SECURITY` and the policies from
+      design.md decision 4 (with `WITH CHECK` on every INSERT/UPDATE policy), grants to `draupnir_app` (role created by the runner, decision 1)
       excluding `schema_migrations`; verify the migration applies to pglite after `0001`/`0002`.
 
 ## 2. Policy tests
@@ -15,9 +17,12 @@
       change: filterless query isolation, viewer visibility, viewer write rejected, account
       creation via `create_account` makes the caller owner, self-add to another account
       rejected, no identity → zero rows and writes rejected, identity not carried into the
-      next transaction on the same session.
-- [ ] 2.3 Guard test: every table in `public` except `schema_migrations` has RLS enabled and at
-      least one policy; verify it fails when a table without policies is added in a scratch
+      next transaction on the same session, `statement_files` visible to the uploader only,
+      viewer can't write `transaction_sources`, temporary `account_members` table can't fake
+      membership.
+- [ ] 2.3 Guard tests: every table in `public` except `schema_migrations` has RLS enabled and at
+      least one policy; every `SECURITY DEFINER` function has
+      `search_path=pg_catalog, pg_temp` and no `PUBLIC` execute; verify it fails when a table without policies is added in a scratch
       migration, then remove the scratch migration.
 
 ## 3. Application wiring

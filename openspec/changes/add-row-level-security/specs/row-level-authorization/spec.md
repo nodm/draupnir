@@ -2,14 +2,28 @@
 
 ### Requirement: The database enforces membership on every account-scoped read
 The database SHALL return rows of account-scoped tables (`accounts`,
-`account_members`, `statement_files`, `raw_rows`, `transactions`,
+`account_members`, `statement_file_accounts`, `raw_rows`, `transactions`,
 `transaction_sources`) only for accounts the identified caller is a member of.
-This SHALL hold even when a query contains no membership filter.
+File-level statement records (`statement_files`), whose rejection reasons can
+quote other accounts' rows, SHALL be returned only to their uploader. This
+SHALL hold even when a query contains no membership filter, and SHALL NOT be
+influenced by any object the caller creates in their session (such as
+temporary tables).
 
 #### Scenario: Filterless query returns only the caller's accounts' rows
 - **WHEN** user B, a member of no account owned by user A, runs
   `SELECT * FROM transactions` with no `WHERE` clause
 - **THEN** no transaction of user A's accounts is returned
+
+#### Scenario: File-level record is visible only to its uploader
+- **WHEN** a `viewer` of the upload-selected account queries `statement_files`
+- **THEN** files uploaded by other users are not returned
+
+#### Scenario: Temporary table cannot fake membership
+- **WHEN** a caller creates a temporary table named `account_members` containing
+  a row that makes them an owner of another user's account, then queries
+  `transactions`
+- **THEN** that account's transactions are still not returned
 
 #### Scenario: Shared account is visible to its viewer
 - **WHEN** user B is a `viewer` member of account A1 and runs a filterless
@@ -26,6 +40,11 @@ that caller as its first `owner` member.
 #### Scenario: Viewer cannot write through the database
 - **WHEN** a `viewer` member of an account attempts to insert a
   `statement_files` row or a `transactions` row for that account directly
+- **THEN** the database rejects the write
+
+#### Scenario: Viewer cannot write source links
+- **WHEN** a `viewer` member of an account attempts to insert, update, or delete
+  a `transaction_sources` row for a transaction of that account
 - **THEN** the database rejects the write
 
 #### Scenario: Creating an account makes the caller its owner

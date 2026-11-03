@@ -24,9 +24,18 @@ Depends on `add-db-migrations` (schema ships as migration `0002`).
     sharing returns when categories exist.
 - **BREAKING** — the statement storage model becomes three layers:
   - The original CSV stays in S3, unchanged.
-  - `statement_files` records every import: uploader, account, bank, format
-    version, SHA-256, status (`approved` | `rejected`), rejection reasons,
-    warnings, and covered period.
+  - `statement_files` records every import: uploader, upload-selected
+    account, bank, format version, SHA-256, S3 key, status (`approved` |
+    `rejected`), and rejection reasons. It is visible to the uploader only.
+  - `statement_file_accounts` records, for each account an approved file
+    resolved to:
+    - the export's declared period and the dates of its first and last
+      transactions;
+    - opening and closing balances;
+    - the number of new transactions and any warnings.
+
+    It is visible to that account's members, so a multi-account SEB file
+    works for every account in it.
   - `raw_rows` stores every row of an approved file as `jsonb`, with values
     exactly as the bank wrote them (strings), plus bank, format version, row
     number, and the bank's transaction id where one exists.

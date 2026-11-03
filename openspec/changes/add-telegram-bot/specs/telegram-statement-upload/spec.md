@@ -61,6 +61,10 @@ the outcome:
 - **THEN** the bot replies with the count of new transactions, the period
   covered, and the gap
 
+#### Scenario: Outcome delivered twice is reported once
+- **WHEN** the same file's outcome is delivered to the bot twice
+- **THEN** the chat receives one report
+
 #### Scenario: Rejected file report
 - **WHEN** a file is rejected for a broken balance chain at row 37
 - **THEN** the bot replies that the file was rejected and includes the row 37

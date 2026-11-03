@@ -19,7 +19,9 @@
       functions from design.md decision 3; verify pglite tests: RLS guard test passes;
       a user can't read another user's `messenger_links`/`bot_conversations`; `link_requests`
       isn't directly readable; consume-state succeeds once, fails when reused or expired;
-      both `messenger_links` uniqueness rules hold.
+      both `messenger_links` uniqueness rules hold; `statement_outcome_outbox` is only
+      reachable through its functions; every new `SECURITY DEFINER` function passes the
+      search-path guard from `add-row-level-security`.
 
 ## 3. Webhook and worker
 
@@ -32,10 +34,12 @@
 
 ## 4. Linking
 
-- [ ] 4.1 Implement link-request creation and the callback handler (state consume, PKCE code
-      exchange, ID token verification, link insert, chat confirmation, HTML result page);
-      verify tests for every `telegram-account-linking` scenario with a mocked token endpoint
-      and JWKS.
+- [ ] 4.1 Implement link-request creation, the callback handler (state consume, PKCE code
+      exchange, ID token verification, pending link with confirmation code, HTML page showing
+      the requesting Telegram account and code), and code redemption by the requesting
+      Telegram user (5-minute expiry, 5 attempts); verify tests for every
+      `telegram-account-linking` scenario, including the forwarded-link and
+      code-from-another-account cases, with a mocked token endpoint and JWKS.
 - [ ] 4.2 Implement `/unlink`; verify the immediate-effect scenario.
 
 ## 5. Upload and outcomes
@@ -44,10 +48,11 @@
       auto-select, account buttons, 1-hour pending expiry, S3 put at
       `uploads/{sub}/{accountId}/{uuid}.csv`); verify every `telegram-statement-upload`
       acceptance scenario.
-- [ ] 5.2 Publish outcomes from the ingestion worker after commit (new queue) and consume
-      them in the bot worker (approved/rejected reports); verify the
-      `statement-ingestion-pipeline` outcome scenarios (including no publish on rollback) and
-      the two report scenarios.
+- [ ] 5.2 Add the transactional outbox (row written in the outcome's transaction, publish after
+      commit, sweeper for unpublished rows) and consume outcomes in the bot worker with
+      de-duplication by `file_id`; verify the `statement-ingestion-pipeline` outcome scenarios
+      (no publish on rollback, recovery after a failed publish) and the report scenarios
+      (approved, rejected, delivered twice → reported once).
 
 ## 6. Account commands
 
@@ -67,7 +72,8 @@
 
 - [ ] 8.1 Add `infra/lib/bot.ts`: webhook route without authorizer, callback route, FIFO and
       outcome queues, Lambdas without VPC, Scheduler rule, `draupnir-telegram` Cognito app
-      client, secrets (bot token, webhook secret, client secret), IAM (incl.
+      client with its own `ManagedLoginBranding` (`useCognitoProvidedValues: true`,
+      `dependsOn` the domain, as in `infra/lib/cognito.ts`), secrets (bot token, webhook secret, client secret), IAM (incl.
       `cognito-idp:ListUsers` on the pool); all resources pass `{ provider }`. Add a
       `bot:set-webhook` target. Verify `infra:build` and `infra:preview`.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run

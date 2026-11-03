@@ -75,19 +75,45 @@ interface DataTool<I, O> {
 
 ### 3. Proposals as tools that only create pending actions
 
-- `propose_create_account` and `propose_share_account` /
-  `propose_unshare_account` validate their input. They insert a
-  `pending_actions` row `{id, user_id, kind, payload, expires_at, executed_at}`
-  and return "proposal shown to user". They never call the domain function.
-- After the loop, the bot sends one message per proposal with Confirm/Cancel
+Proposals are built in a **separate, clean action context**, never in the main
+conversation:
+
+- **Main loop.** The main assistant has data tools plus one argument-free tool,
+  `request_change(kind)` (`create_account` | `share_account` |
+  `unshare_account`). Calling it ends the main loop. It carries no recipient,
+  account, or amount, so nothing the main context contains, including injected
+  text, can travel through it.
+- **Action call.** The bot then makes a second, independent model call whose
+  input is only:
+  1. a fixed action system prompt;
+  2. the user's **current** message, verbatim;
+  3. a system-generated list of the user's own accounts (id, display name,
+     masked IBAN, role), built by code from the database, not by the model.
+
+  It sees no chat history, no tool results, and no earlier assistant text.
+  Its only tools are `propose_create_account`, `propose_share_account`, and
+  `propose_unshare_account`.
+- **Code checks the arguments** before inserting a `pending_actions` row
+  `{id, user_id, kind, payload, expires_at, executed_at}`:
+  - account ids must come from the provided list;
+  - a share recipient's email must appear **verbatim in the current user
+    message**;
+  - create-account values must appear in the current message or be left for
+    the `/newaccount` dialogue.
+
+  A proposal that fails a check is dropped, and the bot asks the user to state
+  the change explicitly (or offers the matching command).
+- After this, the bot sends one message per proposal with Confirm/Cancel
   buttons (callback data `pa:<id>:ok` / `pa:<id>:no`). Confirm runs, in one
   transaction: lock the row, check unexpired / unexecuted / same user, call the
   same `shared` domain function as the command, set `executed_at`.
-- **Injection guard (structural):** once any data tool has returned bank text in
-  the current turn, the proposal tools are removed from the tool list for the
-  rest of that turn. A user who wants a change asks for it directly; text read
-  from statements can't lead to a proposal. Together with the Confirm
-  requirement, model output alone can never change data.
+- **Why not a turn-local guard:** an earlier draft only removed proposal tools
+  after bank text appeared in the *current* turn. A previous answer that quoted
+  an injected description would stay in history and could steer a proposal on
+  the next turn ("yes, do that"). In the clean action context, history doesn't
+  exist, and "yes, do that" contains no recipient, so no share proposal can
+  result. Together with the Confirm requirement, neither model output nor
+  stored bank text can change data or pick a recipient.
 
 ### 4. Storage (migration `0005`)
 
@@ -126,7 +152,7 @@ current retention terms at implementation time and record them in the ADR.
   trimmed history.
 - **Latency of 5–30 s per answer.** → Typing indicator, refreshed every few
   seconds while the loop runs.
-- **Prompt injection through statements.** → The structural guard (decision 3),
+- **Prompt injection through statements.** → The clean action context and argument checks (decision 3),
   read-only tools, and untrusted-field marking.
 - **Privacy: data sent to a third party.** → Documented in ADR-0010; scoped per
   user by RLS; retention limits on the Telegram side.

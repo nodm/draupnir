@@ -8,19 +8,46 @@ re-derived without re-uploading anything.
 ## ADDED Requirements
 
 ### Requirement: Every import attempt is recorded as a statement file
-The system SHALL record each processed upload as a `statement_files` row with:
+The system SHALL record each processed upload as one file-level record with:
 - the account it was uploaded for and the uploading user;
 - bank and detected format version;
 - the SHA-256 of the file contents and the file's S3 object key;
 - status `approved` or `rejected`;
-- rejection reasons (for `rejected`) and warnings (for either status);
-- the period the file covers (first and last posted date), when determinable;
+- rejection reasons (for `rejected`);
 - the time it was processed.
+
+For an approved file, the system SHALL also record, for each account the
+file's rows resolved to, a per-account record with:
+- the period the export declares, when the format states one;
+- the first and last transaction dates for that account;
+- the opening and closing balance for that account, when the format provides
+  balances;
+- the number of newly created transactions;
+- that account's warnings.
+
+The file-level record SHALL be visible only to its uploader. Each per-account
+record SHALL be visible to members of its own account (see
+`row-level-authorization`).
 
 #### Scenario: Approved file is recorded
 - **WHEN** a valid statement file is processed
-- **THEN** a `statement_files` row exists for it with status `approved`, its
-  SHA-256, format version, covered period, and any warnings
+- **THEN** a file-level record exists for it with status `approved`, its
+  SHA-256 and format version, and a per-account record exists for each
+  resolved account with its periods, balances, new-transaction count, and
+  warnings
+
+#### Scenario: Multi-account file is visible per account
+- **WHEN** an approved SEB file has rows for account A (upload-selected) and
+  account B, and user V is a member of B only
+- **THEN** V can see B's per-account record for that file, and cannot see A's
+  per-account record or the file-level record
+
+#### Scenario: Declared period is kept separate from activity
+- **WHEN** an approved SEB file's title declares the period 2026-01-01 to
+  2026-01-31 and its first and last transactions are on 2026-01-05 and
+  2026-01-27
+- **THEN** the per-account record holds both the declared period and the
+  activity dates, unchanged
 
 #### Scenario: Rejected file is recorded with reasons
 - **WHEN** a statement file fails validation
@@ -85,3 +112,20 @@ the same result as the original imports when the derivation logic is unchanged.
 - **WHEN** a normalization bug is fixed and the rebuild runs for an account
 - **THEN** the account's transactions reflect the fixed normalization without
   any file being re-uploaded
+
+#### Scenario: Rebuild of a non-selected account in a multi-account file
+- **WHEN** account B's only transactions came from an SEB file uploaded with
+  account A selected, and the rebuild runs for account B
+- **THEN** B's transactions are rebuilt from B's raw rows of that file, and A's
+  transactions are untouched
+
+### Requirement: A redelivered upload returns its recorded outcome
+Processing the same S3 object again after its outcome was committed (for
+example a queue redelivery) SHALL NOT create a second file record or change any
+data. It SHALL return the outcome already recorded for that object.
+
+#### Scenario: Redelivery after commit
+- **WHEN** an upload was approved and committed, and its queue message is
+  delivered again
+- **THEN** no new file record is created, the file is not rejected as a
+  duplicate of itself, and the recorded approval is returned

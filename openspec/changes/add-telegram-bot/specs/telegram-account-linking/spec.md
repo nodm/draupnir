@@ -11,15 +11,40 @@ When an unlinked Telegram user sends `/start` (or any message), the bot SHALL
 reply with a sign-in link to the Cognito hosted login, using the same user
 pool, Google federation, and sign-up allowlist as the rest of Draupnir. The
 link SHALL carry a one-time, unguessable state value bound to that Telegram
-user and SHALL expire 10 minutes after it is issued. Completing sign-in SHALL
-record a link between the Telegram user id and the signed-in user's `sub`, and
-the bot SHALL confirm in the chat which Google email it is linked to.
+user and SHALL expire 10 minutes after it is issued.
+
+Completing sign-in SHALL NOT link anything by itself. The signed-in browser
+SHALL instead be shown:
+- which Telegram account requested the link;
+- a one-time confirmation code (valid 5 minutes, at most 5 attempts);
+- a warning never to share the code.
+
+The link between the Telegram user id and the signed-in user's `sub` SHALL be
+recorded only when the Telegram user who requested it sends that code to the
+bot. The bot SHALL then confirm in the chat which Google email it is linked to.
 
 #### Scenario: Successful link
-- **WHEN** an unlinked Telegram user taps the sign-in link and signs in with an
-  allowlisted Google account within 10 minutes
+- **WHEN** an unlinked Telegram user taps the sign-in link, signs in with an
+  allowlisted Google account within 10 minutes, and sends the shown code to the
+  bot from the same Telegram account within 5 minutes
 - **THEN** their Telegram user id is linked to that account's `sub`, and the bot
   sends a confirmation naming the account's email
+
+#### Scenario: Forwarded sign-in link does not link the attacker
+- **WHEN** Telegram user X requests a sign-in link and forwards it to an
+  allowlisted user V, and V signs in with it
+- **THEN** no link exists after V's sign-in, V's browser shows that X's Telegram
+  account requested it, and X can't complete the link without the code shown
+  only in V's browser
+
+#### Scenario: Code from a different Telegram account is refused
+- **WHEN** a confirmation code is sent to the bot by a Telegram user other than
+  the one who requested the link
+- **THEN** no link is created
+
+#### Scenario: Too many wrong codes cancel the request
+- **WHEN** the requesting Telegram user sends 5 wrong codes
+- **THEN** the pending link is cancelled and the user must send `/start` again
 
 #### Scenario: Expired or reused link is refused
 - **WHEN** the sign-in callback receives a state value that has expired or has

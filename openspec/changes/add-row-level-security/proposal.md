@@ -14,8 +14,10 @@ Depends on `redesign-statement-data-model` (policies target its tables).
 
 - Enable Postgres Row Level Security on every account-scoped table:
   - `accounts`, `account_members`;
-  - `statement_files`, `raw_rows`;
-  - `transactions`, `transaction_sources`.
+  - `statement_file_accounts`, `raw_rows`;
+  - `transactions`, `transaction_sources`;
+  - `statement_files` (visible to the uploader only, since rejection reasons
+    can quote other accounts' rows).
 
   Rows are visible only when the caller is a member of the row's account.
   Writes require `owner` membership, except creating a brand-new account,

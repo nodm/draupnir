@@ -11,7 +11,9 @@ outcome queue containing:
   period.
 
 The message SHALL contain no transaction rows. Publishing SHALL NOT depend on
-how the file was uploaded, so any channel can consume it.
+how the file was uploaded, so any channel can consume it. Every committed
+outcome SHALL be published at least once, even if publishing fails right after
+the commit. Consumers SHALL tolerate receiving the same outcome more than once.
 
 #### Scenario: Approved file outcome is published
 - **WHEN** a file is approved
@@ -22,6 +24,11 @@ how the file was uploaded, so any channel can consume it.
 - **WHEN** a file is rejected
 - **THEN** an outcome message with status `rejected` and all its reasons is
   published for that object key
+
+#### Scenario: Publish failure after commit is recovered
+- **WHEN** a file's outcome is committed but publishing it fails
+- **THEN** the same outcome is published later without reprocessing the file,
+  and the file is not recorded as a duplicate of itself
 
 #### Scenario: Outcome is published only after commit
 - **WHEN** the database transaction for a file fails and is rolled back

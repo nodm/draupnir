@@ -29,9 +29,13 @@
       loop with iteration cap and typing indicator; verify unit tests with a mocked API: a
       spending question calls tools as the user and the reply quotes their results; the
       no-data case; iteration cap reply states incompleteness.
-- [ ] 3.2 Implement proposal tools, the injection guard (proposal tools removed after bank
-      text in the turn), Confirm/Cancel handling, expiry, and execute-once; verify every
-      `bot-ai-chat` proposal scenario and the injected-instruction scenario.
+- [ ] 3.2 Implement `request_change`, the clean action context (current message + code-built
+      account list only), proposal tools with argument checks (ids from the list, recipient
+      email verbatim in the current message), Confirm/Cancel handling, expiry, and
+      execute-once; verify every `bot-ai-chat` proposal scenario, the injected-instruction
+      scenario, and the two-turn case (an injected address quoted in an earlier answer +
+      "ok, do that" → no proposal), asserting the action call's input contains no history
+      or tool results.
 - [ ] 3.3 Implement history storage, `/reset`, and 24h purge in the retention job; record AI
       answers in `bot_messages`; verify the follow-up and reset scenarios and the purge.
 - [ ] 3.4 Implement the daily budget (check-and-increment, refund on failure) and the provider

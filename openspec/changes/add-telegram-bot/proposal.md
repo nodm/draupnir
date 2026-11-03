@@ -22,7 +22,12 @@ user).
 - **Linking**:
   - `/start` from an unlinked Telegram user returns a one-time sign-in link
     (valid 10 minutes) to Cognito's hosted login with Google.
-  - The callback stores `telegram_user_id ↔ sub` and confirms in the chat.
+  - After sign-in, the browser shows a one-time confirmation code and which
+    Telegram account asked. The link (`telegram_user_id ↔ sub`) is created
+    only when that same Telegram account sends the code to the bot, so a
+    forwarded sign-in link can't hand someone else's data to the forwarder.
+  - The new Cognito app client gets its own Managed Login branding, which
+    Managed Login v2 requires per client.
   - `/unlink` removes the link.
   - Unlinked users can do nothing except link.
 - **Webhook**:
@@ -46,8 +51,10 @@ user).
 - **Retention**:
   - The uploaded file message is deleted after its outcome is reported.
   - Bot messages containing financial data are deleted after 24 hours.
-- **Pipeline outcome publishing**: the ingestion worker publishes each file's
-  outcome to a queue, independent of channel, so the bot can report it.
+- **Pipeline outcome publishing**: the ingestion worker records each file's
+  outcome in a transactional outbox in the same commit, then publishes it to a
+  queue, independent of channel. A sweeper re-publishes anything left
+  unpublished, and the bot reports each file once.
 - ADR-0009: Telegram as the only interface.
 
 ## Capabilities

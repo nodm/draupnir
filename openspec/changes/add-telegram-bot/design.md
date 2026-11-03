@@ -57,38 +57,78 @@ EventBridge Scheduler (every 30 min) ──▶ retention λ ──▶ Telegram d
   content dedup by `update_id`, covers Telegram retries. A longer-lived update
   table was considered and rejected: retries happen within seconds, and
   duplicate file imports are already rejected by the pipeline's SHA-256 rule.
-- **Outcome queue:** a standard SQS queue written by the ingestion worker after
-  commit. It is consumed by the same bot worker, which looks up the chat through
-  `bot_pending_uploads` by S3 key. SNS fan-out was considered, but there is one
-  consumer; it is easy to insert later.
+- **Outcome delivery: transactional outbox.** Publishing to SQS after commit
+  isn't enough. If the commit succeeds and the publish fails, a retry of the
+  upload would hit the already-recorded file and the chat would never get the
+  original outcome; suppressing the retry would lose the outcome instead.
+  - Migration `0004` adds `statement_outcome_outbox(file_id PK, s3_key,
+    payload jsonb, created_at, published_at NULL)`. The ingestion worker
+    inserts the row **in the same transaction** that commits the file's
+    outcome.
+  - After commit it publishes to the outcome queue and sets `published_at`.
+  - A scheduled sweeper (the retention λ's schedule, every 30 min, plus once
+    right after each ingestion run) re-publishes rows still unpublished after
+    1 minute.
+  - Redelivered upload messages re-emit the recorded outcome
+    (`redesign-statement-data-model` design, decision 3b), so a retry never
+    turns into a duplicate rejection.
+  - Delivery is at-least-once, so the bot de-duplicates by `file_id`:
+    `bot_pending_uploads.outcome_reported_at` is set when the report is sent,
+    and a second message for the same file is dropped.
+  - The outbox is accessed only through `SECURITY DEFINER` functions (insert,
+    due, mark published), since the sweeper has no user identity.
+  - SNS fan-out was considered, but there is one consumer; it is easy to insert
+    behind the outbox later.
 
 ### 2. Linking flow
 
 1. Unlinked user writes → the worker creates a 32-byte random state, stores
-   `sha256(state)` with Telegram user id, chat id, and `expires_at = now + 10
-   min` in `link_requests`, and replies with the Cognito authorize URL
-   (`response_type=code`, `scope=openid email`, PKCE `S256`,
+   `sha256(state)` with Telegram user id, chat id, Telegram display name, and
+   `expires_at = now + 10 min` in `link_requests`, and replies with the Cognito
+   authorize URL (`response_type=code`, `scope=openid email`, PKCE `S256`,
    `state=<state>`, `redirect_uri=<api>/telegram/callback`).
 2. Callback λ:
    - consumes the state atomically: a `SECURITY DEFINER` function marks it
-     used and returns the Telegram ids, only if unexpired and unused;
+     used and returns the request, only if unexpired and unused;
    - exchanges the code with the confidential app client (secret in Secrets
      Manager, plus the PKCE verifier stored with the request);
    - verifies the ID token (`aws-jwt-verify`) and reads `sub` and `email`;
-   - inserts into `messenger_links` (both columns unique);
-   - messages the chat and renders a minimal HTML "return to Telegram" page.
-3. A new Cognito app client (`draupnir-telegram`) with only that callback URL
+   - **does not link yet**: it stores a *pending* link (`sub`, `email`) on the
+     request with a fresh 6-digit confirmation code (hashed, valid 5 minutes,
+     at most 5 attempts);
+   - renders a page showing the Telegram account that asked to link (display
+     name and @username), the code, and the instruction "send this code to
+     @DraupnirBot from that Telegram account. Never share it with anyone."
+3. The originating Telegram user sends the code. The worker checks it against
+   the pending link of **that** Telegram user only. If it matches, it inserts
+   into `messenger_links` (both columns unique) and confirms in the chat with
+   the linked email. Wrong codes count attempts; the 5th wrong attempt or
+   expiry cancels the request.
+4. A new Cognito app client (`draupnir-telegram`) with only that callback URL
    reuses the pool's Google IdP and pre-sign-up trigger, so the allowlist
-   applies unchanged.
+   applies unchanged. Like the existing `draupnir-app` client
+   (`infra/lib/cognito.ts`), it needs its own `aws.cognito.ManagedLoginBranding`
+   (`useCognitoProvidedValues: true`, `dependsOn` the domain). Managed Login v2
+   doesn't assign a branding style to a new client, and without one the
+   sign-in URL is unusable.
+
+**Why the confirmation code:** state and PKCE bind the OAuth round-trip, not
+the two identities. Without the code, an attacker could send `/start`, forward
+their sign-in link to an allowlisted user who hasn't linked yet, and gain chat
+access to that user's data once they sign in. With the code, completing sign-in
+alone links nothing. The code appears only in the signed-in browser and is
+accepted only from the Telegram account that started the request. The attacker
+would also need the victim to read the code out to them, and the page shows
+whose Telegram account is asking and warns against exactly that.
 
 ### 3. Data access and RLS for bot tables (migration `0004`)
 
 | Table | Purpose | RLS |
 |---|---|---|
 | `messenger_links(telegram_user_id UNIQUE, user_id UNIQUE, email, linked_at)` | identity | `user_id = current_sub()`; lookup by Telegram id only through `SECURITY DEFINER draupnir.sub_for_telegram_user()` |
-| `link_requests(state_hash PK, telegram_user_id, chat_id, pkce_verifier, expires_at, used_at)` | pending links | no direct access (`USING (false)`); create/consume through `SECURITY DEFINER` functions |
+| `link_requests(state_hash PK, telegram_user_id, chat_id, telegram_display_name, pkce_verifier, expires_at, used_at, pending_sub, pending_email, code_hash, code_expires_at, code_attempts)` | pending links | no direct access (`USING (false)`); create/consume through `SECURITY DEFINER` functions |
 | `bot_conversations(user_id PK, kind, state jsonb, expires_at)` | guided-dialogue state | `user_id = current_sub()` |
-| `bot_pending_uploads(id, user_id, chat_id, message_id, telegram_file_id, s3_key NULL, expires_at)` | account choice and outcome routing | `user_id = current_sub()`; outcome lookup by `s3_key` through `SECURITY DEFINER` function |
+| `bot_pending_uploads(id, user_id, chat_id, message_id, telegram_file_id, s3_key NULL, expires_at, outcome_reported_at NULL)` | account choice and outcome routing | `user_id = current_sub()`; outcome lookup by `s3_key` through `SECURITY DEFINER` function |
 | `bot_messages(chat_id, message_id, user_id, sent_at, deleted_at, failed_at)` | retention | `user_id = current_sub()`; retention job uses `SECURITY DEFINER` due/mark functions |
 
 The worker first resolves `sub` from the Telegram user id, then runs everything

@@ -28,8 +28,11 @@ Depends on `add-telegram-bot` (chat, linking, retention) and
     functions as the bot commands;
   - proposals expire after 10 minutes.
 - Bank-provided text (descriptions, counterparty names) is passed to the model
-  as untrusted data, so instructions in it can't trigger anything, since no
-  tool writes.
+  as untrusted data. Proposals are built in a separate, clean model call that
+  sees only the user's current message and their own account list (no history
+  or tool results). A share recipient must appear verbatim in that message, so
+  injected text, even quoted in an earlier answer, can't pick a recipient or
+  trigger a change.
 - Per-user chat history is stored for context, trimmed per request, cleared by
   `/reset`, and deleted after 24 hours.
 - Cost guardrails:

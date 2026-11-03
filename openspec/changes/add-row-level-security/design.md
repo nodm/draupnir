@@ -78,13 +78,24 @@ calls outside `withCaller` see nothing (spec: "unidentified caller").
 
 `draupnir.is_member(account_id text, min_role text) RETURNS boolean`:
 - `STABLE`, `SECURITY DEFINER`, owned by the master user;
-- `SET search_path = pg_catalog, public`;
-- body: `EXISTS (SELECT 1 FROM account_members WHERE account_id = $1 AND user_id = draupnir.current_sub() AND (min_role = 'viewer' OR role = 'owner'))`.
+- `SET search_path = pg_catalog, pg_temp`. `pg_temp` is listed explicitly and
+  last: omitting it doesn't exclude it, because Postgres would then search the
+  temporary schema *first* for relation names, and a caller-created temporary
+  `account_members` table could supply fabricated memberships;
+- every relation and function reference in the body is schema-qualified:
+  `EXISTS (SELECT 1 FROM public.account_members m WHERE m.account_id = $1 AND m.user_id = draupnir.current_sub() AND ($2 = 'viewer' OR m.role = 'owner'))`.
 
 Running as the owner avoids recursive policy evaluation: a policy on
 `account_members` that queries `account_members` would otherwise re-enter its
-own policy. The pinned `search_path` prevents function hijacking through a
-shadowing object.
+own policy.
+
+**Rule for every `SECURITY DEFINER` function in this and later migrations**
+(`create_account`, the bot's and AI chat's lookup and purge functions):
+- `SET search_path = pg_catalog, pg_temp`;
+- all references schema-qualified (`public.…`, `draupnir.…`);
+- `REVOKE EXECUTE … FROM PUBLIC`, then `GRANT EXECUTE` to `draupnir_app` only.
+
+A pglite guard test enforces the rule (decision 5).
 
 ### 4. Policies per table
 
@@ -92,8 +103,17 @@ shadowing object.
 |---|---|---|
 | `accounts` | `is_member(id, 'viewer')` | no direct INSERT grant; UPDATE/DELETE `is_member(id, 'owner')` |
 | `account_members` | `is_member(account_id, 'viewer')` | `is_member(account_id, 'owner')` |
-| `statement_files`, `raw_rows`, `transactions` | `is_member(account_id, 'viewer')` | `is_member(account_id, 'owner')` |
-| `transaction_sources` | `EXISTS (SELECT 1 FROM transactions t WHERE t.id = transaction_id)` (inherits `transactions`' policy) | the same predicate, against an owner-visible transaction |
+| `statement_files` | `uploaded_by = draupnir.current_sub()` (file-level reasons can quote other accounts' rows) | INSERT `WITH CHECK (uploaded_by = draupnir.current_sub() AND draupnir.is_member(upload_account_id, 'owner'))`; no UPDATE/DELETE grant |
+| `statement_file_accounts`, `raw_rows`, `transactions`, `transaction_sources` | `is_member(account_id, 'viewer')` | `USING` and `WITH CHECK`: `is_member(account_id, 'owner')` |
+
+- Every account-scoped child table carries its own `account_id`.
+  `transaction_sources` gets it with composite FKs to `transactions(id,
+  account_id)` and `raw_rows(id, account_id)` (`redesign-statement-data-model`
+  design, decision 1). Its write policy is therefore a direct owner check. An
+  earlier draft reused the `transactions` visibility predicate, which includes
+  viewers, and would have let a viewer write source links.
+- Every INSERT/UPDATE policy states `WITH CHECK` as well as `USING`, so an
+  update can't move a row into an account the caller doesn't own.
 
 - **Account creation:** `draupnir.create_account(bank, iban, currency,
   display_name, opened_on, opening_balance)` is `SECURITY DEFINER`. It inserts
@@ -106,7 +126,10 @@ shadowing object.
 ### 5. Guard against new tables without RLS
 
 A pglite test asserts that every table in `public` except `schema_migrations`
-has RLS enabled (`pg_class.relrowsecurity`) and at least one policy. Every
+has RLS enabled (`pg_class.relrowsecurity`) and at least one policy. A second
+guard asserts that every `SECURITY DEFINER` function in `public` and `draupnir`
+has `search_path=pg_catalog, pg_temp` in `pg_proc.proconfig` and is not
+executable by `PUBLIC`. Every
 later change that adds a table (bot, AI chat) then fails CI until it adds
 policies.
 
