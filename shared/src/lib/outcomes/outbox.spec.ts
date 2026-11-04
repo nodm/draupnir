@@ -7,6 +7,7 @@ import {
   enqueueOutcome,
   publishCommittedOutcome,
   publishDueOutcomes,
+  republishUnreportedOutcomes,
 } from './outbox';
 import {
   boundOutcomeMessage,
@@ -255,6 +256,79 @@ describe('publishDueOutcomes (the sweeper)', () => {
     expect(await publishDueOutcomes(client, config, sqs, QUEUE)).toBe(0);
     expect(sent).toEqual([]);
     await db.exec(`DELETE FROM statement_outcome_outbox WHERE file_id = 'bad'`);
+  });
+});
+
+describe('republishUnreportedOutcomes (outcomes the queue gave up on)', () => {
+  // A published outcome of an upload made through the bot, in the given report
+  // state, published `publishedAgo` ago.
+  async function published(
+    state: 'pending' | 'claimed' | 'reported',
+    publishedAgo = '2 hours',
+  ) {
+    const message = await newFile();
+    await withCaller(client, config, 'alice', (tx) =>
+      enqueueOutcome(client, config, tx, message),
+    );
+    await db.exec(`
+      INSERT INTO bot_pending_uploads (user_id, chat_id, message_id, telegram_file_id, s3_key, expires_at, report_state)
+        VALUES ('alice', 1, ${n}, 'tg', '${message.s3Key}', now() + interval '1 hour', '${state}');
+      UPDATE statement_outcome_outbox
+         SET published_at = now() - interval '${publishedAgo}'
+       WHERE file_id = '${message.fileId}'
+    `);
+    return message;
+  }
+  const republish = (sqs: never) =>
+    republishUnreportedOutcomes(client, config, sqs, QUEUE);
+
+  it('publishes again an outcome that was published but never reported', async () => {
+    const message = await published('pending');
+    const { sent, sqs } = sqsThatWorks();
+
+    expect(await republish(sqs)).toBe(1);
+    expect(sent).toEqual([message]);
+  });
+
+  it('does so once an hour, not on every run', async () => {
+    await published('pending');
+    const { sqs } = sqsThatWorks();
+
+    expect(await republish(sqs)).toBe(1);
+    expect(await republish(sqs)).toBe(0); // published_at was refreshed
+  });
+
+  it('leaves an outcome that was reported', async () => {
+    await published('reported');
+    const { sent, sqs } = sqsThatWorks();
+
+    expect(await republish(sqs)).toBe(0);
+    expect(sent).toEqual([]);
+  });
+
+  it('leaves a fresh publication alone: the worker may still be on it', async () => {
+    await published('pending', '10 minutes');
+    const { sqs } = sqsThatWorks();
+    expect(await republish(sqs)).toBe(0);
+  });
+
+  it('gives up after a day', async () => {
+    const message = await published('pending');
+    await ageOutbox(message.fileId as string, '25 hours');
+    const { sqs } = sqsThatWorks();
+    expect(await republish(sqs)).toBe(0);
+  });
+
+  it('ignores a file that did not come through the bot (no pending upload)', async () => {
+    const message = await newFile();
+    await withCaller(client, config, 'alice', (tx) =>
+      enqueueOutcome(client, config, tx, message),
+    );
+    await db.exec(
+      `UPDATE statement_outcome_outbox SET published_at = now() - interval '2 hours' WHERE file_id = '${message.fileId}'`,
+    );
+    const { sqs } = sqsThatWorks();
+    expect(await republish(sqs)).toBe(0);
   });
 });
 

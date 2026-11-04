@@ -102,13 +102,48 @@ export async function publishDueOutcomes(
   queueUrl: string,
   limit = 25,
 ): Promise<number> {
-  const { rows } = await executeStatement(
+  return publishRows(
     client,
     config,
+    sqs,
+    queueUrl,
     `SELECT file_id, CAST(payload AS text) AS payload
        FROM draupnir.due_outcomes(CAST(:limit AS integer))`,
-    { limit },
+    limit,
   );
+}
+
+// Publishes again the outcomes that were published but never reported (the
+// queue gave up on them). See migration 0016 for exactly which and how often.
+export async function republishUnreportedOutcomes(
+  client: RDSDataClient,
+  config: DataApiConfig,
+  sqs: Sender,
+  queueUrl: string,
+  limit = 25,
+): Promise<number> {
+  return publishRows(
+    client,
+    config,
+    sqs,
+    queueUrl,
+    `SELECT file_id, CAST(payload AS text) AS payload
+       FROM draupnir.unreported_outcomes(CAST(:limit AS integer))`,
+    limit,
+  );
+}
+
+async function publishRows(
+  client: RDSDataClient,
+  config: DataApiConfig,
+  sqs: Sender,
+  queueUrl: string,
+  selectSql: string,
+  limit: number,
+): Promise<number> {
+  const { rows } = await executeStatement(client, config, selectSql, {
+    limit,
+  });
 
   let published = 0;
   for (const row of rows as { file_id: string; payload: unknown }[]) {
