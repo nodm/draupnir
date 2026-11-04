@@ -4,7 +4,7 @@ import type { CallbackQuery, Document, Message } from '@grammyjs/types';
 import type { DataApiConfig } from 'shared';
 import type { LinkedContext } from '../dispatcher';
 import type { TelegramClient } from '../telegram';
-import { listMemberAccounts, type MemberAccount } from './accounts';
+import { listMemberAccounts, type MemberAccount } from '../memberAccounts';
 import { isCsvDocument, MAX_STATEMENT_BYTES } from './files';
 import { isPreconditionFailed, statementObjectKey } from './objectKey';
 import { createPendingUploads } from './pendingUploads';

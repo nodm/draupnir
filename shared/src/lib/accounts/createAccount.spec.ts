@@ -219,3 +219,23 @@ describe('createAccount on a real Postgres instance', () => {
     expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(0);
   });
 });
+
+describe('validation helpers shared with the bot', () => {
+  it('canonicalizes and validates an IBAN', async () => {
+    const { canonicalizeIban, isValidIban } = await import('./createAccount');
+    expect(canonicalizeIban(' lt12 1000 0111 0100 1000 ')).toBe(
+      'LT121000011101001000',
+    );
+    expect(isValidIban('LT121000011101001000')).toBe(true);
+    expect(isValidIban('LT121000011101001001')).toBe(false); // wrong checksum
+    expect(isValidIban('not-an-iban')).toBe(false);
+  });
+
+  it('validates real calendar dates', async () => {
+    const { isValidIsoDate } = await import('./createAccount');
+    expect(isValidIsoDate('2024-02-29')).toBe(true);
+    expect(isValidIsoDate('2023-02-29')).toBe(false);
+    expect(isValidIsoDate('2024-1-5')).toBe(false);
+    expect(isValidIsoDate(20240101)).toBe(false);
+  });
+});

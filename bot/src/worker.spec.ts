@@ -17,6 +17,20 @@ vi.mock('./lib/upload/handleUpload', () => ({
   UPLOAD_CALLBACK_PREFIX: 'up',
 }));
 vi.mock('@aws-sdk/client-s3', () => ({ S3Client: class {} }));
+vi.mock('./lib/commands/accounts', () => ({
+  COVERAGE_CALLBACK_PREFIX: 'cov',
+  createAccountsHandler: vi.fn(),
+  createCoverageHandler: vi.fn(),
+  handleCoverageCallback: vi.fn(),
+}));
+vi.mock('./lib/commands/newAccount', () => ({
+  BANK_CALLBACK_PREFIX: 'nb',
+  CONFIRM_CALLBACK_PREFIX: 'nc',
+  createCancelHandler: vi.fn(),
+  createNewAccountHandler: vi.fn(),
+  handleNewAccountCallback: vi.fn(),
+  handleNewAccountText: vi.fn(),
+}));
 vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
 vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
 vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));

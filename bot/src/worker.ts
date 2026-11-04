@@ -3,7 +3,21 @@ import { S3Client } from '@aws-sdk/client-s3';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { isOutcomeMessage, loadDataApiConfigFromEnv } from 'shared';
-import { dispatch } from './lib/dispatcher';
+import { dispatch, HELP_TEXT, type Routes } from './lib/dispatcher';
+import {
+  COVERAGE_CALLBACK_PREFIX,
+  createAccountsHandler,
+  createCoverageHandler,
+  handleCoverageCallback,
+} from './lib/commands/accounts';
+import {
+  BANK_CALLBACK_PREFIX,
+  CONFIRM_CALLBACK_PREFIX,
+  createCancelHandler,
+  createNewAccountHandler,
+  handleNewAccountCallback,
+  handleNewAccountText,
+} from './lib/commands/newAccount';
 import { createUnlinkHandler } from './lib/commands/unlink';
 import { loadLinkConfigFromEnv } from './lib/linking/config';
 import { createLinkStore } from './lib/linking/linkStore';
@@ -47,15 +61,33 @@ export const handler: SQSHandler = async (event) => {
     s3: s3Client,
     bucket: requireEnv('UPLOADS_BUCKET'),
   };
+  const accountDeps = { client: dataApiClient, config: dataApiConfig };
+  const onNewAccountCallback: Routes['onCallback'] = (ctx, query, data) =>
+    handleNewAccountCallback(ctx, query, data, accountDeps);
   const routes = createRoutes({
     resolveSub: createSubResolver(dataApiClient, dataApiConfig),
     onUnlinked: (ctx) => handleUnlinked(ctx, linking),
-    commands: { unlink: createUnlinkHandler(dataApiClient, dataApiConfig) },
+    commands: {
+      unlink: createUnlinkHandler(dataApiClient, dataApiConfig),
+      accounts: createAccountsHandler(accountDeps),
+      coverage: createCoverageHandler(accountDeps),
+      newaccount: createNewAccountHandler(accountDeps),
+      cancel: createCancelHandler(accountDeps),
+    },
     onDocument: (ctx, message, document) =>
       handleDocument(ctx, message, document, upload),
+    // Free text answers an open dialogue; otherwise it is the help reply.
+    onText: async (ctx, text) => {
+      if (await handleNewAccountText(ctx, text, accountDeps)) return;
+      await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);
+    },
     callbacks: {
       [UPLOAD_CALLBACK_PREFIX]: (ctx, query, data) =>
         handleUploadCallback(ctx, query, data, upload),
+      [COVERAGE_CALLBACK_PREFIX]: (ctx, query, data) =>
+        handleCoverageCallback(ctx, query, data, accountDeps),
+      [BANK_CALLBACK_PREFIX]: onNewAccountCallback,
+      [CONFIRM_CALLBACK_PREFIX]: onNewAccountCallback,
     },
   });
 
