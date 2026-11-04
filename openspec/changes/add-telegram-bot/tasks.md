@@ -100,7 +100,7 @@
       an account, share it, upload a Revolut CSV from the banking app's share sheet, receive
       the outcome, see the CSV message deleted; after 24h confirm the account list message
       is gone.
-- [ ] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
+- [x] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
       `docs/architecture.md`.
 - [x] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
       `bot:set-webhook`, rollback with `deleteWebhook`), user guide (linking, every command,

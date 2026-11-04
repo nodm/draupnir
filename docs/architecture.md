@@ -71,6 +71,40 @@ graph TB
   MigrateInvocation -. "dependsOn" .-> AccountsFn
   MigrateInvocation -. "dependsOn" .-> UploadFn
 
+  subgraph Bot["Telegram bot (bot.ts, botQueues.ts)"]
+    BotApi["API Gateway draupnir-bot<br/>no authorizer, throttled<br/>POST /webhook · GET /telegram/callback"]
+    WebhookFn["λ bot-webhook<br/>secret header check, enqueue only"]
+    CallbackFn["λ bot-callback<br/>finishes Google sign-in"]
+    UpdatesQ["SQS FIFO: bot-updates<br/>group = chat, dedup = update_id"]
+    OutcomesQ["SQS: bot-outcomes"]
+    BotDlq["DLQs (updates, outcomes)"]
+    WorkerFn["λ bot-worker<br/>no VPC"]
+    RetentionFn["λ bot-retention<br/>every 30 min, no retries"]
+    TelegramClient["Cognito client<br/>draupnir-telegram"]
+    BotSecrets[("Secrets: bot token,<br/>webhook secret, client secret")]
+
+    BotApi --> WebhookFn
+    BotApi --> CallbackFn
+    WebhookFn -- "SendMessage" --> UpdatesQ
+    UpdatesQ --> WorkerFn
+    OutcomesQ --> WorkerFn
+    UpdatesQ & OutcomesQ -. "after 3 / 5 deliveries" .-> BotDlq
+    RetentionFn -- "republish missed outcomes" --> OutcomesQ
+  end
+  Telegram(["Telegram Bot API"]) -- "webhook" --> BotApi
+  WorkerFn -- "send / delete messages" --> Telegram
+  RetentionFn -- "delete old messages" --> Telegram
+  UserPool --> TelegramClient
+  CallbackFn -. "code exchange" .-> Domain
+  WorkerFn -. "cognito-idp:ListUsers (/share)" .-> UserPool
+  WorkerFn -- "s3:PutObject uploads/*" --> UploadsBucket
+  WorkerFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
+  CallbackFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
+  RetentionFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
+  IngestFn -- "publishes each outcome" --> OutcomesQ
+  WebhookFn & CallbackFn & WorkerFn & RetentionFn -. "read" .-> BotSecrets
+  MigrateInvocation -. "dependsOn" .-> WorkerFn
+
   UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
   UploadFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   AccountsFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
@@ -87,6 +121,7 @@ graph TB
 - **Schema before code.** `pulumi up` invokes `migrate-database` (the runner in `shared/src/lib/migrations`) before any DB-backed Lambda is created or updated; a failed migration fails the deploy. The Invocation re-runs when the migration bundle changes (it hashes the esbuild output, which inlines `MIGRATIONS`); the runner is idempotent, so a re-run with nothing pending is a no-op. Migrations are append-only — see the `db-migrations` spec.
 - **Two database credentials, and row-level security.** The master credential (AWS-managed secret) is read only by `migrate-database`; it owns the tables and so bypasses RLS. Every other Lambda uses the `draupnir_app` credential (a Pulumi-generated password in its own secret): that role owns nothing and has no `BYPASSRLS`. The runner creates the role and re-syncs its password from the secret on every run, before applying migrations. Policies on every account-scoped table check membership through `draupnir.is_member()`, which reads the caller from `app.sub`. Application code sets it per transaction with `withCaller(sub, fn)` (`set_config(..., true)`, so it can't leak across Data API's pooled sessions); with no identity set, every policy returns no rows. A new table must ship with policies — a guard test in `shared` fails otherwise.
 - **Rebuild is manual.** `rebuild-account` (no trigger, no HTTP route) re-derives one account's transactions from its raw rows: `aws lambda invoke --function-name <rebuildAccountFunctionName> --payload '{"sub":"<owner sub>","accountId":"<id>"}' --cli-binary-format raw-in-base64-out out.json`.
+- **Telegram flow.** The public webhook only checks Telegram's secret header and enqueues (it never touches the database). The worker handles each update as the linked user (`withCaller`), and statement outcomes reach the chat through a transactional outbox: ingestion writes the outcome row in the same transaction that commits the file, publishes it to `bot-outcomes`, and the retention Lambda's schedule republishes any that were missed or that the queue gave up on. Messages the bot sends in a linked chat are recorded and deleted after 24 hours; the uploaded CSV message is deleted right after the report.
 - **Interface.** Telegram bot only, no web app; Google/Cognito stays the identity and Telegram is a linked channel (ADR-0009); setup and user guide in [telegram-bot.md](./telegram-bot.md).
 - Deletion protection + a final snapshot are enabled on the Aurora cluster since it holds live account/transaction data.
 
