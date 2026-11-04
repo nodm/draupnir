@@ -13,6 +13,8 @@ export interface PendingUpload {
 
 export interface PendingUploads {
   // `offered` null = the account is already chosen (auto-selected SEB file).
+  // With an `s3Key` the insert is idempotent: a retried update finds the row
+  // its first attempt wrote and gets null back.
   create(input: {
     chatId: number;
     messageId: number;
@@ -20,13 +22,14 @@ export interface PendingUploads {
     offeredAccountIds: string[] | null;
     s3Key: string | null;
     now?: Date;
-  }): Promise<string>;
-  // An unexpired upload still waiting for an account choice.
+  }): Promise<string | null>;
+  // An unexpired upload, whether or not an account was already chosen (a
+  // retried button press must still find it).
   get(id: string, now?: Date): Promise<PendingUpload | null>;
-  // Atomically takes an unexpired, not-yet-chosen upload and binds it to its
-  // S3 key. Only one of two simultaneous button presses gets it.
+  // Binds an unexpired upload to its S3 key. The key is derived from the
+  // upload, so repeating the call with the same key (a retry) succeeds again;
+  // a different key, once one is bound, does not.
   claim(id: string, s3Key: string, now?: Date): Promise<PendingUpload | null>;
-  discard(id: string): Promise<void>;
 }
 
 interface PendingRow {
@@ -69,6 +72,7 @@ export function createPendingUploads(
              (user_id, chat_id, message_id, telegram_file_id, offered_account_ids, s3_key, expires_at)
            VALUES (:sub, CAST(:chatId AS bigint), CAST(:messageId AS bigint), :fileId,
                    CAST(:offered AS jsonb), :s3Key, CAST(:expiresAt AS timestamptz))
+           ON CONFLICT (s3_key) DO NOTHING
            RETURNING id`,
           {
             sub,
@@ -86,7 +90,7 @@ export function createPendingUploads(
           },
           tx,
         );
-        return (rows[0] as { id: string }).id;
+        return (rows[0] as { id: string } | undefined)?.id ?? null;
       }),
 
     get: (id, now = new Date()) =>
@@ -96,7 +100,7 @@ export function createPendingUploads(
           config,
           `SELECT id, chat_id, message_id, telegram_file_id, offered_account_ids
              FROM bot_pending_uploads
-            WHERE id = :id AND s3_key IS NULL AND expires_at > CAST(:now AS timestamptz)`,
+            WHERE id = :id AND expires_at > CAST(:now AS timestamptz)`,
           { id, now: now.toISOString() },
           tx,
         );
@@ -109,23 +113,12 @@ export function createPendingUploads(
           client,
           config,
           `UPDATE bot_pending_uploads SET s3_key = :s3Key
-            WHERE id = :id AND s3_key IS NULL AND expires_at > CAST(:now AS timestamptz)
+            WHERE id = :id AND (s3_key IS NULL OR s3_key = :s3Key) AND expires_at > CAST(:now AS timestamptz)
           RETURNING id, chat_id, message_id, telegram_file_id, offered_account_ids`,
           { id, s3Key, now: now.toISOString() },
           tx,
         );
         return rows[0] ? toPending(rows[0] as unknown as PendingRow) : null;
-      }),
-
-    discard: (id) =>
-      inCaller(async (tx) => {
-        await executeStatement(
-          client,
-          config,
-          `DELETE FROM bot_pending_uploads WHERE id = :id`,
-          { id },
-          tx,
-        );
       }),
   };
 }

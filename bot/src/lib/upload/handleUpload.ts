@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { CallbackQuery, Document, Message } from '@grammyjs/types';
@@ -7,6 +6,7 @@ import type { LinkedContext } from '../dispatcher';
 import type { TelegramClient } from '../telegram';
 import { listMemberAccounts, type MemberAccount } from './accounts';
 import { isCsvDocument, MAX_STATEMENT_BYTES } from './files';
+import { isPreconditionFailed, statementObjectKey } from './objectKey';
 import { createPendingUploads } from './pendingUploads';
 import { sebTitleIbans } from './sebHeader';
 
@@ -98,15 +98,16 @@ export async function handleDocument(
   };
 
   if (matches.length === 1) {
-    const pendingId = await pending.create({
-      ...base,
-      offeredAccountIds: null,
-    });
-    await acceptUpload(ctx, deps, {
-      account: matches[0] as MemberAccount,
-      bytes,
-      pendingId,
-    });
+    const account = matches[0] as MemberAccount;
+    // Derived from the Telegram message, so a retried update writes to the same
+    // key and cannot upload the file a second time.
+    const key = statementObjectKey(
+      sub,
+      account.id,
+      `${chatId}:${message.message_id}:${document.file_unique_id}`,
+    );
+    await pending.create({ ...base, offeredAccountIds: null, s3Key: key });
+    await putAndAcknowledge(ctx, deps, account, key, bytes);
     return;
   }
 
@@ -126,46 +127,38 @@ export async function handleDocument(
   });
 }
 
-// Binds the pending row to its S3 key *before* writing the object, so the
-// outcome can always be routed back to this chat once ingestion finishes. The
-// claim is atomic: of two simultaneous button presses only one proceeds.
-async function acceptUpload(
+// Writes the object and tells the user, once. The upload is idempotent end to
+// end: the key is fixed by what is being uploaded, and a repeat write is
+// refused by S3 (412). So a failure at any point can simply be retried:
+//  - PutObject threw but the object may exist: retry hits 412 = already done;
+//  - the object and pending row are committed but the acknowledgement failed:
+//    retry hits 412, and the user still gets the outcome report later.
+// The pending row stays bound to its key through failures, so the outcome can
+// always be routed back to this chat.
+async function putAndAcknowledge(
   ctx: LinkedContext,
   deps: UploadDeps,
-  input: {
-    account: MemberAccount;
-    bytes: Uint8Array;
-    pendingId: string;
-  },
+  account: MemberAccount,
+  key: string,
+  bytes: Uint8Array,
 ): Promise<void> {
-  const pending = createPendingUploads(deps.client, deps.config, ctx.sub);
-  const key = `uploads/${ctx.sub}/${input.account.id}/${randomUUID()}.csv`;
-  const claimed = await pending.claim(input.pendingId, key);
-  if (!claimed) {
-    await ctx.telegram.sendMessage(
-      ctx.chatId,
-      'That request expired or was already handled. Send the file again.',
-    );
-    return;
-  }
   try {
     await deps.s3.send(
       new PutObjectCommand({
         Bucket: deps.bucket,
         Key: key,
-        Body: input.bytes,
+        Body: bytes,
         ContentType: 'text/csv',
-        // A fresh random key: refuse to ever overwrite an existing object.
         IfNoneMatch: '*',
       }),
     );
   } catch (error) {
-    await pending.discard(claimed.id);
+    if (isPreconditionFailed(error)) return; // an earlier attempt wrote it
     throw error;
   }
   await ctx.telegram.sendMessage(
     ctx.chatId,
-    `Importing into ${accountLabel(input.account)}. I will report the result here.`,
+    `Importing into ${accountLabel(account)}. I will report the result here.`,
   );
 }
 
@@ -202,6 +195,17 @@ export async function handleUploadCallback(
     return;
   }
 
+  // Bound to this upload and account; an upload already bound to another
+  // account (a different button pressed first) is refused.
+  const key = statementObjectKey(sub, account.id, `pending:${pendingId}`);
+  if (!(await pending.claim(pendingId, key))) {
+    await telegram.sendMessage(
+      chatId,
+      'That request was already handled with a different account. Send the file again to redo it.',
+    );
+    return;
+  }
+
   const bytes = await download(telegram, offer.telegramFileId);
   if (!bytes) {
     await telegram.sendMessage(
@@ -210,5 +214,5 @@ export async function handleUploadCallback(
     );
     return;
   }
-  await acceptUpload(ctx, deps, { account, bytes, pendingId });
+  await putAndAcknowledge(ctx, deps, account, key, bytes);
 }

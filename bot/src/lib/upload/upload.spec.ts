@@ -86,12 +86,31 @@ const doc = (extra: Partial<Document> = {}): Document => ({
 });
 const message = { message_id: 55 } as Message;
 
-const puts = () =>
-  s3Send.mock.calls.map(
-    (c) =>
-      (c[0] as { input: { Bucket: string; Key: string; Body: Uint8Array } })
-        .input,
-  );
+type PutInput = { Bucket: string; Key: string; Body: Uint8Array };
+const stored = new Map<string, PutInput>();
+// Objects that actually exist, i.e. successful writes only.
+const puts = () => [...stored.values()];
+
+const preconditionFailed = () =>
+  Object.assign(new Error('At least one of the pre-conditions failed'), {
+    name: 'PreconditionFailed',
+    $metadata: { httpStatusCode: 412 },
+  });
+
+// Behaves like `If-None-Match: *`: a second write to a key is refused.
+const fakePut = async (command: unknown) => {
+  const input = (command as { input: PutInput }).input;
+  if (stored.has(input.Key)) throw preconditionFailed();
+  stored.set(input.Key, input);
+  return {};
+};
+
+const pendingRows = async () =>
+  (
+    await db.query<{ id: string; s3_key: string | null }>(
+      `SELECT id, s3_key FROM bot_pending_uploads`,
+    )
+  ).rows;
 
 // Sends a document and returns the data of the button at `index`, if offered.
 async function sendAndGetButtons(sub: string, content: string) {
@@ -120,9 +139,11 @@ async function press(
   return t;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  stored.clear();
   s3Send.mockReset();
-  s3Send.mockResolvedValue({});
+  s3Send.mockImplementation(fakePut);
+  await db.exec(`DELETE FROM bot_pending_uploads`);
 });
 
 describe('account chosen from buttons', () => {
@@ -166,14 +187,24 @@ describe('account chosen from buttons', () => {
     expect(t.telegram.editMessageReplyMarkup).toHaveBeenCalledWith(100, 9);
   });
 
-  it('imports once when the same button is pressed twice', async () => {
+  it('imports once when the same button is pressed twice, and does not announce it twice', async () => {
     const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
-    await press('bob', buttons[0].callback_data, REVOLUT_CSV);
+    const first = await press('bob', buttons[0].callback_data, REVOLUT_CSV);
     const second = await press('bob', buttons[0].callback_data, REVOLUT_CSV);
 
     expect(puts()).toHaveLength(1);
+    expect(first.sendMessage).toHaveBeenCalledTimes(1);
+    expect(second.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a second press for a different account', async () => {
+    const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+    await press('bob', buttons[0].callback_data, REVOLUT_CSV);
+    const second = await press('bob', buttons[1].callback_data, REVOLUT_CSV);
+
+    expect(puts()).toHaveLength(1);
     expect(second.sendMessage.mock.calls[0]?.[1]).toMatch(
-      /expired or was already handled|expired/,
+      /already handled with a different account/,
     );
   });
 
@@ -233,18 +264,39 @@ describe('account chosen from buttons', () => {
     }
   });
 
-  it('forgets the pending upload and reports the error when S3 fails', async () => {
+  it('keeps the bound pending upload when S3 fails, and a retry completes it', async () => {
     const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
     s3Send.mockRejectedValueOnce(new Error('s3 down'));
 
     await expect(
       press('bob', buttons[2].callback_data, REVOLUT_CSV),
     ).rejects.toThrow('s3 down');
+    const rows = await pendingRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.s3_key).toMatch(/^uploads\/bob\/shared1\//);
 
-    const left = await db.query(
-      `SELECT 1 FROM bot_pending_uploads WHERE id = '${buttons[2].callback_data.split(':')[1]}'`,
-    );
-    expect(left.rows).toEqual([]);
+    const retry = await press('bob', buttons[2].callback_data, REVOLUT_CSV);
+
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]?.Key).toBe(rows[0]?.s3_key);
+    expect(retry.sendMessage.mock.calls[0]?.[1]).toMatch(/Importing/);
+  });
+
+  it('does not upload twice when PutObject threw after S3 had accepted the object', async () => {
+    const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+    // a timeout that happens after the write
+    s3Send.mockImplementationOnce(async (command: unknown) => {
+      await fakePut(command);
+      throw new Error('socket timeout');
+    });
+
+    await expect(
+      press('bob', buttons[0].callback_data, REVOLUT_CSV),
+    ).rejects.toThrow('socket timeout');
+    await press('bob', buttons[0].callback_data, REVOLUT_CSV);
+
+    expect(puts()).toHaveLength(1);
+    expect(await pendingRows()).toHaveLength(1);
   });
 });
 
@@ -260,6 +312,42 @@ describe('SEB file auto-selects its account', () => {
     expect(t.sendMessage).toHaveBeenCalledTimes(1);
     expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/Importing into SEB main/);
     expect(t.sendMessage.mock.calls[0]?.[2]).toBeUndefined(); // no buttons
+  });
+
+  it('a retried update after a failed acknowledgement uploads and records nothing twice', async () => {
+    const t = fakeTelegram(sebCsv(SEB_IBAN));
+    t.sendMessage.mockRejectedValueOnce(new Error('telegram down'));
+
+    await expect(
+      handleDocument(ctxFor('alice', t.telegram), message, doc(), deps),
+    ).rejects.toThrow('telegram down');
+    // the worker retries the same update
+    await handleDocument(ctxFor('alice', t.telegram), message, doc(), deps);
+
+    expect(puts()).toHaveLength(1);
+    expect(await pendingRows()).toHaveLength(1);
+  });
+
+  it('uses the same key for the same message and a different one for another message', async () => {
+    const send = async (messageId: number) => {
+      const t = fakeTelegram(sebCsv(SEB_IBAN));
+      await handleDocument(
+        ctxFor('alice', t.telegram),
+        { message_id: messageId } as Message,
+        doc(),
+        deps,
+      );
+    };
+    await send(1);
+    await send(1);
+    await send(2);
+
+    const keys = puts().map((p) => p.Key);
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(2);
+    for (const key of keys) {
+      expect(key).toMatch(/^uploads\/alice\/seb1\/[0-9a-f-]{36}\.csv$/);
+    }
   });
 
   it('asks when the title IBAN is not one of the user’s accounts', async () => {
