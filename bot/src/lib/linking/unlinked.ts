@@ -42,10 +42,6 @@ export async function handleUnlinked(
   const message = update.message;
   const text = message?.text?.trim() ?? '';
 
-  if (update.callback_query) {
-    await telegram.answerCallbackQuery(update.callback_query.id);
-  }
-
   if (CODE_PATTERN.test(text)) {
     const result = await deps.store.redeem(telegramUserId, sha256Hex(text));
     switch (result.status) {

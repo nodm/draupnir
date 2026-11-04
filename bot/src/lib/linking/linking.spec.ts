@@ -361,7 +361,7 @@ describe('page safety', () => {
 });
 
 describe('button press from an unlinked user', () => {
-  it('is answered and then gets a sign-in link', async () => {
+  it('gets a sign-in link (the dispatcher answers the button itself)', async () => {
     const t = fakeTelegram();
     const ctx: Context = {
       update: {
@@ -385,7 +385,6 @@ describe('button press from an unlinked user', () => {
 
     await handleUnlinked(ctx, { store, config: linkConfig });
 
-    expect(t.answerCallbackQuery).toHaveBeenCalledWith('q1');
     expect(t.sendMessage.mock.calls[0]?.[2]?.replyMarkup).toBeDefined();
   });
 });
