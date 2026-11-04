@@ -1,6 +1,6 @@
 ## 1. Decision record
 
-- [ ] 1.1 Write `docs/adr/0009-telegram-interface.md`: Telegram bot as the only interface (no web
+- [x] 1.1 Write `docs/adr/0009-telegram-interface.md`: Telegram bot as the only interface (no web
       app); alternatives (web app/PWA + share target, email forwarding, Gmail API, WhatsApp,
       Signal, Viber, Discord/Slack, upload through Claude via MCP) with trade-offs; Google stays
       the identity via deep-link linking; accepted privacy cost and the retention mitigation.
