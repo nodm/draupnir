@@ -315,6 +315,7 @@ describe('runMigrations (pglite)', () => {
       '0007-restrict-file-account-links',
       '0008-link-requires-upload-account-owner',
       '0009-bot',
+      '0010-bot-link-helpers',
     ]);
   });
 });

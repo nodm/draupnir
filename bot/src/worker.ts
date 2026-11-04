@@ -3,6 +3,10 @@ import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { loadDataApiConfigFromEnv } from 'shared';
 import { dispatch } from './lib/dispatcher';
+import { createUnlinkHandler } from './lib/commands/unlink';
+import { loadLinkConfigFromEnv } from './lib/linking/config';
+import { createLinkStore } from './lib/linking/linkStore';
+import { handleUnlinked } from './lib/linking/unlinked';
 import { createRoutes, createSubResolver } from './lib/routes';
 import { getSecretString } from './lib/secrets';
 import { createTelegramClient } from './lib/telegram';
@@ -19,8 +23,15 @@ export const handler: SQSHandler = async (event) => {
     throw new Error('Missing BOT_TOKEN_SECRET_ARN environment variable');
   }
   const telegram = createTelegramClient(await getSecretString(botTokenArn));
+  const dataApiConfig = loadDataApiConfigFromEnv();
+  const linking = {
+    store: createLinkStore(dataApiClient, dataApiConfig),
+    config: loadLinkConfigFromEnv(),
+  };
   const routes = createRoutes(
-    createSubResolver(dataApiClient, loadDataApiConfigFromEnv()),
+    createSubResolver(dataApiClient, dataApiConfig),
+    (ctx) => handleUnlinked(ctx, linking),
+    { unlink: createUnlinkHandler(dataApiClient, dataApiConfig) },
   );
 
   const batchItemFailures: { itemIdentifier: string }[] = [];

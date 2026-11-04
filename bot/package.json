@@ -10,6 +10,10 @@
     "@aws-sdk/client-secrets-manager": "3.1121.0",
     "@aws-sdk/client-sqs": "3.1121.0",
     "@grammyjs/types": "5.0.0",
+    "aws-jwt-verify": "5.2.1",
     "shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }
