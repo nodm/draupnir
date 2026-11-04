@@ -28,10 +28,10 @@
 
 ## 3. Webhook and worker
 
-- [ ] 3.1 Implement the webhook handler (constant-time secret check, enqueue to FIFO with group
+- [x] 3.1 Implement the webhook handler (constant-time secret check, enqueue to FIFO with group
       = chat id and dedup id = `update_id`, ignore non-private chats); verify every
       `telegram-bot-webhook` scenario with unit tests (mocked SQS).
-- [ ] 3.2 Implement the Telegram API client and the worker dispatcher (resolve linked `sub`,
+- [x] 3.2 Implement the Telegram API client and the worker dispatcher (resolve linked `sub`,
       unlinked → sign-in prompt, commands, documents, callback buttons, free text → help);
       verify unit tests for routing and the "unlinked users can only link" scenario.
 
@@ -75,7 +75,8 @@
 ## 8. Infra and live verification
 
 - [ ] 8.1 Add `infra/lib/bot.ts`: webhook route without authorizer, callback route, FIFO and
-      outcome queues, Lambdas without VPC, Scheduler rule, `draupnir-telegram` Cognito app
+      outcome queues, Lambdas without VPC, Scheduler rule, worker event source mapping with
+      `ReportBatchItemFailures` (the worker returns `batchItemFailures`) and a DLQ, `draupnir-telegram` Cognito app
       client with its own `ManagedLoginBranding` (`useCognitoProvidedValues: true`,
       `dependsOn` the domain, as in `infra/lib/cognito.ts`), secrets (bot token, webhook secret, client secret), IAM (incl.
       `cognito-idp:ListUsers` on the pool); all resources pass `{ provider }`. Add a

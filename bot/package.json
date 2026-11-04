@@ -5,5 +5,11 @@
   "type": "commonjs",
   "main": "./webhook.cjs",
   "types": "./src/webhook.d.ts",
-  "dependencies": {}
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "3.1121.0",
+    "@aws-sdk/client-secrets-manager": "3.1121.0",
+    "@aws-sdk/client-sqs": "3.1121.0",
+    "@grammyjs/types": "5.0.0",
+    "shared": "workspace:*"
+  }
 }
