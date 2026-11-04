@@ -24,6 +24,20 @@
         "external": ["@aws-sdk/*"],
         "generatePackageJson": true
       }
+    },
+    "set-webhook": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "node bot/scripts/webhook.mjs"
+      }
+    },
+    "delete-webhook": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "node bot/scripts/webhook.mjs --delete"
+      }
     }
   }
 }
