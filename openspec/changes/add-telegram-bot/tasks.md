@@ -83,7 +83,7 @@
       `bot:set-webhook` target. Verify `infra:build` and `infra:preview`.
       Lambda env the code reads: webhook `WEBHOOK_SECRET_ARN`, `BOT_UPDATES_QUEUE_URL`; worker
       `BOT_TOKEN_SECRET_ARN`, `UPLOADS_BUCKET` (worker role needs `s3:PutObject` on `uploads/*`), `COGNITO_BASE_URL`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CALLBACK_URL`,
-      `BOT_USERNAME`, DB vars; callback the same plus `TELEGRAM_CLIENT_SECRET_ARN`,
+      `BOT_USERNAME`, `USER_POOL_ID` (for `/share`), DB vars; callback the same plus `TELEGRAM_CLIENT_SECRET_ARN`,
       `USER_POOL_ID`. The `draupnir-telegram` client needs a client secret.
       Outcome queue: a standard SQS queue (+ DLQ). The ingestion Lambda gets `OUTCOME_QUEUE_URL`
       and `sqs:SendMessage`; the bot worker gets it as a second event source (with
