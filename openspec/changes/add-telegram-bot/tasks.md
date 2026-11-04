@@ -15,7 +15,7 @@
 - [x] 2.2 Move account creation, membership changes, account listing, and coverage functions
       to `shared/src/lib/accounts/` (design.md decision 4) and switch `ingestion` to them;
       verify ingestion tests pass unchanged.
-- [ ] 2.3 Add migration `0004-bot` with the tables, policies, and `SECURITY DEFINER`
+- [x] 2.3 Add migration `0004-bot` with the tables, policies, and `SECURITY DEFINER`
       functions from design.md decision 3; verify pglite tests: RLS guard test passes;
       a user can't read another user's `messenger_links`/`bot_conversations`; `link_requests`
       isn't directly readable; consume-state succeeds once, fails when reused or expired;
