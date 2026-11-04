@@ -200,12 +200,20 @@ export async function handleUploadCallback(
       chatId,
       'That request expired or the account is no longer available. Send the file again.',
     );
+    // With the offer still known, its file is refused: take it out of the chat.
+    // An expired or unknown offer has no message to point at; the file was
+    // recorded when it arrived, so the scheduled run removes it.
+    if (offer) {
+      await deps.retention.discard(telegram, chatId, offer.messageId);
+    }
     return;
   }
 
   // Bound to this upload and account; an upload already bound to another
   // account (a different button pressed first) is refused.
   const key = statementObjectKey(sub, account.id, `pending:${pendingId}`);
+  // (Not discarded: the file is being imported for the other account, and its
+  // outcome report removes it.)
   if (!(await pending.claim(pendingId, key))) {
     await telegram.sendMessage(
       chatId,
@@ -220,6 +228,8 @@ export async function handleUploadCallback(
       chatId,
       `I could not read that file (limit ${mb(MAX_STATEMENT_BYTES)}). Send it again.`,
     );
+    // Nothing will be imported, so no outcome will ever remove the file.
+    await deps.retention.discard(telegram, chatId, offer.messageId);
     return;
   }
   await putAndAcknowledge(ctx, deps, account, key, bytes);

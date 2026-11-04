@@ -540,6 +540,56 @@ describe('keeping the statement out of the chat', () => {
     expect(retention.record).toHaveBeenCalledWith(100, 55);
   });
 
+  describe('after the account buttons', () => {
+    const idOf = (data: string) => data.split(':')[1] as string;
+
+    it('removes the file when it turns out to be unreadable', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press(
+        'bob',
+        buttons[0].callback_data,
+        'x'.repeat(10 * 1024 * 1024 + 1),
+      );
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/could not read/);
+      expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, 55);
+    });
+
+    it('removes the file when the chosen account is no longer available', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press(
+        'bob',
+        `up:${idOf(buttons[0].callback_data)}:99`,
+        REVOLUT_CSV,
+      );
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/no longer available/);
+      expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, 55);
+    });
+
+    it('leaves the file when the request is unknown, for the scheduled run', async () => {
+      const t = await press('bob', 'up:no-such-upload:0', REVOLUT_CSV);
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/expired/);
+      expect(retention.discard).not.toHaveBeenCalled();
+    });
+
+    it('leaves the file while it is being imported for another account', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      await press('bob', buttons[0].callback_data, REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press('bob', buttons[1].callback_data, REVOLUT_CSV);
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/different account/);
+      expect(retention.discard).not.toHaveBeenCalled();
+    });
+  });
+
   it('keeps an accepted file in the chat until its outcome has been reported', async () => {
     const t = fakeTelegram(sebCsv(SEB_IBAN));
     await handleDocument(ctxFor('alice', t.telegram), message, doc(), deps);

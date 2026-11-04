@@ -108,7 +108,9 @@ export interface SweepResult {
   failed: number;
 }
 
-// Deletes every recorded message older than 24 hours. One try each: a message
+// Deletes every recorded message older than 24 hours. Messages are claimed
+// (with a lease) as they are fetched, so overlapping runs never work on the
+// same one. One try each: a message
 // that cannot be deleted (typically past Telegram's 48-hour limit) is marked
 // failed and logged with its chat and message id, never retried.
 export async function sweepRetention(
@@ -122,7 +124,7 @@ export async function sweepRetention(
     const { rows } = await executeStatement(
       client,
       config,
-      `SELECT chat_id, message_id FROM draupnir.due_bot_messages(CAST(:limit AS integer))`,
+      `SELECT chat_id, message_id FROM draupnir.claim_due_bot_messages(CAST(:limit AS integer))`,
       { limit: BATCH },
     );
     const due = rows as { chat_id: number; message_id: number }[];
