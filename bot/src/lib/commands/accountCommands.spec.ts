@@ -136,13 +136,14 @@ describe('/coverage', () => {
       expect(Buffer.byteLength(b.callback_data)).toBeLessThanOrEqual(64);
     }
 
-    await handleCoverageCallback(t.ctx, buttons[0].callback_data, deps);
+    await handleCoverageCallback(t.ctx, query, buttons[0].callback_data, deps);
     expect(t.lastText()).toContain('Coverage of');
+    expect(t.editMessageReplyMarkup).toHaveBeenCalledWith(1, 7); // chooser spent
   });
 
   it('refuses the coverage of an account the user is not a member of', async () => {
     const t = chat('alice');
-    await handleCoverageCallback(t.ctx, 'cov:other', deps);
+    await handleCoverageCallback(t.ctx, query, 'cov:other', deps);
     expect(t.lastText()).toMatch(/not available/);
     expect(t.lastText()).not.toContain('Not mine');
   });
@@ -161,16 +162,26 @@ function dialogue(sub: string) {
   const press = (data: string) =>
     handleNewAccountCallback(t.ctx, query, data, deps);
   const start = () => createNewAccountHandler(deps)(t.ctx, '');
+  // callback_data of the button on the last prompt whose data ends with suffix
+  const button = (suffix: string): string => {
+    const found = (
+      t.lastMarkup().inline_keyboard as { callback_data: string }[][]
+    )
+      .flat()
+      .find((b) => b.callback_data.endsWith(`:${suffix}`));
+    if (!found) throw new Error(`no button ${suffix}`);
+    return found.callback_data;
+  };
   const fillUpToConfirm = async (iban = VALID_IBAN) => {
     await start();
-    await press('nb:seb');
+    await press(button('seb'));
     await say(iban);
     await say('eur');
     await say('Savings');
     await say('2026-01-31');
     await say('1250,50');
   };
-  return { ...t, say, press, start, fillUpToConfirm };
+  return { ...t, say, press, start, button, fillUpToConfirm };
 }
 
 const accountRow = async (iban: string) =>
@@ -192,7 +203,7 @@ describe('/newaccount', () => {
     expect(d.lastText()).toContain('Balance on 2026-01-31: 1250.50 EUR');
     expect(d.lastText()).not.toContain(VALID_IBAN); // masked in the summary
 
-    await d.press('nc:yes');
+    await d.press(d.button('yes'));
 
     const row = await accountRow(VALID_IBAN);
     expect(row).toMatchObject({
@@ -211,7 +222,7 @@ describe('/newaccount', () => {
   it('asks again for an IBAN with a wrong checksum, without advancing', async () => {
     const d = dialogue('frank');
     await d.start();
-    await d.press('nb:revolut');
+    await d.press(d.button('revolut'));
 
     await d.say('LT121000011101001001'); // bad checksum
     expect(d.lastText()).toMatch(/not a valid IBAN/);
@@ -230,7 +241,7 @@ describe('/newaccount', () => {
     `);
     const d = dialogue('gina');
     await d.fillUpToConfirm(taken);
-    await d.press('nc:yes');
+    await d.press(d.button('yes'));
 
     expect(d.lastText()).toMatch(/already exists/);
     expect(d.lastText()).toMatch(/\/share/);
@@ -244,7 +255,7 @@ describe('/newaccount', () => {
     async function atStep(step: 'currency' | 'name' | 'openedOn' | 'balance') {
       const d = dialogue(`val-${step}`);
       await d.start();
-      await d.press('nb:seb');
+      await d.press(d.button('seb'));
       await d.say('LT331010012345678902');
       if (step === 'currency') return d;
       await d.say('EUR');
@@ -307,7 +318,7 @@ describe('/newaccount', () => {
     it('/cancel abandons the dialogue at any step', async () => {
       const d = dialogue('cancel-1');
       await d.start();
-      await d.press('nb:seb');
+      await d.press(d.button('seb'));
       await d.say('LT331010012345678902');
 
       await createCancelHandler(deps)(d.ctx, '');
@@ -326,7 +337,7 @@ describe('/newaccount', () => {
     it('the Cancel button creates nothing', async () => {
       const d = dialogue('cancel-3');
       await d.fillUpToConfirm('LT061010012345678903');
-      await d.press('nc:no');
+      await d.press(d.button('no'));
 
       expect(d.lastText()).toMatch(/No account was created/);
       expect(await accountRow('LT061010012345678903')).toBeUndefined();
@@ -349,7 +360,7 @@ describe('/newaccount', () => {
         `UPDATE bot_conversations SET expires_at = now() - interval '1 second' WHERE user_id = 'expire-2'`,
       );
 
-      await d.press('nc:yes');
+      await d.press(d.button('yes'));
 
       expect(d.lastText()).toMatch(/expired/);
       expect(await accountRow('LT761010012345678904')).toBeUndefined();
@@ -358,8 +369,9 @@ describe('/newaccount', () => {
     it('a stale button from an earlier step is refused', async () => {
       const d = dialogue('stale-1');
       await d.start();
-      await d.press('nb:seb');
-      await d.press('nb:revolut'); // the bank buttons are spent
+      const banks = { seb: d.button('seb'), revolut: d.button('revolut') };
+      await d.press(banks.seb);
+      await d.press(banks.revolut); // the bank buttons are spent
 
       expect(d.lastText()).toMatch(/expired/);
     });
@@ -367,9 +379,39 @@ describe('/newaccount', () => {
     it('starting /newaccount again restarts from the first question', async () => {
       const d = dialogue('restart-1');
       await d.start();
-      await d.press('nb:seb');
+      await d.press(d.button('seb'));
       await d.start();
       expect(d.lastText()).toMatch(/Which bank/);
+    });
+
+    it('buttons of an earlier /newaccount are refused once it is started again', async () => {
+      const d = dialogue('restart-2');
+      await d.start();
+      const old = d.button('revolut');
+      await d.start();
+      const current = d.button('seb');
+      await d.press(old);
+
+      expect(d.lastText()).toMatch(/expired/);
+      // the new dialogue is untouched: its own buttons still work
+      await d.press(current);
+      expect(d.lastText()).toMatch(/IBAN/);
+    });
+
+    it('an invalid answer counts as activity and keeps the dialogue alive', async () => {
+      const d = dialogue('idle-1');
+      await d.start();
+      await d.press(d.button('seb'));
+      await db.exec(
+        `UPDATE bot_conversations SET expires_at = now() + interval '1 minute' WHERE user_id = 'idle-1'`,
+      );
+
+      await d.say('not an iban');
+
+      const { rows } = await db.query<{ left: number }>(
+        `SELECT extract(epoch FROM expires_at - now()) AS left FROM bot_conversations WHERE user_id = 'idle-1'`,
+      );
+      expect(Number(rows[0]?.left)).toBeGreaterThan(30 * 60);
     });
 
     it('while a dialogue waits for a button, typed text is redirected to the buttons', async () => {
@@ -382,7 +424,7 @@ describe('/newaccount', () => {
     it('spends the buttons it was answered with', async () => {
       const d = dialogue('spent-1');
       await d.start();
-      await d.press('nb:seb');
+      await d.press(d.button('seb'));
       expect(d.editMessageReplyMarkup).toHaveBeenCalledWith(1, 7);
     });
   });
@@ -391,7 +433,7 @@ describe('/newaccount', () => {
     const a = dialogue('iso-a');
     const b = dialogue('iso-b');
     await a.start();
-    await a.press('nb:seb');
+    await a.press(a.button('seb'));
 
     expect(await b.say('LT331010012345678902')).toBe(false);
   });

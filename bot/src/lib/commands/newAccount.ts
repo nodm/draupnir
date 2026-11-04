@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import type { CallbackQuery } from '@grammyjs/types';
 import {
@@ -41,6 +42,9 @@ interface Answers {
 }
 
 interface State {
+  // Ties the buttons to this dialogue: buttons of an earlier /newaccount
+  // carry another nonce and are refused.
+  nonce: string;
   step: Step;
   answers: Answers;
 }
@@ -63,6 +67,7 @@ async function ask(
   ctx: LinkedContext,
   step: Step,
   answers: Answers,
+  nonce: string,
 ): Promise<void> {
   const { telegram, chatId } = ctx;
   switch (step) {
@@ -72,7 +77,7 @@ async function ask(
           inline_keyboard: BANKS.map((bank) => [
             {
               text: bankName(bank),
-              callback_data: `${BANK_CALLBACK_PREFIX}:${bank}`,
+              callback_data: `${BANK_CALLBACK_PREFIX}:${nonce}:${bank}`,
             },
           ]),
         },
@@ -115,11 +120,11 @@ async function ask(
             [
               {
                 text: 'Create account',
-                callback_data: `${CONFIRM_CALLBACK_PREFIX}:yes`,
+                callback_data: `${CONFIRM_CALLBACK_PREFIX}:${nonce}:yes`,
               },
               {
                 text: 'Cancel',
-                callback_data: `${CONFIRM_CALLBACK_PREFIX}:no`,
+                callback_data: `${CONFIRM_CALLBACK_PREFIX}:${nonce}:no`,
               },
             ],
           ],
@@ -143,11 +148,13 @@ function summary(a: Answers): string {
 
 export function createNewAccountHandler(deps: NewAccountDeps): CommandHandler {
   return async (ctx) => {
+    const nonce = randomBytes(4).toString('hex');
     await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, {
+      nonce,
       step: 'bank',
       answers: {},
     });
-    await ask(ctx, 'bank', {});
+    await ask(ctx, 'bank', {}, nonce);
   };
 }
 
@@ -250,15 +257,21 @@ export async function handleNewAccountText(
 
   const checked = checkAnswer(state.step, text, state.answers, deps);
   if ('error' in checked) {
-    // Same step again: nothing advances until the answer is valid.
+    // Same step again: nothing advances until the answer is valid. Writing the
+    // state back keeps the idle expiry counting from this attempt.
+    await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, state);
     await ctx.telegram.sendMessage(ctx.chatId, checked.error);
     return true;
   }
 
   const answers = { ...state.answers, ...checked.value };
   const step = NEXT[state.step] as Step;
-  await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, { step, answers });
-  await ask(ctx, step, answers);
+  await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, {
+    nonce: state.nonce,
+    step,
+    answers,
+  });
+  await ask(ctx, step, answers, state.nonce);
   return true;
 }
 
@@ -269,7 +282,7 @@ export async function handleNewAccountCallback(
   deps: NewAccountDeps,
 ): Promise<void> {
   const { telegram, chatId } = ctx;
-  const [prefix, value] = data.split(':');
+  const [prefix, nonce, value] = data.split(':');
   const state = await activeState(deps, ctx.sub);
 
   // Whatever happens, these buttons are spent.
@@ -280,7 +293,7 @@ export async function handleNewAccountCallback(
   }
 
   const expected: Step = prefix === BANK_CALLBACK_PREFIX ? 'bank' : 'confirm';
-  if (!state || state.step !== expected) {
+  if (!state || state.step !== expected || state.nonce !== nonce) {
     await telegram.sendMessage(
       chatId,
       'That request has expired. Send /newaccount to start again.',
@@ -292,10 +305,11 @@ export async function handleNewAccountCallback(
     if (!value || !isSupportedBank(value)) return;
     const answers = { ...state.answers, bank: value };
     await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, {
+      nonce: state.nonce,
       step: 'iban',
       answers,
     });
-    await ask(ctx, 'iban', answers);
+    await ask(ctx, 'iban', answers, state.nonce);
     return;
   }
 

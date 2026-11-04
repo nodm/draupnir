@@ -84,8 +84,8 @@ export const handler: SQSHandler = async (event) => {
     callbacks: {
       [UPLOAD_CALLBACK_PREFIX]: (ctx, query, data) =>
         handleUploadCallback(ctx, query, data, upload),
-      [COVERAGE_CALLBACK_PREFIX]: (ctx, _query, data) =>
-        handleCoverageCallback(ctx, data, accountDeps),
+      [COVERAGE_CALLBACK_PREFIX]: (ctx, query, data) =>
+        handleCoverageCallback(ctx, query, data, accountDeps),
       [BANK_CALLBACK_PREFIX]: onNewAccountCallback,
       [CONFIRM_CALLBACK_PREFIX]: onNewAccountCallback,
     },

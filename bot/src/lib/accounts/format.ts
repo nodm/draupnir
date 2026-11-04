@@ -23,15 +23,29 @@ export interface AccountSummary {
   reconciledUpTo: string | null;
 }
 
-export function formatAccountList(summaries: AccountSummary[]): string {
-  if (summaries.length === 0) {
+// Telegram refuses messages over 4096 characters. These caps keep the worst
+// case (60-character names, every line at full length) well under that.
+export const MAX_LISTED_ACCOUNTS = 20;
+export const MAX_LISTED_PERIODS = 30;
+export const MAX_LISTED_PROBLEMS = 15;
+
+const omitted = (shown: number, total: number, which = 'more'): string[] =>
+  total > shown ? [`…and ${total - shown} ${which} not shown`] : [];
+
+export function formatAccountList(all: AccountSummary[]): string {
+  if (all.length === 0) {
     return 'You have no accounts yet. Create one with /newaccount.';
   }
+  const summaries = all.slice(0, MAX_LISTED_ACCOUNTS);
   const lines = summaries.flatMap(({ account, reconciledUpTo }, index) => [
     `${index + 1}. ${account.displayName} · ${bankName(account.bank)} · ${maskIban(account.iban)} · ${account.currency} · ${account.role}`,
     `   ${reconciledUpTo ? `Reconciled up to ${reconciledUpTo}` : 'Not reconciled yet'}`,
   ]);
-  return ['Your accounts:', ...lines].join('\n');
+  return [
+    'Your accounts:',
+    ...lines,
+    ...omitted(summaries.length, all.length),
+  ].join('\n');
 }
 
 function addDays(date: string, days: number): string {
@@ -63,7 +77,10 @@ export function formatCoverage(
 
   if (coverage.periods.length > 0) {
     lines.push('', 'Imported periods:');
-    for (const period of coverage.periods) {
+    // The latest periods matter most.
+    const shown = coverage.periods.slice(-MAX_LISTED_PERIODS);
+    lines.push(...omitted(shown.length, coverage.periods.length, 'earlier'));
+    for (const period of shown) {
       lines.push(`• ${span(period.from, period.to)}`);
     }
   }
@@ -89,8 +106,12 @@ export function formatCoverage(
       );
     }
   });
-  if (gaps.length > 0) lines.push('', 'Gaps:', ...gaps);
-  if (unknown.length > 0) lines.push('', 'Unclear:', ...unknown);
+  const capped = (items: string[]) => [
+    ...items.slice(0, MAX_LISTED_PROBLEMS),
+    ...omitted(MAX_LISTED_PROBLEMS, items.length),
+  ];
+  if (gaps.length > 0) lines.push('', 'Gaps:', ...capped(gaps));
+  if (unknown.length > 0) lines.push('', 'Unclear:', ...capped(unknown));
 
   return lines.join('\n');
 }

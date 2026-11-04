@@ -1,4 +1,5 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
+import type { CallbackQuery } from '@grammyjs/types';
 import { getAccountCoverage, type DataApiConfig } from 'shared';
 import type { CommandHandler, LinkedContext } from '../dispatcher';
 import { listMemberAccounts, type MemberAccount } from '../memberAccounts';
@@ -95,9 +96,17 @@ export function createCoverageHandler(
 
 export async function handleCoverageCallback(
   ctx: LinkedContext,
+  query: CallbackQuery,
   data: string,
   deps: AccountCommandDeps,
 ): Promise<void> {
+  // The chooser is spent once an account is picked (best effort: the
+  // coverage is read-only, so a lost race only repeats a harmless reply).
+  if (query.message) {
+    await ctx.telegram
+      .editMessageReplyMarkup(ctx.chatId, query.message.message_id)
+      .catch(() => undefined);
+  }
   const accountId = data.slice(COVERAGE_CALLBACK_PREFIX.length + 1);
   // Only an account the caller belongs to can be found here.
   const account = (

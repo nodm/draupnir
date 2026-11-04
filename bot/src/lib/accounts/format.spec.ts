@@ -96,3 +96,36 @@ describe('formatCoverage', () => {
     expect(text).not.toContain('2026-05-05 to 2026-05-05');
   });
 });
+
+describe('Telegram’s 4096-character limit', () => {
+  const LIMIT = 4096;
+
+  it('caps a long account list and says how many were left out', () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      account: { ...account, displayName: `${i}`.padEnd(60, 'x') },
+      reconciledUpTo: '2026-03-31',
+    }));
+    const text = formatAccountList(many);
+    expect(text.length).toBeLessThan(LIMIT);
+    expect(text).toContain('…and 40 more not shown');
+  });
+
+  it('caps periods, gaps and unclear links of a long history', () => {
+    const periods = Array.from({ length: 200 }, (_, i) => ({
+      fileId: `f${i}`,
+      from: '2020-01-01',
+      to: '2020-01-02',
+    }));
+    // alternate gap / unknown so both lists overflow
+    const links = periods.slice(1).map((_, i) => ({
+      fromFileId: `f${i}`,
+      toFileId: `f${i + 1}`,
+      continuity: i % 2 === 0 ? ('gap' as const) : ('unknown' as const),
+    }));
+    const text = formatCoverage(account, coverage({ periods, links }));
+    expect(text.length).toBeLessThan(LIMIT);
+    expect(text).toContain('…and 170 earlier not shown');
+    expect(text).toMatch(/Gaps:[\s\S]*…and \d+ more not shown/);
+    expect(text).toMatch(/Unclear:[\s\S]*…and \d+ more not shown/);
+  });
+});
