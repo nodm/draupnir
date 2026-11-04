@@ -19,6 +19,7 @@ export interface AuthPool {
   userPool: aws.cognito.UserPool;
   userPoolClient: aws.cognito.UserPoolClient;
   domain: aws.cognito.UserPoolDomain;
+  googleIdentityProvider: aws.cognito.IdentityProvider;
 }
 
 export function createAuthPool(provider: aws.Provider): AuthPool {
@@ -148,5 +149,5 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
     { provider, dependsOn: [domain] },
   );
 
-  return { userPool, userPoolClient, domain };
+  return { userPool, userPoolClient, domain, googleIdentityProvider };
 }
