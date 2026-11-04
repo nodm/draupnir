@@ -51,7 +51,7 @@
       auto-select, account buttons, 1-hour pending expiry, S3 put at
       `uploads/{sub}/{accountId}/{uuid}.csv`); verify every `telegram-statement-upload`
       acceptance scenario.
-- [ ] 5.2 Add the transactional outbox (row written in the outcome's transaction, publish after
+- [x] 5.2 Add the transactional outbox (row written in the outcome's transaction, publish after
       commit, sweeper for unpublished rows) and consume outcomes in the bot worker with
       de-duplication by `file_id`; verify the `statement-ingestion-pipeline` outcome scenarios
       (no publish on rollback, recovery after a failed publish) and the report scenarios
@@ -85,6 +85,10 @@
       `BOT_TOKEN_SECRET_ARN`, `UPLOADS_BUCKET` (worker role needs `s3:PutObject` on `uploads/*`), `COGNITO_BASE_URL`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CALLBACK_URL`,
       `BOT_USERNAME`, DB vars; callback the same plus `TELEGRAM_CLIENT_SECRET_ARN`,
       `USER_POOL_ID`. The `draupnir-telegram` client needs a client secret.
+      Outcome queue: a standard SQS queue (+ DLQ). The ingestion Lambda gets `OUTCOME_QUEUE_URL`
+      and `sqs:SendMessage`; the bot worker gets it as a second event source (with
+      `ReportBatchItemFailures`) whose **visibility timeout is longer than the 2-minute report
+      lease**. The retention Lambda (7.1) also calls `publishDueOutcomes` on its 30-minute schedule.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run
       `bot:set-webhook`. Live check with both users' phones (Android and iPhone): link, create
       an account, share it, upload a Revolut CSV from the banking app's share sheet, receive

@@ -21,7 +21,14 @@ vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
 vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
 vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));
 vi.mock('./lib/linking/unlinked', () => ({ handleUnlinked: vi.fn() }));
-vi.mock('shared', () => ({ loadDataApiConfigFromEnv: () => ({}) }));
+vi.mock('shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('shared')>()),
+  loadDataApiConfigFromEnv: () => ({}),
+}));
+const reportOutcome = vi.fn();
+vi.mock('./lib/outcomes/reportOutcome', () => ({
+  reportOutcome: (...args: unknown[]) => reportOutcome(...args),
+}));
 vi.mock('@aws-sdk/client-rds-data', () => ({ RDSDataClient: class {} }));
 
 const record = (id: string) => ({
@@ -34,6 +41,7 @@ const event = (...ids: string[]) =>
 describe('bot worker', () => {
   beforeEach(() => {
     dispatch.mockReset();
+    reportOutcome.mockReset();
     process.env['BOT_TOKEN_SECRET_ARN'] = 'arn:token';
     process.env['UPLOADS_BUCKET'] = 'bucket';
   });
@@ -61,5 +69,48 @@ describe('bot worker', () => {
     expect(result).toEqual({
       batchItemFailures: [{ itemIdentifier: '2' }, { itemIdentifier: '3' }],
     });
+  });
+
+  it('sends a statement outcome to the reporter, not the Telegram dispatcher', async () => {
+    const outcome = {
+      s3Key: 'uploads/u/a/1.csv',
+      sub: 'u',
+      status: 'approved',
+      reasons: [],
+    };
+    const { handler } = await import('./worker');
+    const result = await handler(
+      { Records: [{ messageId: '9', body: JSON.stringify(outcome) }] } as never,
+      {} as never,
+      () => undefined,
+    );
+
+    expect(reportOutcome).toHaveBeenCalledWith(outcome, expect.anything());
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(result).toEqual({ batchItemFailures: [] });
+  });
+
+  it('retries an outcome whose report failed, like any other record', async () => {
+    reportOutcome.mockRejectedValueOnce(new Error('telegram down'));
+    const { handler } = await import('./worker');
+    const result = await handler(
+      {
+        Records: [
+          {
+            messageId: '9',
+            body: JSON.stringify({
+              s3Key: 'k',
+              sub: 'u',
+              status: 'rejected',
+              reasons: [],
+            }),
+          },
+        ],
+      } as never,
+      {} as never,
+      () => undefined,
+    );
+
+    expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: '9' }] });
   });
 });
