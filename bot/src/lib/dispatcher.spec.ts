@@ -14,6 +14,7 @@ const message = (extra: Record<string, unknown>): Update =>
 function setup(sub: string | null) {
   const telegram = {
     sendMessage: vi.fn().mockResolvedValue({}),
+    answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
   } as unknown as TelegramClient;
   const routes = {
     resolveSub: vi.fn().mockResolvedValue(sub),
@@ -59,6 +60,16 @@ describe('dispatch for linked users', () => {
     expect(telegram.sendMessage).toHaveBeenCalledWith(7, HELP_TEXT);
     expect(routes.onText).not.toHaveBeenCalled();
   });
+
+  it.each(['__proto__', 'constructor', 'toString', 'hasOwnProperty'])(
+    'answers /%s with help instead of resolving an inherited property',
+    async (name) => {
+      const { telegram, routes } = setup('sub-1');
+      await dispatch(message({ text: `/${name}` }), telegram, routes);
+
+      expect(telegram.sendMessage).toHaveBeenCalledWith(7, HELP_TEXT);
+    },
+  );
 
   it('sends free text to the text handler', async () => {
     const { telegram, routes } = setup('sub-1');
@@ -139,6 +150,7 @@ describe('dispatch for unlinked users', () => {
       telegram,
       routes,
     );
+    expect(telegram.answerCallbackQuery).toHaveBeenCalledWith('q');
     expect(routes.onUnlinked).toHaveBeenCalledTimes(1);
     expect(routes.onCallback).not.toHaveBeenCalled();
   });

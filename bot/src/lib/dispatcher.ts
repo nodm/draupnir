@@ -88,6 +88,10 @@ export async function dispatch(
 
   const sub = await routes.resolveSub(from.id);
   if (sub === null) {
+    // Answered here so the button's spinner stops whatever onUnlinked does.
+    if (query) {
+      await telegram.answerCallbackQuery(query.id);
+    }
     await routes.onUnlinked(base);
     return;
   }
@@ -107,8 +111,15 @@ export async function dispatch(
   if (message.text !== undefined) {
     const command = parseCommand(message.text);
     if (command) {
-      const handler = routes.commands[command.name];
-      if (handler) {
+      // Own properties only: `/__proto__` or `/constructor` must not resolve to
+      // something inherited from Object.prototype.
+      const handler = Object.prototype.hasOwnProperty.call(
+        routes.commands,
+        command.name,
+      )
+        ? routes.commands[command.name]
+        : undefined;
+      if (typeof handler === 'function') {
         await handler(ctx, command.args);
       } else {
         await telegram.sendMessage(chat.id, HELP_TEXT);
