@@ -47,7 +47,7 @@
 
 ## 5. Upload and outcomes
 
-- [ ] 5.1 Implement document handling (CSV check, size check, owner-account check, SEB IBAN
+- [x] 5.1 Implement document handling (CSV check, size check, owner-account check, SEB IBAN
       auto-select, account buttons, 1-hour pending expiry, S3 put at
       `uploads/{sub}/{accountId}/{uuid}.csv`); verify every `telegram-statement-upload`
       acceptance scenario.
@@ -82,7 +82,7 @@
       `cognito-idp:ListUsers` on the pool); all resources pass `{ provider }`. Add a
       `bot:set-webhook` target. Verify `infra:build` and `infra:preview`.
       Lambda env the code reads: webhook `WEBHOOK_SECRET_ARN`, `BOT_UPDATES_QUEUE_URL`; worker
-      `BOT_TOKEN_SECRET_ARN`, `COGNITO_BASE_URL`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CALLBACK_URL`,
+      `BOT_TOKEN_SECRET_ARN`, `UPLOADS_BUCKET` (worker role needs `s3:PutObject` on `uploads/*`), `COGNITO_BASE_URL`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CALLBACK_URL`,
       `BOT_USERNAME`, DB vars; callback the same plus `TELEGRAM_CLIENT_SECRET_ARN`,
       `USER_POOL_ID`. The `draupnir-telegram` client needs a client secret.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run

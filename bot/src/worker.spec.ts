@@ -11,6 +11,12 @@ vi.mock('./lib/routes', () => ({
   createRoutes: () => ({}),
   createSubResolver: () => async () => null,
 }));
+vi.mock('./lib/upload/handleUpload', () => ({
+  handleDocument: vi.fn(),
+  handleUploadCallback: vi.fn(),
+  UPLOAD_CALLBACK_PREFIX: 'up',
+}));
+vi.mock('@aws-sdk/client-s3', () => ({ S3Client: class {} }));
 vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
 vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
 vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));
@@ -29,6 +35,7 @@ describe('bot worker', () => {
   beforeEach(() => {
     dispatch.mockReset();
     process.env['BOT_TOKEN_SECRET_ARN'] = 'arn:token';
+    process.env['UPLOADS_BUCKET'] = 'bucket';
   });
 
   it('processes every record in order and reports no failures', async () => {

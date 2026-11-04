@@ -22,9 +22,10 @@ beforeAll(async () => {
       (1, 'alice', 'a@example.com'), (2, 'bob', 'b@example.com')
   `);
   const { client } = createPgliteDataApiClient(db, { role: 'draupnir_app' });
-  routes = createRoutes(createSubResolver(client, config), onUnlinked, {
-    unlink: createUnlinkHandler(client, config),
-    accounts,
+  routes = createRoutes({
+    resolveSub: createSubResolver(client, config),
+    onUnlinked,
+    commands: { unlink: createUnlinkHandler(client, config), accounts },
   });
 }, 60_000);
 
