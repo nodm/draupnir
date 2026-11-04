@@ -7,6 +7,10 @@ vi.mock('./lib/dispatcher', () => ({
 }));
 vi.mock('./lib/secrets', () => ({ getSecretString: async () => 'token' }));
 vi.mock('./lib/telegram', () => ({ createTelegramClient: () => ({}) }));
+vi.mock('./lib/retention/retention', () => ({
+  createRetention: () => ({}),
+  withRetention: (telegram: unknown) => telegram,
+}));
 vi.mock('./lib/routes', () => ({
   createRoutes: () => ({}),
   createSubResolver: () => async () => null,

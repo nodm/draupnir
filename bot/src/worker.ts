@@ -43,6 +43,7 @@ import {
 import { reportOutcome } from './lib/outcomes/reportOutcome';
 import { createRoutes, createSubResolver } from './lib/routes';
 import { getSecretString } from './lib/secrets';
+import { createRetention, withRetention } from './lib/retention/retention';
 import { createTelegramClient } from './lib/telegram';
 
 const dataApiClient = new RDSDataClient({});
@@ -71,10 +72,15 @@ function requireEnv(name: string): string {
 // as failed too (they are retried in order) rather than processed out of turn;
 // records that already succeeded are not run again.
 export const handler: SQSHandler = async (event) => {
-  const telegram = createTelegramClient(
-    await getSecretString(requireEnv('BOT_TOKEN_SECRET_ARN')),
-  );
   const dataApiConfig = loadDataApiConfigFromEnv();
+  const retention = createRetention(dataApiClient, dataApiConfig);
+  // Everything the bot says is recorded for deletion (retention).
+  const telegram = withRetention(
+    createTelegramClient(
+      await getSecretString(requireEnv('BOT_TOKEN_SECRET_ARN')),
+    ),
+    retention,
+  );
   const linking = {
     store: createLinkStore(dataApiClient, dataApiConfig),
     config: loadLinkConfigFromEnv(),
@@ -84,6 +90,7 @@ export const handler: SQSHandler = async (event) => {
     config: dataApiConfig,
     s3: s3Client,
     bucket: requireEnv('UPLOADS_BUCKET'),
+    retention,
   };
   const accountDeps = { client: dataApiClient, config: dataApiConfig };
   const sharing = {
@@ -145,6 +152,7 @@ export const handler: SQSHandler = async (event) => {
           client: dataApiClient,
           config: dataApiConfig,
           telegram,
+          retention,
         });
       } else {
         await dispatch(body as Update, telegram, routes);

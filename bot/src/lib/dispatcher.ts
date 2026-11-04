@@ -93,6 +93,13 @@ export async function dispatch(
       await telegram.answerCallbackQuery(query.id);
     }
     await routes.onUnlinked(base);
+    // A statement from a chat that is not linked is refused, and the file
+    // must not stay in the chat either. Best effort.
+    if (message?.document) {
+      await telegram
+        .deleteMessage(chat.id, message.message_id)
+        .catch(() => undefined);
+    }
     return;
   }
   const ctx: LinkedContext = { ...base, sub };

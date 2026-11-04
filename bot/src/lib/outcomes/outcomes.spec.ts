@@ -59,8 +59,14 @@ function fakeTelegram() {
   };
 }
 
+const retention = { record: vi.fn(), discard: vi.fn() };
+beforeEach(() => {
+  retention.record.mockReset();
+  retention.discard.mockReset().mockResolvedValue(undefined);
+});
+
 const report = (m: StatementOutcomeMessage, telegram: TelegramClient) =>
-  reportOutcome(m, { client, config, telegram });
+  reportOutcome(m, { client, config, telegram, retention });
 
 const state = async (key: string) =>
   (
@@ -279,5 +285,54 @@ describe('formatOutcomeReport', () => {
     expect(text).not.toContain('Row 16:');
     expect(text).toContain('…and 4985 more.');
     expect(text.length).toBeLessThanOrEqual(4096);
+  });
+});
+
+describe('the uploaded statement leaves the chat after the report', () => {
+  it('deletes the user’s message with the file once the outcome has been sent', async () => {
+    const key = await botUpload();
+    const t = fakeTelegram();
+
+    await report(message(key), t.telegram);
+
+    const messageId = Number(key.match(/(\d+)\.csv$/)?.[1]);
+    expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, messageId);
+    expect(t.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      retention.discard.mock.invocationCallOrder[0] as number,
+    );
+  });
+
+  it('does so whatever the outcome', async () => {
+    const key = await botUpload();
+    const t = fakeTelegram();
+
+    await report(
+      message(key, {
+        status: 'rejected',
+        reasons: [{ code: 'x', message: 'bad' }],
+      }),
+      t.telegram,
+    );
+
+    expect(retention.discard).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes nothing when the report was skipped (someone else already reported it)', async () => {
+    const key = await botUpload();
+    const t = fakeTelegram();
+    await report(message(key), t.telegram);
+    retention.discard.mockClear();
+
+    expect(await report(message(key), t.telegram)).toBe('skipped');
+    expect(retention.discard).not.toHaveBeenCalled();
+  });
+
+  it('still reports success when the file cannot be deleted', async () => {
+    const key = await botUpload();
+    retention.discard.mockRejectedValueOnce(new Error('boom'));
+    const t = fakeTelegram();
+
+    expect(await report(message(key), t.telegram)).toBe('reported');
+    expect(await state(key)).toBe('reported');
   });
 });
