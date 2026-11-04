@@ -194,6 +194,63 @@ describe('delivery', () => {
 describe('formatOutcomeReport', () => {
   const base = message('k');
 
+  it('does not repeat a row prefix the pipeline message already has', () => {
+    const text = formatOutcomeReport({
+      ...base,
+      status: 'rejected',
+      reasons: [
+        {
+          code: 'balance-chain',
+          row: 37,
+          message:
+            'Row 37: balance 120.50 EUR does not follow the previous row (expected 118.50 EUR)',
+        },
+      ],
+    });
+    expect(text).toContain('• Row 37: balance 120.50 EUR');
+    expect(text).not.toContain('Row 37: Row 37');
+  });
+
+  it('adds the row prefix when a row-tagged message lacks it, and not for another row number', () => {
+    const text = formatOutcomeReport({
+      ...base,
+      status: 'rejected',
+      reasons: [
+        { code: 'a', row: 5, message: 'Amount is not a number' },
+        { code: 'b', row: 5, message: 'Row 50 is larger than the limit' },
+        { code: 'c', message: 'Unrecognized format' },
+      ],
+    });
+    expect(text).toContain('• Row 5: Amount is not a number');
+    expect(text).toContain('• Row 5: Row 50 is larger than the limit');
+    expect(text).toContain('• Unrecognized format');
+  });
+
+  it('counts reasons the sender already left out', () => {
+    const reasons = Array.from({ length: 30 }, (_, i) => ({
+      code: 'x',
+      row: i + 1,
+      message: `Row ${i + 1}: bad`,
+    }));
+    const text = formatOutcomeReport({
+      ...base,
+      status: 'rejected',
+      reasons,
+      omittedReasonCount: 970,
+    });
+    expect(text).toContain('…and 985 more.'); // 15 not shown here + 970 omitted upstream
+  });
+
+  it('counts warnings the sender left out', () => {
+    const text = formatOutcomeReport({
+      ...base,
+      warningsByAccount: { acc: [{ code: 'gap', message: 'gap before' }] },
+      omittedWarningCount: 7,
+    });
+    expect(text).toContain('• gap before');
+    expect(text).toContain('…and 7 more.');
+  });
+
   it('says so when nothing new was imported', () => {
     expect(formatOutcomeReport({ ...base, newTransactionCount: 0 })).toMatch(
       /No new transactions/,

@@ -73,10 +73,14 @@ describe('bot worker', () => {
 
   it('sends a statement outcome to the reporter, not the Telegram dispatcher', async () => {
     const outcome = {
+      fileId: 'f1',
       s3Key: 'uploads/u/a/1.csv',
       sub: 'u',
       status: 'approved',
       reasons: [],
+      warningsByAccount: {},
+      newTransactionCount: 1,
+      period: null,
     };
     const { handler } = await import('./worker');
     const result = await handler(
@@ -99,6 +103,34 @@ describe('bot worker', () => {
           {
             messageId: '9',
             body: JSON.stringify({
+              fileId: null,
+              s3Key: 'k',
+              sub: 'u',
+              status: 'rejected',
+              reasons: [],
+              warningsByAccount: {},
+              newTransactionCount: 0,
+              period: null,
+            }),
+          },
+        ],
+      } as never,
+      {} as never,
+      () => undefined,
+    );
+
+    expect(reportOutcome).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: '9' }] });
+  });
+
+  it('treats a half-formed outcome as a Telegram update, never as an outcome', async () => {
+    const { handler } = await import('./worker');
+    await handler(
+      {
+        Records: [
+          {
+            messageId: '3',
+            body: JSON.stringify({
               s3Key: 'k',
               sub: 'u',
               status: 'rejected',
@@ -111,6 +143,7 @@ describe('bot worker', () => {
       () => undefined,
     );
 
-    expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: '9' }] });
+    expect(reportOutcome).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });

@@ -9,6 +9,7 @@ import { m0008 } from './0008-link-requires-upload-account-owner';
 import { m0009 } from './0009-bot';
 import { m0010 } from './0010-bot-link-helpers';
 import { m0011 } from './0011-pending-upload-offers';
+import { m0012 } from './0012-recorded-outcome-lookup';
 import type { Migration } from './migration';
 
 // Append-only, ascending by id. Never edit or remove an applied migration.
@@ -24,4 +25,5 @@ export const MIGRATIONS: readonly Migration[] = [
   m0009,
   m0010,
   m0011,
+  m0012,
 ];

@@ -2,11 +2,13 @@ import { createHash } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
-  dateParameter,
-  executeStatement,
+  boundOutcomeMessage,
   coveredPeriod,
+  dateParameter,
   enqueueOutcome,
+  executeStatement,
   getMemberRole,
+  isOutcomeMessage,
   loadSegments,
   memberPredicate,
   withCaller,
@@ -83,7 +85,7 @@ function unrecordedRejection(
     redelivered: false,
     // No statement_files row means no outbox row: this one is published
     // directly, and a redelivery reaches the same deterministic rejection.
-    report: {
+    report: boundOutcomeMessage({
       fileId: null,
       s3Key,
       sub,
@@ -92,7 +94,7 @@ function unrecordedRejection(
       warningsByAccount: {},
       newTransactionCount: 0,
       period: null,
-    },
+    }),
   };
 }
 
@@ -205,6 +207,37 @@ async function readRecordedOutcome(
   };
 }
 
+// The outcome committed for this object, recovered from its outbox row. Works
+// whatever the uploader's current membership is: the lookup is scoped to the
+// uploader, not to the account. Nothing is republished here; the row already
+// exists and the sweeper delivers it if the first publish was missed.
+async function findOutcomeInOutbox(
+  ctx: Context,
+  key: string,
+): Promise<StatementOutcome | null> {
+  const { rows } = await inCallerTransaction(ctx, undefined, (tx) =>
+    executeStatement(
+      ctx.client,
+      ctx.config,
+      `SELECT CAST(draupnir.recorded_outcome(:key) AS text) AS payload`,
+      { key },
+      tx,
+    ),
+  );
+  const raw = (rows[0] as { payload: string | null } | undefined)?.payload;
+  if (!raw) return null;
+  const message: unknown = JSON.parse(raw);
+  if (!isOutcomeMessage(message)) return null;
+  return {
+    fileId: message.fileId,
+    status: message.status,
+    reasons: message.reasons,
+    warningsByAccount: message.warningsByAccount,
+    redelivered: true,
+    report: null,
+  };
+}
+
 interface FileFacts {
   uploadAccountId: string;
   uploadedBy: string;
@@ -246,7 +279,7 @@ async function insertRejected(
     },
     transactionId,
   );
-  const report: StatementOutcomeMessage = {
+  const report = boundOutcomeMessage({
     fileId,
     s3Key: facts.s3Key,
     sub: facts.uploadedBy,
@@ -255,7 +288,7 @@ async function insertRejected(
     warningsByAccount: {},
     newTransactionCount: 0,
     period: null,
-  };
+  });
   const inserted = numberOfRecordsUpdated > 0;
   // Same transaction as the record: both commit or neither does.
   if (inserted) {
@@ -489,6 +522,12 @@ export async function processStatementFile(
   // be rejected as a duplicate of itself.
   const alreadyProcessed = await findRecordedOutcome(ctx, key);
   if (alreadyProcessed) return alreadyProcessed;
+  // Row-level security hides an approved file from an uploader who has since
+  // left the account, so the lookup above misses it. Without this one, the
+  // redelivery would be judged "not an owner" and reported as a rejection while
+  // the committed approval is still waiting to be published.
+  const fromOutbox = await findOutcomeInOutbox(ctx, key);
+  if (fromOutbox) return fromOutbox;
 
   const { rows: accountRows } = await withCaller(
     dataApiClient,
@@ -849,7 +888,7 @@ export async function processStatementFile(
           );
         }
 
-        const report: StatementOutcomeMessage = {
+        const report = boundOutcomeMessage({
           fileId,
           s3Key: key,
           sub: uploaderSub,
@@ -866,7 +905,7 @@ export async function processStatementFile(
               to: segment.declaredTo ?? segment.activityTo,
             })),
           ),
-        };
+        });
         // Same transaction as the approval: the outcome cannot commit without
         // its outbox row, and a failed publish later cannot lose it.
         await enqueueOutcome(

@@ -5,14 +5,20 @@ import type { OutcomeReason, StatementOutcomeMessage } from 'shared';
 const MAX_REASONS = 15;
 const MAX_LENGTH = 3800;
 
-const line = (reason: OutcomeReason) =>
-  `• ${reason.row !== undefined ? `Row ${reason.row}: ` : ''}${reason.message}`;
+// The pipeline's messages mostly start with "Row N" already ("Row 37: balance
+// … does not follow …"); add the prefix only to a row-tagged one that lacks it.
+function line(reason: OutcomeReason): string {
+  const prefixed =
+    reason.row !== undefined &&
+    !new RegExp(`^Row ${reason.row}\\b`, 'i').test(reason.message);
+  return `• ${prefixed ? `Row ${reason.row}: ` : ''}${reason.message}`;
+}
 
-function bullets(reasons: OutcomeReason[]): string[] {
+// `omitted` = reasons the sender already left out to keep the message small.
+function bullets(reasons: OutcomeReason[], omitted = 0): string[] {
   const shown = reasons.slice(0, MAX_REASONS).map(line);
-  if (reasons.length > MAX_REASONS) {
-    shown.push(`…and ${reasons.length - MAX_REASONS} more.`);
-  }
+  const more = reasons.length - shown.length + omitted;
+  if (more > 0) shown.push(`…and ${more} more.`);
   return shown;
 }
 
@@ -25,7 +31,7 @@ export function formatOutcomeReport(message: StatementOutcomeMessage): string {
     return clip(
       [
         '❌ This file was not imported. It was rejected:',
-        ...bullets(message.reasons),
+        ...bullets(message.reasons, message.omittedReasonCount),
         '',
         'Fix the problem and send the file again.',
       ].join('\n'),
@@ -46,7 +52,11 @@ export function formatOutcomeReport(message: StatementOutcomeMessage): string {
     [
       `✅ ${count}${period}.`,
       ...(warnings.length > 0
-        ? ['', '⚠️ Heads up:', ...bullets(warnings)]
+        ? [
+            '',
+            '⚠️ Heads up:',
+            ...bullets(warnings, message.omittedWarningCount),
+          ]
         : []),
     ].join('\n'),
   );
