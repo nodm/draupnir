@@ -216,6 +216,28 @@ describe('link_requests', () => {
   });
 });
 
+describe('link_requests replacement', () => {
+  it('a new request resets pending state left by the earlier one', async () => {
+    await pendingLink('s-old-pending', 110, 'u110');
+    await createRequest('s-new', 110);
+    // the earlier code can no longer be redeemed
+    expect((await redeem(110, 'code-hash'))?.status).toBe('none');
+    expect(
+      await rows(
+        null,
+        `SELECT * FROM draupnir.consume_link_state('s-old-pending')`,
+      ),
+    ).toEqual([]);
+    expect(
+      await rows(null, `SELECT * FROM draupnir.consume_link_state('s-new')`),
+    ).toHaveLength(1);
+  });
+
+  it('replacing works for a Telegram user with no earlier request', async () => {
+    await expect(createRequest('s-fresh', 111)).resolves.toBeUndefined();
+  });
+});
+
 describe('linking by confirmation code', () => {
   it('links only when the requesting Telegram user sends the right code', async () => {
     expect(await pendingLink('s-ok', 200, 'u200')).toBe('ok');

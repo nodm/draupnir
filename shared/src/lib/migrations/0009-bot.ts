@@ -123,7 +123,8 @@ export const m0009: Migration = {
   LANGUAGE sql STABLE ${definer}
   AS $$ SELECT l.user_id FROM public.messenger_links l WHERE l.telegram_user_id = p_telegram_user_id $$`,
 
-    // A new request replaces any earlier one for the same Telegram user.
+    // A new request replaces any earlier one for the same Telegram user in one
+    // atomic upsert, so concurrent /start messages can't fail on the unique key.
     `CREATE FUNCTION draupnir.create_link_request(
   p_state_hash text, p_telegram_user_id bigint, p_chat_id bigint,
   p_display_name text, p_username text, p_pkce_verifier text, p_expires_at timestamptz
@@ -131,10 +132,16 @@ export const m0009: Migration = {
   LANGUAGE plpgsql VOLATILE ${definer}
   AS $$
 BEGIN
-  DELETE FROM public.link_requests WHERE telegram_user_id = p_telegram_user_id;
   INSERT INTO public.link_requests
     (state_hash, telegram_user_id, chat_id, telegram_display_name, telegram_username, pkce_verifier, expires_at)
-  VALUES (p_state_hash, p_telegram_user_id, p_chat_id, p_display_name, p_username, p_pkce_verifier, p_expires_at);
+  VALUES (p_state_hash, p_telegram_user_id, p_chat_id, p_display_name, p_username, p_pkce_verifier, p_expires_at)
+  ON CONFLICT (telegram_user_id) DO UPDATE
+    SET state_hash = EXCLUDED.state_hash, chat_id = EXCLUDED.chat_id,
+        telegram_display_name = EXCLUDED.telegram_display_name,
+        telegram_username = EXCLUDED.telegram_username,
+        pkce_verifier = EXCLUDED.pkce_verifier, expires_at = EXCLUDED.expires_at,
+        used_at = NULL, pending_sub = NULL, pending_email = NULL,
+        code_hash = NULL, code_expires_at = NULL, code_attempts = 0;
 END $$`,
 
     // Marks the state used and returns the request, only while unused and

@@ -1,6 +1,7 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { executeStatement, withCaller, type DataApiConfig } from '../dataApi';
 
+// One approved file's footprint on one account (a `statement_file_accounts`
 // row). Coverage is computed from segments alone (design.md decision 3a).
 export interface Segment {
   fileId: string;
