@@ -43,7 +43,7 @@ const secret = (arn) =>
 const token = secret(output('botTokenSecretArn'));
 if (!token || token === 'None') {
   fail(
-    'The bot token secret is empty. Store the BotFather token first (docs/telegram-bot.md).',
+    'The bot token secret is empty. Store the BotFather token first: aws secretsmanager put-secret-value --secret-id <botTokenSecretArn> --secret-string <token>',
   );
 }
 

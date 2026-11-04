@@ -136,6 +136,19 @@ describe('queues', () => {
     ).toBeUndefined();
   });
 
+  it('names FIFO queues with the .fifo suffix AWS requires, and only those', async () => {
+    const queues = named('aws:sqs/queue:Queue');
+    expect(queues.length).toBeGreaterThan(0);
+    for (const q of queues) {
+      const name = q.inputs['name'] as string | undefined;
+      if (q.inputs['fifoQueue']) {
+        expect(name, q.name).toMatch(/\.fifo$/);
+      } else {
+        expect(name ?? '', q.name).not.toMatch(/\.fifo$/);
+      }
+    }
+  });
+
   it('moves a message that keeps failing to a dead-letter queue', async () => {
     for (const name of ['bot-updates', 'bot-outcomes']) {
       const policy = JSON.parse(

@@ -79,8 +79,13 @@ pulumi config set botUsername "<bot-username>"
 ```
 
 The bot token itself is **not** Pulumi config: create the bot with BotFather,
-store the token in the `bot-token` secret (`botTokenSecretArn` stack output),
-then run `pnpm exec nx run bot:set-webhook` (see `docs/telegram-bot.md`).
+store the token in the `bot-token` secret, then point Telegram at the webhook:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id "$(pulumi stack output botTokenSecretArn)" --secret-string '<token>'
+pnpm exec nx run bot:set-webhook      # `bot:delete-webhook` undoes it
+```
 
 `callbackUrl`/`logoutUrl` are optional (`pulumi config set callbackUrl "..."`)
 and default to `localhost` values meant for local client development.

@@ -12,6 +12,9 @@ const DLQ_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 // A chat's updates must be handled in order, so a failing update holds up only
 // its own chat until it has been tried this often and moved to the DLQ.
 const UPDATES_MAX_RECEIVE_COUNT = 3;
+// An outcome that exhausts these is not lost: the outbox marks it published, but
+// the scheduled run publishes it again while its upload is still unreported
+// (migration 0016), hourly for a day.
 const OUTCOMES_MAX_RECEIVE_COUNT = 5;
 
 export interface BotQueues {
@@ -29,6 +32,8 @@ export function createBotQueues(provider: aws.Provider): BotQueues {
   const updatesDlq = new aws.sqs.Queue(
     'bot-updates-dlq',
     {
+      // A FIFO queue's name must end in `.fifo`.
+      name: 'draupnir-bot-updates-dlq.fifo',
       fifoQueue: true,
       messageRetentionSeconds: DLQ_RETENTION_SECONDS,
     },
@@ -37,6 +42,7 @@ export function createBotQueues(provider: aws.Provider): BotQueues {
   const updates = new aws.sqs.Queue(
     'bot-updates',
     {
+      name: 'draupnir-bot-updates.fifo',
       fifoQueue: true,
       // The webhook sends an explicit deduplication id (the update_id).
       contentBasedDeduplication: false,

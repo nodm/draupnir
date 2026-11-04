@@ -88,7 +88,7 @@
       Outcome queue: a standard SQS queue (+ DLQ). The ingestion Lambda gets `OUTCOME_QUEUE_URL`
       and `sqs:SendMessage`; the bot worker gets it as a second event source (with
       `ReportBatchItemFailures`) whose **visibility timeout is longer than the 2-minute report
-      lease**. The retention Lambda (7.1) also calls `publishDueOutcomes` on its 30-minute schedule.
+      lease**. The retention Lambda (7.1) also calls `publishDueOutcomes` and `republishUnreportedOutcomes` (outcomes the queue gave up on) on its 30-minute schedule.
       Retention Lambda env: `BOT_TOKEN_SECRET_ARN`, DB vars, optional `OUTCOME_QUEUE_URL`
       (+ `sqs:SendMessage`); it needs no VPC and no S3/Cognito access. The worker's Telegram client
       also records every sent message, so the worker needs no extra permission for that.
