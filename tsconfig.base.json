@@ -17,7 +17,8 @@
     "paths": {
       "shared": ["./shared/src/index.ts"],
       "ingestion": ["./ingestion/src/index.ts"],
-      "mcp": ["./mcp/src/index.ts"]
+      "mcp": ["./mcp/src/index.ts"],
+      "bot": ["./bot/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

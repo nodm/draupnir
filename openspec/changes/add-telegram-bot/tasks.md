@@ -8,7 +8,7 @@
 
 ## 2. Project and shared code
 
-- [ ] 2.1 Generate the `bot` Nx project (use the `nx-generate` skill), tags `scope:bot`,
+- [x] 2.1 Generate the `bot` Nx project (use the `nx-generate` skill), tags `scope:bot`,
       `type:app`, with esbuild targets per Lambda; add the `scope:bot` rule to
       `eslint.config.mjs`; verify `nx lint bot` passes and a scratch import from `ingestion`
       fails lint (then remove it), covering the `module-boundary-enforcement` scenarios.
