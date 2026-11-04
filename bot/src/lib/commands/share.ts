@@ -371,7 +371,9 @@ async function completeUnshare(
     });
   } catch (error) {
     if (error instanceof LastOwnerError) {
-      // The dialogue stays open so another member can be picked.
+      // The dialogue stays open so another member can be picked; writing the
+      // state back restarts its idle expiry from this attempt.
+      await store(deps, ctx.sub).set<UnshareState>(UNSHARE_KIND, state);
       await telegram.sendMessage(
         chatId,
         'An account must keep at least one owner, so the last owner cannot be removed. Make someone else an owner with /share first. Nothing was changed.',
@@ -440,6 +442,8 @@ export async function handleSharingText(
     await handleShareEmail(ctx, text, conversation.state as ShareState, deps);
     return true;
   }
+  // Typing is activity too: keep the dialogue (and its buttons) alive.
+  await store(deps, ctx.sub).set(conversation.kind, conversation.state);
   await ctx.telegram.sendMessage(
     ctx.chatId,
     `Please use the buttons above. ${CANCEL_HINT}`,

@@ -83,6 +83,15 @@ describe('bot worker', () => {
     expect(result).toEqual({ batchItemFailures: [] });
   });
 
+  it('does not need the user pool unless /share or /unshare runs', async () => {
+    delete process.env['USER_POOL_ID'];
+    const { handler } = await import('./worker');
+    const result = await handler(event('1'), {} as never, () => undefined);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ batchItemFailures: [] });
+  });
+
   it('after a failure, reports it and every later record without running them', async () => {
     dispatch
       .mockResolvedValueOnce(undefined)

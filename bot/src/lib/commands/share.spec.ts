@@ -378,6 +378,38 @@ describe('/unshare', () => {
     expect(await members(ids.a)).toEqual([{ user_id: 'alice', role: 'owner' }]);
   });
 
+  it('a refused last-owner removal restarts the idle expiry', async () => {
+    const ids = await world('alice', { second: false });
+    const alice = user('alice');
+    await alice.unshare();
+    await db.exec(
+      `UPDATE bot_conversations SET expires_at = now() + interval '1 minute' WHERE user_id = 'alice'`,
+    );
+    await alice.press(alice.button('You'));
+
+    expect(alice.lastText()).toMatch(/at least one owner/);
+    const { rows } = await db.query<{ left: number }>(
+      `SELECT extract(epoch FROM expires_at - now()) AS left FROM bot_conversations WHERE user_id = 'alice'`,
+    );
+    expect(Number(rows[0]?.left)).toBeGreaterThan(30 * 60);
+    expect(await members(ids.a)).toHaveLength(1);
+  });
+
+  it('typing while buttons are awaited restarts the idle expiry', async () => {
+    await world('alice');
+    const alice = user('alice');
+    await alice.share();
+    await db.exec(
+      `UPDATE bot_conversations SET expires_at = now() + interval '1 minute' WHERE user_id = 'alice'`,
+    );
+    await alice.say('hello');
+
+    const { rows } = await db.query<{ left: number }>(
+      `SELECT extract(epoch FROM expires_at - now()) AS left FROM bot_conversations WHERE user_id = 'alice'`,
+    );
+    expect(Number(rows[0]?.left)).toBeGreaterThan(30 * 60);
+  });
+
   it('lets an owner remove themselves when another owner remains', async () => {
     const ids = await world('alice', { second: false });
     await db.exec(

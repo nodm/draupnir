@@ -4,7 +4,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { isOutcomeMessage, loadDataApiConfigFromEnv } from 'shared';
-import { createCognitoDirectory } from './lib/directory';
+import { createCognitoDirectory, type UserDirectory } from './lib/directory';
 import { dispatch, HELP_TEXT, type Routes } from './lib/dispatcher';
 import {
   COVERAGE_CALLBACK_PREFIX,
@@ -49,6 +49,17 @@ const dataApiClient = new RDSDataClient({});
 const s3Client = new S3Client({});
 const cognitoClient = new CognitoIdentityProviderClient({});
 
+// Built on first use, so updates that never touch /share or /unshare do not
+// depend on USER_POOL_ID (or the Cognito permission) being configured.
+function lazyDirectory(make: () => UserDirectory): UserDirectory {
+  let directory: UserDirectory | undefined;
+  const get = () => (directory ??= make());
+  return {
+    findByEmail: (email) => get().findByEmail(email),
+    emailOf: (sub) => get().emailOf(sub),
+  };
+}
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name} environment variable`);
@@ -77,9 +88,8 @@ export const handler: SQSHandler = async (event) => {
   const accountDeps = { client: dataApiClient, config: dataApiConfig };
   const sharing = {
     ...accountDeps,
-    directory: createCognitoDirectory(
-      cognitoClient,
-      requireEnv('USER_POOL_ID'),
+    directory: lazyDirectory(() =>
+      createCognitoDirectory(cognitoClient, requireEnv('USER_POOL_ID')),
     ),
   };
   const onSharingCallback: Routes['onCallback'] = (ctx, query, data) =>
