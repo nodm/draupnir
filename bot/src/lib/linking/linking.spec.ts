@@ -319,6 +319,38 @@ describe('one-to-one links', () => {
   });
 });
 
+describe('one-to-one links: racing link', () => {
+  it('tells the chat to unlink itself (not the Google account) when the Telegram account got linked meanwhile', async () => {
+    const { state } = await requestLink(7101);
+    // another sign-in for this Telegram account finished first
+    await db.exec(
+      `INSERT INTO messenger_links (telegram_user_id, user_id, email) VALUES (7101, 'raced-sub', 'r@example.com')`,
+    );
+    const { deps, notify } = callbackDeps({}, 'brand-new-sub');
+
+    const page = await handleLinkCallback({ code: 'c', state }, deps);
+
+    expect(page.statusCode).toBe(409);
+    const text = notify.mock.calls[0]?.[1] as string;
+    expect(text).toMatch(/This Telegram account is already linked/);
+    expect(text).not.toMatch(/Google account is already linked/);
+  });
+
+  it('names the Google account when that is what is already linked', async () => {
+    await db.exec(
+      `INSERT INTO messenger_links (telegram_user_id, user_id, email) VALUES (7102, 'taken-sub', 't@example.com')`,
+    );
+    const { state } = await requestLink(7103);
+    const { deps, notify } = callbackDeps({}, 'taken-sub');
+
+    await handleLinkCallback({ code: 'c', state }, deps);
+
+    expect(notify.mock.calls[0]?.[1]).toMatch(
+      /Google account is already linked to another Telegram account/,
+    );
+  });
+});
+
 describe('mid-link messages', () => {
   it('an unrelated message does not replace the pending request', async () => {
     const { state } = await requestLink(8001);

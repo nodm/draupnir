@@ -82,7 +82,9 @@ export async function handleLinkCallback(
     await deps
       .notify(
         request.chatId,
-        'That Google account is already linked to a Telegram account. Send /unlink from the linked chat first.',
+        result === 'sub_already_linked'
+          ? 'That Google account is already linked to another Telegram account. Send /unlink from that chat first.'
+          : 'This Telegram account is already linked. Send /unlink here first if you want to link a different Google account.',
       )
       .catch(() => undefined);
     return page(409, ALREADY_LINKED_PAGE);
