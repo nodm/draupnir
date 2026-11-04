@@ -9,3 +9,4 @@ config:
   google:clientSecret:
     secure: v1:OBguWK/Zo6f0omFR:Un998Itb8HTh2JzJtZrSMRP2h0YxHnpR2Zsrktx2huhBcZEiZaW65Hi4apHviMMWiWLg
   draupnir-infra:authDomainPrefix: draupnir-auth
+  draupnir-infra:botUsername: nodmDraupnirBot
