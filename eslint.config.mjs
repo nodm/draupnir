@@ -38,6 +38,10 @@ export default [
               onlyDependOnLibsWithTags: ['scope:shared'],
             },
             {
+              sourceTag: 'scope:bot',
+              onlyDependOnLibsWithTags: ['scope:shared'],
+            },
+            {
               sourceTag: 'scope:web',
               onlyDependOnLibsWithTags: ['scope:shared'],
             },

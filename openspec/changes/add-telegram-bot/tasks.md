@@ -1,6 +1,6 @@
 ## 1. Decision record
 
-- [ ] 1.1 Write `docs/adr/0009-telegram-interface.md`: Telegram bot as the only interface (no web
+- [x] 1.1 Write `docs/adr/0009-telegram-interface.md`: Telegram bot as the only interface (no web
       app); alternatives (web app/PWA + share target, email forwarding, Gmail API, WhatsApp,
       Signal, Viber, Discord/Slack, upload through Claude via MCP) with trade-offs; Google stays
       the identity via deep-link linking; accepted privacy cost and the retention mitigation.
@@ -8,14 +8,14 @@
 
 ## 2. Project and shared code
 
-- [ ] 2.1 Generate the `bot` Nx project (use the `nx-generate` skill), tags `scope:bot`,
+- [x] 2.1 Generate the `bot` Nx project (use the `nx-generate` skill), tags `scope:bot`,
       `type:app`, with esbuild targets per Lambda; add the `scope:bot` rule to
       `eslint.config.mjs`; verify `nx lint bot` passes and a scratch import from `ingestion`
       fails lint (then remove it), covering the `module-boundary-enforcement` scenarios.
-- [ ] 2.2 Move account creation, membership changes, account listing, and coverage functions
+- [x] 2.2 Move account creation, membership changes, account listing, and coverage functions
       to `shared/src/lib/accounts/` (design.md decision 4) and switch `ingestion` to them;
       verify ingestion tests pass unchanged.
-- [ ] 2.3 Add migration `0004-bot` with the tables, policies, and `SECURITY DEFINER`
+- [x] 2.3 Add migration `0009-bot` with the tables, policies, and `SECURITY DEFINER`
       functions from design.md decision 3; verify pglite tests: RLS guard test passes;
       a user can't read another user's `messenger_links`/`bot_conversations`; `link_requests`
       isn't directly readable; consume-state succeeds once, fails when reused or expired;
@@ -86,4 +86,8 @@
       the outcome, see the CSV message deleted; after 24h confirm the account list message
       is gone.
 - [ ] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
+      `docs/architecture.md`.
+- [ ] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
+      `bot:set-webhook`, rollback with `deleteWebhook`), user guide (linking, every command,
+      upload from the share sheet, retention behaviour), and troubleshooting. Link it from
       `docs/architecture.md`.

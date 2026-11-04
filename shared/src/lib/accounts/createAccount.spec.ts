@@ -1,18 +1,15 @@
 // @vitest-environment node
 import { PGlite } from '@electric-sql/pglite';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import {
-  applyMigrationsForTest,
-  createPgliteDataApiClient,
-  type DataApiConfig,
-} from 'shared';
+import type { DataApiConfig } from '../dataApi';
+import { applyMigrationsForTest } from '../migrations/applyMigrationsForTest';
+import { createPgliteDataApiClient } from '../testing/pgliteDataApiClient';
 import {
   createAccount,
   DuplicateIbanError,
   InvalidAccountInputError,
   InvalidBankError,
-} from './accounts';
-import { UnauthenticatedError } from './auth';
+} from './createAccount';
 
 const config: DataApiConfig = {
   resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',
@@ -35,25 +32,11 @@ function neverCalledClient() {
 }
 
 describe('createAccount validation (no database access)', () => {
-  it('rejects when the caller has no sub claim', async () => {
-    const { send, client } = neverCalledClient();
-
-    await expect(createAccount(client, config, {}, validInput)).rejects.toThrow(
-      UnauthenticatedError,
-    );
-    expect(send).not.toHaveBeenCalled();
-  });
-
   it('rejects an unknown bank value', async () => {
     const { send, client } = neverCalledClient();
 
     await expect(
-      createAccount(
-        client,
-        config,
-        { sub: 'u' },
-        { ...validInput, bank: 'chase' },
-      ),
+      createAccount(client, config, 'u', { ...validInput, bank: 'chase' }),
     ).rejects.toThrow(InvalidBankError);
     expect(send).not.toHaveBeenCalled();
   });
@@ -64,12 +47,7 @@ describe('createAccount validation (no database access)', () => {
       const { send, client } = neverCalledClient();
 
       await expect(
-        createAccount(
-          client,
-          config,
-          { sub: 'u' },
-          { ...validInput, [field]: '  ' },
-        ),
+        createAccount(client, config, 'u', { ...validInput, [field]: '  ' }),
       ).rejects.toThrow(InvalidAccountInputError);
       expect(send).not.toHaveBeenCalled();
     },
@@ -81,7 +59,7 @@ describe('createAccount validation (no database access)', () => {
       const { send, client } = neverCalledClient();
 
       await expect(
-        createAccount(client, config, { sub: 'u' }, { ...validInput, iban }),
+        createAccount(client, config, 'u', { ...validInput, iban }),
       ).rejects.toThrow(InvalidAccountInputError);
       expect(send).not.toHaveBeenCalled();
     },
@@ -93,12 +71,7 @@ describe('createAccount validation (no database access)', () => {
       const { send, client } = neverCalledClient();
 
       await expect(
-        createAccount(
-          client,
-          config,
-          { sub: 'u' },
-          { ...validInput, currency },
-        ),
+        createAccount(client, config, 'u', { ...validInput, currency }),
       ).rejects.toThrow(InvalidAccountInputError);
       expect(send).not.toHaveBeenCalled();
     },
@@ -115,7 +88,7 @@ describe('createAccount validation (no database access)', () => {
     const { send, client } = neverCalledClient();
 
     await expect(
-      createAccount(client, config, { sub: 'u' }, {
+      createAccount(client, config, 'u', {
         ...validInput,
         [field]: value,
       } as never),
@@ -141,12 +114,7 @@ describe('createAccount on a real Postgres instance', () => {
   });
 
   it('creates the account with its opening balance and records the caller as owner', async () => {
-    const account = await createAccount(
-      client,
-      config,
-      { sub: 'user-123' },
-      validInput,
-    );
+    const account = await createAccount(client, config, 'user-123', validInput);
 
     expect(account).toEqual({ id: expect.any(String), ...validInput });
     const { rows } = await db.query<Record<string, unknown>>(
@@ -167,7 +135,7 @@ describe('createAccount on a real Postgres instance', () => {
   });
 
   it('takes the owner from the authenticated identity only', async () => {
-    await createAccount(client, config, { sub: 'real-user' }, {
+    await createAccount(client, config, 'real-user', {
       ...validInput,
       userId: 'attacker',
       ownerUserId: 'attacker',
@@ -180,12 +148,10 @@ describe('createAccount on a real Postgres instance', () => {
   });
 
   it('stores a negative opening balance', async () => {
-    await createAccount(
-      client,
-      config,
-      { sub: 'u' },
-      { ...validInput, openingBalanceMinorUnits: -12550 },
-    );
+    await createAccount(client, config, 'u', {
+      ...validInput,
+      openingBalanceMinorUnits: -12550,
+    });
 
     const { rows } = await db.query<{ v: string }>(
       'SELECT opening_balance_minor_units::text AS v FROM accounts',
@@ -196,12 +162,10 @@ describe('createAccount on a real Postgres instance', () => {
   it.each([' eur ', 'eur'])(
     'stores the canonical currency for %j',
     async (currency) => {
-      const account = await createAccount(
-        client,
-        config,
-        { sub: 'u' },
-        { ...validInput, currency },
-      );
+      const account = await createAccount(client, config, 'u', {
+        ...validInput,
+        currency,
+      });
 
       expect(account.currency).toBe('EUR');
       const { rows } = await db.query<{ currency: string }>(
@@ -212,25 +176,18 @@ describe('createAccount on a real Postgres instance', () => {
   );
 
   it('canonicalizes a lowercase, spaced iban', async () => {
-    const account = await createAccount(
-      client,
-      config,
-      { sub: 'u' },
-      { ...validInput, iban: 'lt12 1000 0111 0100 1000' },
-    );
+    const account = await createAccount(client, config, 'u', {
+      ...validInput,
+      iban: 'lt12 1000 0111 0100 1000',
+    });
 
     expect(account.iban).toBe('LT121000011101001000');
   });
 
   it('rejects a duplicate iban, telling the caller to ask an owner, and creates nothing new', async () => {
-    await createAccount(client, config, { sub: 'first' }, validInput);
+    await createAccount(client, config, 'first', validInput);
 
-    const attempt = createAccount(
-      client,
-      config,
-      { sub: 'second' },
-      validInput,
-    );
+    const attempt = createAccount(client, config, 'second', validInput);
 
     await expect(attempt).rejects.toThrow(DuplicateIbanError);
     await expect(attempt).rejects.toThrow(/ask one of its owners to add you/);
@@ -256,7 +213,7 @@ describe('createAccount on a real Postgres instance', () => {
     } as unknown as RDSDataClient;
 
     await expect(
-      createAccount(failing, config, { sub: 'u' }, validInput),
+      createAccount(failing, config, 'u', validInput),
     ).rejects.toThrow('commit failed');
 
     expect((await db.query('SELECT * FROM accounts')).rows).toHaveLength(0);

@@ -1,13 +1,11 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import {
-  BANKS,
   dateParameter,
   executeStatement,
   withCaller,
-  type Bank,
   type DataApiConfig,
-} from 'shared';
-import { requireSub } from './auth';
+} from '../dataApi';
+import { BANKS, type Bank } from '../transactionsSchema';
 
 export interface CreateAccountInput {
   bank: string;
@@ -97,10 +95,9 @@ function hasValidIbanChecksum(iban: string): boolean {
 export async function createAccount(
   client: RDSDataClient,
   config: DataApiConfig,
-  claims: { [name: string]: string },
+  sub: string,
   input: CreateAccountInput,
 ): Promise<CreatedAccount> {
-  const sub = requireSub(claims);
   if (!isNonEmptyString(input.bank)) {
     throw new InvalidAccountInputError('bank');
   }

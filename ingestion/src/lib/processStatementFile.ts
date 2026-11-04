@@ -5,19 +5,17 @@ import {
   dateParameter,
   executeStatement,
   getMemberRole,
+  loadSegments,
   memberPredicate,
   withCaller,
   type Bank,
+  type CoverageAccount,
   type DataApiConfig,
+  type Segment,
 } from 'shared';
 import { deriveTransactions, type DerivationFile } from './derive';
 import type { ParsedRow, ParsedStatement } from './parsers/types';
-import {
-  continuityWarnings,
-  loadSegments,
-  type CoverageAccount,
-  type Segment,
-} from './validation/coverage';
+import { continuityWarnings } from './validation/coverage';
 import {
   findInFileKeyConflicts,
   findOverlapConflicts,

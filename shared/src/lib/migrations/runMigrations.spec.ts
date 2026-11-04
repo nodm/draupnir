@@ -314,6 +314,7 @@ describe('runMigrations (pglite)', () => {
       '0006-rls-review-fixes',
       '0007-restrict-file-account-links',
       '0008-link-requires-upload-account-owner',
+      '0009-bot',
     ]);
   });
 });

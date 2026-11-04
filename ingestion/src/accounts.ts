@@ -4,15 +4,15 @@ import type {
   Handler,
 } from 'aws-lambda';
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
+import { UnauthenticatedError, requireSub } from './lib/auth';
 import {
   createAccount,
   DuplicateIbanError,
   InvalidAccountInputError,
   InvalidBankError,
+  loadDataApiConfigFromEnv,
   type CreateAccountInput,
-} from './lib/accounts';
-import { UnauthenticatedError } from './lib/auth';
-import { loadDataApiConfigFromEnv } from 'shared';
+} from 'shared';
 
 const client = new RDSDataClient({});
 
@@ -27,7 +27,7 @@ export const handler: Handler<
     const account = await createAccount(
       client,
       config,
-      event.requestContext.authorizer.claims,
+      requireSub(event.requestContext.authorizer.claims),
       input,
     );
 

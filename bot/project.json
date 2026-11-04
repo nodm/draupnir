@@ -1,0 +1,29 @@
+{
+  "name": "bot",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "bot/src",
+  "projectType": "application",
+  "tags": ["scope:bot", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/bot",
+        "main": "bot/src/webhook.ts",
+        "additionalEntryPoints": [
+          "bot/src/worker.ts",
+          "bot/src/callback.ts",
+          "bot/src/retention.ts"
+        ],
+        "tsConfig": "bot/tsconfig.lib.json",
+        "assets": ["bot/*.md"],
+        "platform": "node",
+        "format": ["cjs"],
+        "thirdParty": true,
+        "external": ["@aws-sdk/*"],
+        "generatePackageJson": true
+      }
+    }
+  }
+}
