@@ -20,25 +20,43 @@ export function createSubResolver(
   };
 }
 
-// Handlers for linking, documents, buttons and commands are added by their own
-// tasks (sections 4-6); until then they answer honestly instead of failing.
-export function createRoutes(
-  resolveSub: Routes['resolveSub'],
-  onUnlinked: Routes['onUnlinked'],
-  commands: Routes['commands'] = {},
-): Routes {
+export type CallbackRoute = Routes['onCallback'];
+
+export interface RoutesOptions {
+  resolveSub: Routes['resolveSub'];
+  onUnlinked: Routes['onUnlinked'];
+  commands?: Routes['commands'];
+  onDocument?: Routes['onDocument'];
+  // Button handlers by the prefix before the first ':' in the callback data.
+  callbacks?: Record<string, CallbackRoute>;
+}
+
+// Handlers that do not exist yet answer honestly instead of failing; later
+// tasks (account commands, AI chat) fill them in.
+export function createRoutes(options: RoutesOptions): Routes {
+  const callbacks = options.callbacks ?? {};
   return {
-    resolveSub,
-    onUnlinked,
-    commands,
-    onDocument: async (ctx) => {
-      await ctx.telegram.sendMessage(
-        ctx.chatId,
-        'Statement upload is not available yet.',
-      );
-    },
-    onCallback: async (ctx, query) => {
+    resolveSub: options.resolveSub,
+    onUnlinked: options.onUnlinked,
+    commands: options.commands ?? {},
+    onDocument:
+      options.onDocument ??
+      (async (ctx) => {
+        await ctx.telegram.sendMessage(
+          ctx.chatId,
+          'Statement upload is not available yet.',
+        );
+      }),
+    onCallback: async (ctx, query, data) => {
+      // Stops the button's spinner whether or not a handler exists.
       await ctx.telegram.answerCallbackQuery(query.id);
+      const prefix = data.split(':')[0] ?? '';
+      const route = Object.prototype.hasOwnProperty.call(callbacks, prefix)
+        ? callbacks[prefix]
+        : undefined;
+      if (typeof route === 'function') {
+        await route(ctx, query, data);
+      }
     },
     onText: async (ctx) => {
       await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);

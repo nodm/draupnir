@@ -1,4 +1,5 @@
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
+import { S3Client } from '@aws-sdk/client-s3';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { loadDataApiConfigFromEnv } from 'shared';
@@ -7,32 +8,55 @@ import { createUnlinkHandler } from './lib/commands/unlink';
 import { loadLinkConfigFromEnv } from './lib/linking/config';
 import { createLinkStore } from './lib/linking/linkStore';
 import { handleUnlinked } from './lib/linking/unlinked';
+import {
+  handleDocument,
+  handleUploadCallback,
+  UPLOAD_CALLBACK_PREFIX,
+  type UploadDeps,
+} from './lib/upload/handleUpload';
 import { createRoutes, createSubResolver } from './lib/routes';
 import { getSecretString } from './lib/secrets';
 import { createTelegramClient } from './lib/telegram';
 
 const dataApiClient = new RDSDataClient({});
+const s3Client = new S3Client({});
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing ${name} environment variable`);
+  return value;
+}
 
 // Needs `ReportBatchItemFailures` on the event source mapping. FIFO order must
 // hold, so after the first failure every later record in the batch is reported
 // as failed too (they are retried in order) rather than processed out of turn;
 // records that already succeeded are not run again.
 export const handler: SQSHandler = async (event) => {
-  const botTokenArn = process.env['BOT_TOKEN_SECRET_ARN'];
-  if (!botTokenArn) {
-    throw new Error('Missing BOT_TOKEN_SECRET_ARN environment variable');
-  }
-  const telegram = createTelegramClient(await getSecretString(botTokenArn));
+  const telegram = createTelegramClient(
+    await getSecretString(requireEnv('BOT_TOKEN_SECRET_ARN')),
+  );
   const dataApiConfig = loadDataApiConfigFromEnv();
   const linking = {
     store: createLinkStore(dataApiClient, dataApiConfig),
     config: loadLinkConfigFromEnv(),
   };
-  const routes = createRoutes(
-    createSubResolver(dataApiClient, dataApiConfig),
-    (ctx) => handleUnlinked(ctx, linking),
-    { unlink: createUnlinkHandler(dataApiClient, dataApiConfig) },
-  );
+  const upload: UploadDeps = {
+    client: dataApiClient,
+    config: dataApiConfig,
+    s3: s3Client,
+    bucket: requireEnv('UPLOADS_BUCKET'),
+  };
+  const routes = createRoutes({
+    resolveSub: createSubResolver(dataApiClient, dataApiConfig),
+    onUnlinked: (ctx) => handleUnlinked(ctx, linking),
+    commands: { unlink: createUnlinkHandler(dataApiClient, dataApiConfig) },
+    onDocument: (ctx, message, document) =>
+      handleDocument(ctx, message, document, upload),
+    callbacks: {
+      [UPLOAD_CALLBACK_PREFIX]: (ctx, query, data) =>
+        handleUploadCallback(ctx, query, data, upload),
+    },
+  });
 
   const batchItemFailures: { itemIdentifier: string }[] = [];
   for (const record of event.Records) {

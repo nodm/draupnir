@@ -298,6 +298,9 @@ importers:
       '@aws-sdk/client-rds-data':
         specifier: 3.1121.0
         version: 3.1121.0
+      '@aws-sdk/client-s3':
+        specifier: 3.1121.0
+        version: 3.1121.0
       '@aws-sdk/client-secrets-manager':
         specifier: 3.1121.0
         version: 3.1121.0
