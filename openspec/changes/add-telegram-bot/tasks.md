@@ -12,7 +12,7 @@
       `type:app`, with esbuild targets per Lambda; add the `scope:bot` rule to
       `eslint.config.mjs`; verify `nx lint bot` passes and a scratch import from `ingestion`
       fails lint (then remove it), covering the `module-boundary-enforcement` scenarios.
-- [ ] 2.2 Move account creation, membership changes, account listing, and coverage functions
+- [x] 2.2 Move account creation, membership changes, account listing, and coverage functions
       to `shared/src/lib/accounts/` (design.md decision 4) and switch `ingestion` to them;
       verify ingestion tests pass unchanged.
 - [ ] 2.3 Add migration `0004-bot` with the tables, policies, and `SECURITY DEFINER`
