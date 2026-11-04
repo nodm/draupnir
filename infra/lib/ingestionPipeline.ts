@@ -78,6 +78,8 @@ export function createIngestionPipeline(
   provider: aws.Provider,
   dbConfig: DbConfig,
   dependsOn: pulumi.Resource[] = [],
+  // Where each file's outcome is published for the chat (add-telegram-bot).
+  outcomeQueue?: aws.sqs.Queue,
 ): IngestionPipeline {
   const withProvider = { provider };
 
@@ -160,6 +162,15 @@ export function createIngestionPipeline(
             ],
             Resource: queue.arn,
           },
+          ...(outcomeQueue
+            ? [
+                {
+                  Effect: 'Allow',
+                  Action: 'sqs:SendMessage',
+                  Resource: outcomeQueue.arn,
+                },
+              ]
+            : []),
         ],
       }),
     },
@@ -179,6 +190,7 @@ export function createIngestionPipeline(
           DB_CLUSTER_ARN: dbConfig.clusterArn,
           DB_SECRET_ARN: dbConfig.secretArn,
           DB_NAME: dbConfig.name,
+          ...(outcomeQueue ? { OUTCOME_QUEUE_URL: outcomeQueue.url } : {}),
         },
       },
     },

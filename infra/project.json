@@ -43,6 +43,7 @@
         "build-pre-sign-up-trigger",
         "build-migrate-database",
         { "projects": ["ingestion"], "target": "build" },
+        { "projects": ["bot"], "target": "build" },
         { "projects": ["mcp"], "target": "install-deps" }
       ],
       "options": {
@@ -56,6 +57,7 @@
         "build-pre-sign-up-trigger",
         "build-migrate-database",
         { "projects": ["ingestion"], "target": "build" },
+        { "projects": ["bot"], "target": "build" },
         { "projects": ["mcp"], "target": "install-deps" }
       ],
       "options": {

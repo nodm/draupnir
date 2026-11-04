@@ -1,6 +1,10 @@
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { SQSClient } from '@aws-sdk/client-sqs';
-import { loadDataApiConfigFromEnv, publishDueOutcomes } from 'shared';
+import {
+  loadDataApiConfigFromEnv,
+  publishDueOutcomes,
+  republishUnreportedOutcomes,
+} from 'shared';
 import { sweepRetention } from './lib/retention/retention';
 import { getSecretString } from './lib/secrets';
 import { createTelegramClient } from './lib/telegram';
@@ -14,9 +18,31 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// Outcomes that never reached the queue, then outcomes the queue gave up on.
+// Each is logged on failure and never stops the retention sweep.
+async function republishOutcomes(
+  config: ReturnType<typeof loadDataApiConfigFromEnv>,
+  queueUrl: string,
+): Promise<void> {
+  for (const [event, sweep] of [
+    ['outcome-sweep-failed', publishDueOutcomes],
+    ['outcome-reconcile-failed', republishUnreportedOutcomes],
+  ] as const) {
+    await sweep(dataApiClient, config, sqsClient, queueUrl).catch(
+      (error: unknown) =>
+        console.error(
+          JSON.stringify({
+            event,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        ),
+    );
+  }
+}
+
 // Runs on a schedule (every 30 minutes). Deletes recorded messages older than
-// 24 hours, and re-publishes statement outcomes whose publish was missed (the
-// outbox sweeper shares this schedule).
+// 24 hours, and re-publishes statement outcomes that were never published or
+// never reported (the outbox sweeper shares this schedule).
 export const handler = async (): Promise<void> => {
   const config = loadDataApiConfigFromEnv();
   const telegram = createTelegramClient(
@@ -25,19 +51,7 @@ export const handler = async (): Promise<void> => {
 
   const outcomeQueueUrl = process.env['OUTCOME_QUEUE_URL'];
   const sweepOutcomes = outcomeQueueUrl
-    ? publishDueOutcomes(
-        dataApiClient,
-        config,
-        sqsClient,
-        outcomeQueueUrl,
-      ).catch((error: unknown) =>
-        console.error(
-          JSON.stringify({
-            event: 'outcome-sweep-failed',
-            error: error instanceof Error ? error.message : String(error),
-          }),
-        ),
-      )
+    ? republishOutcomes(config, outcomeQueueUrl)
     : Promise.resolve();
 
   const result = await sweepRetention(telegram, dataApiClient, config);
