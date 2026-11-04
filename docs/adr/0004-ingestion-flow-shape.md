@@ -73,7 +73,7 @@ table:
   — the documented workaround is exactly "presigned URL direct to S3," not a
   bigger payload.
   ([AWS re:Post: API Gateway 10MB payload limit](https://repost.aws/questions/QUgDO6WCrhRfaXwSak8YchEQ/recommendations-for-amazon-s-api-gateway-10mb-payload-limit))
-  So even though a synchronous _CSV_ path is technically buildable (unlike email),
+  So even though a synchronous *CSV* path is technically buildable (unlike email),
   building it as a direct multipart-body-to-Lambda endpoint bakes in a payload
   ceiling and ties HTTP response latency to full parse+write completion, for a
   channel that doesn't need either constraint — a presigned S3 PUT sidesteps both
@@ -114,7 +114,7 @@ enforced by a DB-level unique constraint — not by message ordering.**
   scale); which user owns it is resolved from the recipient address in the S3 key.
 - **Convergence**: both S3 buckets' event notifications target the **same
   standard SQS queue**. This is the "unify the two paths" answer — it's S3 that
-  unifies them, not SNS. SNS fan-out is for _multiple independent subscribers_ to
+  unifies them, not SNS. SNS fan-out is for *multiple independent subscribers* to
   the same event; today there is exactly one subscriber (the ingestion Lambda), so
   a topic would be a hop that does nothing. Revisit if a second independent
   consumer shows up (see Consequences).
@@ -123,13 +123,13 @@ enforced by a DB-level unique constraint — not by message ordering.**
   key/allowlist match, not content-sniffing), normalizes rows to a common shape,
   computes a dedup key per row, and writes the whole file's rows inside **one Data
   API transaction** (`BeginTransaction` → N `ExecuteStatement`/`INSERT ... ON
-CONFLICT (dedup_key) DO NOTHING` → `CommitTransaction`, per ADR-0003's Data API
+  CONFLICT (dedup_key) DO NOTHING` → `CommitTransaction`, per ADR-0003's Data API
   shape). A parse failure partway rolls the whole transaction back — there is no
   partially-written file state to reason about or clean up.
 - **Standard queue, not FIFO. No message ordering is required for correctness.**
   Dedup correctness comes from the DB unique constraint on `dedup_key`
   (deterministic hash of `owner_user_id + account_id + posted_date +
-amount_minor_units + currency + normalized_description`), which makes the write
+  amount_minor_units + currency + normalized_description`), which makes the write
   idempotent and commutative regardless of arrival order, retry, or two files for
   the same account processing concurrently. FIFO would add message-group-ID
   design and throughput ceilings for a correctness property the DB already
@@ -141,13 +141,13 @@ amount_minor_units + currency + normalized_description`), which makes the write
 
 ## Options Considered
 
-| Option                                            | Handles email attachments?                                           | Retry/failure story                                                                 | Ordering                                      | Complexity                                                                    |
-| ------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------- |
-| Synchronous, direct-to-Lambda (both channels)     | **No** — SES cannot hand Lambda attachment content without an S3 hop | Caller sees failure inline; no automatic retry, user must reupload/bank must resend | N/A                                           | Lowest, but doesn't actually cover the primary automated channel              |
-| S3 event → Lambda, direct async invoke (no queue) | Yes                                                                  | Lambda's built-in async retry: 2 attempts, discarded after 6h                       | N/A — not needed                              | Low                                                                           |
-| **S3 event → SQS (standard) → Lambda (chosen)**   | Yes                                                                  | SQS redelivery + DLQ; 4–14 day retention window                                     | Not required — DB constraint handles it       | Low-medium — one queue, one DLQ, one event-source mapping                     |
-| S3 event → SQS (FIFO, per-account group) → Lambda | Yes                                                                  | Same as standard, plus strict per-account ordering                                  | Guaranteed, but not load-bearing for anything | Medium — message-group-ID design, throughput ceiling, for no correctness gain |
-| S3 event → SNS → SQS → Lambda                     | Yes                                                                  | Same as standard SQS                                                                | Not required                                  | Higher — topic + subscription with exactly one subscriber today               |
+| Option | Handles email attachments? | Retry/failure story | Ordering | Complexity |
+|---|---|---|---|---|
+| Synchronous, direct-to-Lambda (both channels) | **No** — SES cannot hand Lambda attachment content without an S3 hop | Caller sees failure inline; no automatic retry, user must reupload/bank must resend | N/A | Lowest, but doesn't actually cover the primary automated channel |
+| S3 event → Lambda, direct async invoke (no queue) | Yes | Lambda's built-in async retry: 2 attempts, discarded after 6h | N/A — not needed | Low |
+| **S3 event → SQS (standard) → Lambda (chosen)** | Yes | SQS redelivery + DLQ; 4–14 day retention window | Not required — DB constraint handles it | Low-medium — one queue, one DLQ, one event-source mapping |
+| S3 event → SQS (FIFO, per-account group) → Lambda | Yes | Same as standard, plus strict per-account ordering | Guaranteed, but not load-bearing for anything | Medium — message-group-ID design, throughput ceiling, for no correctness gain |
+| S3 event → SNS → SQS → Lambda | Yes | Same as standard SQS | Not required | Higher — topic + subscription with exactly one subscriber today |
 
 ## Trade-off Analysis
 
@@ -155,7 +155,7 @@ amount_minor_units + currency + normalized_description`), which makes the write
   the retry exists but the retention doesn't — 6 hours is a real ceiling that a
   broken-over-a-weekend Lambda deploy can blow through on a personal project with
   no oncall. Getting DLQ-style inspectability out of the direct-invoke path
-  requires wiring an async failure _destination_ (itself typically an SQS queue)
+  requires wiring an async failure *destination* (itself typically an SQS queue)
   anyway, so the "simpler" option converges back to needing a queue to be
   operationally honest — better to put it in the primary path from the start than
   bolt it on as an afterthought once a file has already been silently dropped.

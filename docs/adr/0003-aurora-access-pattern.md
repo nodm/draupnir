@@ -17,7 +17,7 @@ Dmytro Novikov
 [ADR-0001](./0001-mcp-transport.md) picked Lambda + API Gateway REST as the compute
 shape for the MCP server; the primary app API follows the same shape per
 [ADR-0002](./0002-auth-request-flow.md). Both ADRs assumed a Postgres-compatible
-store existed but deliberately deferred _how Lambda talks to it_. This ADR resolves
+store existed but deliberately deferred *how Lambda talks to it*. This ADR resolves
 that for **Aurora Serverless v2 (PostgreSQL-compatible)**, holding the multi-currency
 transaction/account/category schema with row-level ownership (`owner_user_id` +
 `share_grants`, per ADR-0002).
@@ -63,7 +63,7 @@ Two facts changed the calculus from older received wisdom:
   deciding one.
   ([IOpipe: Lambda VPC upgrades with Hyperplane](https://read.iopipe.com/aws-lambda-vpc-upgrades-with-e246cbf4663e))
 
-What _is_ still a real, current cost concern for VPC-attached Lambda: a **NAT
+What *is* still a real, current cost concern for VPC-attached Lambda: a **NAT
 Gateway has a flat ~$0.045/hr charge regardless of traffic** (≈$32–33/mo just to
 exist, before any per-GB data processing), which any VPC-attached Lambda needs if
 it makes calls outside the VPC (any AWS API without a VPC endpoint, or the open
@@ -98,11 +98,11 @@ Lambda functions themselves.**
 
 ## Options Considered
 
-| Option                          | Lambda in VPC?                                    | Connection handling                                                   | Fixed monthly cost                                                                                       | Complexity                                                                 |
-| ------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| RDS Data API (chosen)           | **No**                                            | None — Data API pools internally, HTTP request/response per call      | Pay-per-request past 1M free/mo; Secrets Manager secret (~$0.40/mo)                                      | Lowest — no VPC, no SG, no driver/pool config                              |
-| RDS Proxy + native driver       | **Yes** — proxy and Lambda must share VPC/subnets | Proxy pools/multiplexes real Postgres connections behind it           | Proxy hourly charge (~vCPU-based) + NAT Gateway (~$32–33/mo) if private-subnet internet egress is needed | Medium — VPC, subnets, SGs, proxy resource, IAM-auth-to-proxy wiring       |
-| Plain Lambda → Aurora, no proxy | **Yes**                                           | None — each concurrent execution environment opens its own connection | NAT Gateway (~$32–33/mo) if egress needed, no proxy charge                                               | Medium — same VPC/SG surface as RDS Proxy, minus the proxy resource itself |
+| Option | Lambda in VPC? | Connection handling | Fixed monthly cost | Complexity |
+|---|---|---|---|---|
+| RDS Data API (chosen) | **No** | None — Data API pools internally, HTTP request/response per call | Pay-per-request past 1M free/mo; Secrets Manager secret (~$0.40/mo) | Lowest — no VPC, no SG, no driver/pool config |
+| RDS Proxy + native driver | **Yes** — proxy and Lambda must share VPC/subnets | Proxy pools/multiplexes real Postgres connections behind it | Proxy hourly charge (~vCPU-based) + NAT Gateway (~$32–33/mo) if private-subnet internet egress is needed | Medium — VPC, subnets, SGs, proxy resource, IAM-auth-to-proxy wiring |
+| Plain Lambda → Aurora, no proxy | **Yes** | None — each concurrent execution environment opens its own connection | NAT Gateway (~$32–33/mo) if egress needed, no proxy charge | Medium — same VPC/SG surface as RDS Proxy, minus the proxy resource itself |
 
 ## Trade-off Analysis
 
@@ -127,7 +127,7 @@ Lambda functions themselves.**
   (if those Lambdas need any non-VPC AWS API or internet access) or a set of VPC
   interface endpoints per AWS service they call — either way, fixed monthly spend
   and IaC surface that two occasional users don't currently justify. Cold start is
-  explicitly _not_ part of this trade-off, per the Hyperplane ENI correction above.
+  explicitly *not* part of this trade-off, per the Hyperplane ENI correction above.
 - **Data API's real cost, honestly stated**: it's not free of trade-offs. Calls go
   through an extra HTTP hop to a regional API versus a warm native connection, so
   per-call latency is higher than a pooled driver connection would give — acceptable
@@ -168,10 +168,10 @@ Lambda functions themselves.**
   materially lower per-call latency), is contained to one module.
 - Every query still carries the ADR-0002 ownership/grant predicate
   (`owner_user_id = :sub` / `share_grants` `EXISTS` join) as a Data API SQL
-  parameter — Data API changes _how_ the statement is sent, not the row-level
+  parameter — Data API changes *how* the statement is sent, not the row-level
   security model itself.
 - No NAT Gateway, VPC endpoints, or Lambda SG/subnet config needed for DB access
-  specifically. If a _different_ future requirement puts Lambda in a VPC anyway
+  specifically. If a *different* future requirement puts Lambda in a VPC anyway
   (e.g., an internal-only downstream service), Data API's independence from that
   VPC still holds — the DB access path doesn't force the networking decision, but
   it also doesn't ride along "for free" if a VPC gets added for other reasons.

@@ -91,9 +91,22 @@ The bot stops receiving updates; ingestion, accounts and the database are untouc
 
 ### Changing the token
 
-`/revoke` in BotFather, `put-secret-value` as in step 4, then `bot:set-webhook`. Running
-Lambdas keep the old token until their container is replaced; deploying (`infra:up`)
-replaces them.
+`/revoke` in BotFather, `put-secret-value` as in step 4, then `bot:set-webhook`.
+
+Each Lambda reads the token once per execution environment, and `infra:up` does not replace
+environments when nothing it manages changed. Until they are replaced, warm environments keep
+using the revoked token and cannot send messages. Force new ones by touching each bot
+function's configuration:
+
+```bash
+for f in $(aws lambda list-functions \
+    --query "Functions[?starts_with(FunctionName,'bot-')].FunctionName" --output text); do
+  aws lambda update-function-configuration --function-name "$f" \
+    --description "token rotated $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /dev/null
+done
+```
+
+(The description is not managed by Pulumi, so this does not conflict with the next deploy.)
 
 ## User guide
 
@@ -152,12 +165,17 @@ Telegram keeps chats in its cloud and bots cannot use end-to-end encrypted chats
 bot keeps as little as it can:
 
 - Your **CSV message is deleted** right after the bot reports the result (or refuses it).
-- **Every message the bot sends is deleted 24 hours later** (within about 30 minutes after
-  that; Telegram only allows deleting messages younger than 48 hours).
+- **Messages the bot sends in your linked chat are deleted about 24 hours later** (within
+  about 30 minutes after that): account lists, coverage, import reports, share notices and
+  its questions. Telegram only allows deleting messages younger than 48 hours.
+- Not covered: your own messages other than statements, the sign-in link and its replies
+  (sent before the chat is linked), and the "Linked to …" confirmation. None of them
+  contain account or transaction data.
 - Deleting does not erase Telegram's own copies or backups.
 
-If a deletion fails (for example the message was already older than 48 hours), it is
-logged and not retried.
+If the immediate deletion of a statement fails, the scheduled run tries once more within
+24 to 48 hours. If that run cannot delete a message (for example it is already older than
+48 hours), the failure is logged with the chat and message id and not retried.
 
 ## Troubleshooting
 
@@ -165,16 +183,16 @@ Find a function's log group with
 `aws lambda list-functions --query "Functions[?starts_with(FunctionName,'bot-')].FunctionName" --output text`,
 then `aws logs tail /aws/lambda/<name> --since 1h`.
 
-| Symptom                                      | Likely cause and check                                                                                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bot never answers                            | Run `nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one.    |
-| `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                       |
-| `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).   |
-| "Already linked"                             | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                             |
-| Upload accepted but no report                | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day. |
-| A message seems stuck for minutes            | A failing update is retried 3 times, nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                                  |
-| First reply is very slow                     | The database was paused; it resumes within about a minute.                                                                                                                           |
-| Old bot messages are still in the chat       | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                               |
+| Symptom                                      | Likely cause and check                                                                                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bot never answers                            | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one. |
+| `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                              |
+| `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).          |
+| "Already linked"                             | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                    |
+| Upload accepted but no report                | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.        |
+| A message seems stuck for minutes            | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                |
+| First reply is very slow                     | The database was paused; it resumes within about a minute.                                                                                                                                  |
+| Old bot messages are still in the chat       | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                      |
 
 Inspecting a dead-letter queue shows raw Telegram updates, which contain chat content:
 
@@ -183,4 +201,8 @@ aws sqs receive-message --queue-url "$(cd infra && pulumi stack output botUpdate
   --max-number-of-messages 5
 ```
 
-Once the cause is fixed, empty the queue with `aws sqs purge-queue`.
+Once the cause is fixed, empty that queue (and only that one):
+
+```bash
+aws sqs purge-queue --queue-url "$(cd infra && pulumi stack output botUpdatesDlqUrl)"
+```

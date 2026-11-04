@@ -24,11 +24,11 @@ The current MCP spec (**2026-07-28**, final — supersedes 2025-11-25) defines e
 two standard transports:
 
 - **stdio** — client launches the server as a local subprocess; single-user,
-  single-machine by construction. Clients _should_ support it, but it cannot satisfy
+  single-machine by construction. Clients *should* support it, but it cannot satisfy
   the multi-user/multi-device requirement on its own.
 - **Streamable HTTP** — a single HTTP endpoint that accepts `POST` only. Every
   JSON-RPC request is its own POST; the server answers with either one JSON object
-  or an SSE stream _scoped to that request_. As of this revision the protocol is
+  or an SSE stream *scoped to that request*. As of this revision the protocol is
   **stateless by design, not by configuration**: `Mcp-Session-Id`, the standalone
   `GET` SSE stream, and `Last-Event-ID` resumability were all **removed** (they
   existed in 2025-03-26 through 2025-11-25, but "none of these mechanisms are part
@@ -43,14 +43,14 @@ two standard transports:
     `inputResponses`. Interactive tool flows no longer need a long-lived connection
     or server-held state between the two POSTs.
   - Long-lived server push (e.g. `notifications/resources/updated`) is still
-    possible, but only via a `subscriptions/listen` POST whose _response_ is a
+    possible, but only via a `subscriptions/listen` POST whose *response* is a
     long-lived SSE stream — not via the removed GET endpoint.
   - Required `Mcp-Method`/`Mcp-Name` headers mirror body fields onto HTTP headers
     specifically so gateways/WAFs can route and meter per-tool without parsing the
     JSON body — a direct fit for API Gateway request validation/throttling later.
 
   I originally drafted this ADR against the 2025-06-18 spec, where session support
-  (`Mcp-Session-Id`) was _optional_ and "stateless" was a deployment choice made at
+  (`Mcp-Session-Id`) was *optional* and "stateless" was a deployment choice made at
   the SDK level (`sessionIdGenerator: undefined`). That's now moot: 2026-07-28 makes
   statelessness the only mode there is. This doesn't change the decision below, it
   removes the one place it was hedged.
@@ -61,7 +61,7 @@ HTTP cleanly, or whether MCP's streaming semantics push toward an always-on opti
 assume:
 
 - **API Gateway REST APIs now support native response streaming** (`ResponseTransferMode:
-STREAM`, GA Nov 2025). With it enabled, the integration timeout extends from 29s
+  STREAM`, GA Nov 2025). With it enabled, the integration timeout extends from 29s
   up to **15 minutes** (matching Lambda's own max), and SSE passes through the
   gateway instead of being buffered. HTTP APIs (the cheaper API Gateway variant)
   still do **not** support streaming — only REST APIs do.
@@ -91,17 +91,17 @@ ID, no GET stream, no resumability, per spec), authenticated by a native
   exchanges that don't need server-initiated push. It's a config flip, not a
   re-architecture, if a slow tool call needs to exceed the default timeout or
   stream partial results later.
-- Local stdio remains supported _in addition_, for ad hoc local development against
+- Local stdio remains supported *in addition*, for ad hoc local development against
   Claude Desktop/Code — it is not the deployment path for day-to-day multi-device use.
 
 ## Options Considered
 
-| Option                                                 | Complexity                                                          | Cost                                                            | Scalability                                               | Fit for requirement                                                                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Local stdio only                                       | Lowest                                                              | $0                                                              | None — single machine/process                             | Fails multi-user/multi-device requirement outright                                                                    |
-| Lambda + API Gateway REST (Streamable HTTP, stateless) | Low — fits existing Pulumi/TS IaC, no new compute primitives        | Lowest — pay-per-request, ~$0 idle for 2 users                  | Trivial — stateless, scales to zero and out automatically | Good — Cognito authorizer native, streaming available if needed later                                                 |
-| Lambda + API Gateway HTTP API                          | Low                                                                 | Lowest                                                          | Trivial                                                   | Cheaper JWT authorizer, but **no response streaming** at all — permanently rules out SSE/push even as a later upgrade |
-| Always-on Fargate + ALB (stateful sessions)            | Higher — ECS service, task defs, VPC networking, ALB, health checks | Highest — fixed ~$25–45+/mo running 24/7 for 2 occasional users | Manual/auto-scaling config required                       | Best session/streaming fidelity, but overkill for current load pattern                                                |
+| Option | Complexity | Cost | Scalability | Fit for requirement |
+|---|---|---|---|---|
+| Local stdio only | Lowest | $0 | None — single machine/process | Fails multi-user/multi-device requirement outright |
+| Lambda + API Gateway REST (Streamable HTTP, stateless) | Low — fits existing Pulumi/TS IaC, no new compute primitives | Lowest — pay-per-request, ~$0 idle for 2 users | Trivial — stateless, scales to zero and out automatically | Good — Cognito authorizer native, streaming available if needed later |
+| Lambda + API Gateway HTTP API | Low | Lowest | Trivial | Cheaper JWT authorizer, but **no response streaming** at all — permanently rules out SSE/push even as a later upgrade |
+| Always-on Fargate + ALB (stateful sessions) | Higher — ECS service, task defs, VPC networking, ALB, health checks | Highest — fixed ~$25–45+/mo running 24/7 for 2 occasional users | Manual/auto-scaling config required | Best session/streaming fidelity, but overkill for current load pattern |
 
 ## Trade-off Analysis
 
