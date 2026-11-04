@@ -22,13 +22,15 @@ export function createSubResolver(
 
 // Handlers for linking, documents, buttons and commands are added by their own
 // tasks (sections 4-6); until then they answer honestly instead of failing.
-export function createRoutes(resolveSub: Routes['resolveSub']): Routes {
+export function createRoutes(
+  resolveSub: Routes['resolveSub'],
+  onUnlinked: Routes['onUnlinked'],
+  commands: Routes['commands'] = {},
+): Routes {
   return {
     resolveSub,
-    onUnlinked: async (ctx) => {
-      await ctx.telegram.sendMessage(ctx.chatId, 'Sign-in is not set up yet.');
-    },
-    commands: {},
+    onUnlinked,
+    commands,
     onDocument: async (ctx) => {
       await ctx.telegram.sendMessage(
         ctx.chatId,

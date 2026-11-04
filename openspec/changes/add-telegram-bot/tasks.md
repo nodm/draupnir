@@ -37,13 +37,13 @@
 
 ## 4. Linking
 
-- [ ] 4.1 Implement link-request creation, the callback handler (state consume, PKCE code
+- [x] 4.1 Implement link-request creation, the callback handler (state consume, PKCE code
       exchange, ID token verification, pending link with confirmation code, HTML page showing
       the requesting Telegram account and code), and code redemption by the requesting
       Telegram user (5-minute expiry, 5 attempts); verify tests for every
       `telegram-account-linking` scenario, including the forwarded-link and
       code-from-another-account cases, with a mocked token endpoint and JWKS.
-- [ ] 4.2 Implement `/unlink`; verify the immediate-effect scenario.
+- [x] 4.2 Implement `/unlink`; verify the immediate-effect scenario.
 
 ## 5. Upload and outcomes
 
@@ -81,6 +81,10 @@
       `dependsOn` the domain, as in `infra/lib/cognito.ts`), secrets (bot token, webhook secret, client secret), IAM (incl.
       `cognito-idp:ListUsers` on the pool); all resources pass `{ provider }`. Add a
       `bot:set-webhook` target. Verify `infra:build` and `infra:preview`.
+      Lambda env the code reads: webhook `WEBHOOK_SECRET_ARN`, `BOT_UPDATES_QUEUE_URL`; worker
+      `BOT_TOKEN_SECRET_ARN`, `COGNITO_BASE_URL`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CALLBACK_URL`,
+      `BOT_USERNAME`, DB vars; callback the same plus `TELEGRAM_CLIENT_SECRET_ARN`,
+      `USER_POOL_ID`. The `draupnir-telegram` client needs a client secret.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run
       `bot:set-webhook`. Live check with both users' phones (Android and iPhone): link, create
       an account, share it, upload a Revolut CSV from the banking app's share sheet, receive

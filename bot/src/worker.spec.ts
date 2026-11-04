@@ -11,6 +11,10 @@ vi.mock('./lib/routes', () => ({
   createRoutes: () => ({}),
   createSubResolver: () => async () => null,
 }));
+vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
+vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
+vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));
+vi.mock('./lib/linking/unlinked', () => ({ handleUnlinked: vi.fn() }));
 vi.mock('shared', () => ({ loadDataApiConfigFromEnv: () => ({}) }));
 vi.mock('@aws-sdk/client-rds-data', () => ({ RDSDataClient: class {} }));
 
