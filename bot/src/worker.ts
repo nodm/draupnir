@@ -2,7 +2,7 @@ import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { S3Client } from '@aws-sdk/client-s3';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
-import { loadDataApiConfigFromEnv } from 'shared';
+import { isOutcomeMessage, loadDataApiConfigFromEnv } from 'shared';
 import { dispatch } from './lib/dispatcher';
 import { createUnlinkHandler } from './lib/commands/unlink';
 import { loadLinkConfigFromEnv } from './lib/linking/config';
@@ -14,6 +14,7 @@ import {
   UPLOAD_CALLBACK_PREFIX,
   type UploadDeps,
 } from './lib/upload/handleUpload';
+import { reportOutcome } from './lib/outcomes/reportOutcome';
 import { createRoutes, createSubResolver } from './lib/routes';
 import { getSecretString } from './lib/secrets';
 import { createTelegramClient } from './lib/telegram';
@@ -65,7 +66,18 @@ export const handler: SQSHandler = async (event) => {
       continue;
     }
     try {
-      await dispatch(JSON.parse(record.body) as Update, telegram, routes);
+      // Two event sources feed this worker: Telegram updates (FIFO) and the
+      // pipeline's statement outcomes.
+      const body: unknown = JSON.parse(record.body);
+      if (isOutcomeMessage(body)) {
+        await reportOutcome(body, {
+          client: dataApiClient,
+          config: dataApiConfig,
+          telegram,
+        });
+      } else {
+        await dispatch(body as Update, telegram, routes);
+      }
     } catch (error) {
       console.error(
         JSON.stringify({

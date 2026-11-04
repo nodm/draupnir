@@ -56,7 +56,7 @@ describe('processStatementFile', () => {
   });
   beforeEach(async () => {
     await db.exec(
-      'TRUNCATE transaction_sources, transactions, raw_rows, statement_file_accounts, statement_files, account_members, accounts CASCADE',
+      'TRUNCATE statement_outcome_outbox, transaction_sources, transactions, raw_rows, statement_file_accounts, statement_files, account_members, accounts CASCADE',
     );
     sqlLog = [];
   });
@@ -761,6 +761,183 @@ describe('processStatementFile', () => {
       expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual([
         'gap-opening',
       ]);
+    });
+  });
+
+  describe('outcome outbox', () => {
+    const outbox = async () =>
+      (
+        await db.query<{
+          file_id: string;
+          s3_key: string;
+          uploaded_by: string;
+          published_at: string | null;
+          payload: Record<string, unknown>;
+        }>('SELECT * FROM statement_outcome_outbox ORDER BY created_at')
+      ).rows;
+
+    it('commits an approved outcome with its outbox row, and returns the message to publish', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+
+      const outcome = await upload(REVOLUT, { accountId: 'R' });
+
+      const rows = await outbox();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        file_id: outcome.fileId,
+        uploaded_by: 'user-1',
+        published_at: null,
+      });
+      expect(outcome.report).toMatchObject({
+        fileId: outcome.fileId,
+        sub: 'user-1',
+        status: 'approved',
+        reasons: [],
+        newTransactionCount: 2,
+      });
+      expect(outcome.report?.period?.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(outcome.report?.s3Key).toBe(rows[0]?.s3_key);
+      expect(rows[0]?.payload).toEqual(outcome.report);
+    });
+
+    it('commits a rejected outcome with its outbox row and every reason', async () => {
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      const bad = `${REVOLUT_HEADER}\nCard Payment,Current,x,y,Lidl,abc,0.00,EUR,COMPLETED,1.00\n`;
+
+      const outcome = await upload(bad, { accountId: 'R' });
+
+      const rows = await outbox();
+      expect(rows).toHaveLength(1);
+      expect(outcome.report).toMatchObject({
+        fileId: outcome.fileId,
+        status: 'rejected',
+        newTransactionCount: 0,
+        period: null,
+      });
+      expect(outcome.report?.reasons).toEqual(outcome.reasons);
+      expect(rows[0]?.payload).toEqual(outcome.report);
+    });
+
+    it('writes no outbox row when the outcome’s transaction fails and rolls back', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+
+      await expect(
+        upload(REVOLUT, {
+          accountId: 'R',
+          hook: (command) => {
+            const sql = command.input['sql'];
+            if (
+              typeof sql === 'string' &&
+              sql.includes('draupnir.enqueue_outcome')
+            ) {
+              throw new Error('outbox write failed');
+            }
+          },
+        }),
+      ).rejects.toThrow('outbox write failed');
+
+      // The outcome and its outbox row commit together or not at all.
+      expect(await count('statement_files')).toBe(0);
+      expect(await outbox()).toEqual([]);
+    });
+
+    it('keeps a committed approval an approval when the uploader has since left the account', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+      const key = 'uploads/user-1/R/removed-after.csv';
+      const first = await upload(REVOLUT, { accountId: 'R', key });
+      // another owner remains; the uploader is removed before the redelivery
+      await db.exec(`
+        INSERT INTO account_members (account_id, user_id, role) VALUES ('R', 'other-owner', 'owner');
+        DELETE FROM account_members WHERE account_id = 'R' AND user_id = 'user-1'
+      `);
+
+      const again = await upload(REVOLUT, { accountId: 'R', key });
+
+      expect(again).toMatchObject({
+        fileId: first.fileId,
+        status: 'approved',
+        redelivered: true,
+        report: null,
+      });
+      expect(again.reasons).toEqual([]);
+      expect(await outbox()).toHaveLength(1); // nothing new to publish
+    });
+
+    it('bounds the published message for a file with thousands of bad rows, keeping the full list on the file', async () => {
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+      const rows = Array.from(
+        { length: 200 },
+        (_, i) =>
+          `Card Payment,Current,x,y,Lidl ${i},abc,0.00,EUR,COMPLETED,1.00`,
+      );
+
+      const outcome = await upload(`${REVOLUT_HEADER}\n${rows.join('\n')}\n`, {
+        accountId: 'R',
+      });
+
+      expect(outcome.reasons.length).toBeGreaterThan(30);
+      expect(outcome.report?.reasons).toHaveLength(30);
+      expect(outcome.report?.omittedReasonCount).toBe(
+        outcome.reasons.length - 30,
+      );
+      const stored = (
+        await db.query<{ rejection_reasons: unknown[] }>(
+          'SELECT rejection_reasons FROM statement_files',
+        )
+      ).rows[0]?.rejection_reasons;
+      expect(stored).toHaveLength(outcome.reasons.length);
+    });
+
+    it('does not enqueue a second message when the object is redelivered', async () => {
+      await account({
+        id: 'R',
+        iban: REVOLUT_IBAN,
+        bank: 'revolut',
+        opening: 1191,
+      });
+      const key = 'uploads/user-1/R/same-object.csv';
+      await upload(REVOLUT, { accountId: 'R', key });
+
+      const again = await upload(REVOLUT, { accountId: 'R', key });
+
+      expect(again.redelivered).toBe(true);
+      expect(again.report).toBeNull();
+      expect(await outbox()).toHaveLength(1);
+    });
+
+    it('gives an unrecorded not-owner rejection a message but no outbox row', async () => {
+      await account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut' });
+
+      const outcome = await upload(REVOLUT, {
+        accountId: 'R',
+        sub: 'removed-user',
+        key: 'uploads/removed-user/R/x.csv',
+      });
+
+      expect(outcome.fileId).toBeNull();
+      expect(outcome.report).toMatchObject({
+        fileId: null,
+        s3Key: 'uploads/removed-user/R/x.csv',
+        sub: 'removed-user',
+        status: 'rejected',
+      });
+      expect(outcome.report?.reasons[0]?.code).toBe('not-owner');
+      expect(await outbox()).toEqual([]);
     });
   });
 

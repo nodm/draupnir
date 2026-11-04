@@ -2,9 +2,13 @@ import { createHash } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
+  boundOutcomeMessage,
+  coveredPeriod,
   dateParameter,
+  enqueueOutcome,
   executeStatement,
   getMemberRole,
+  isOutcomeMessage,
   loadSegments,
   memberPredicate,
   withCaller,
@@ -12,6 +16,7 @@ import {
   type CoverageAccount,
   type DataApiConfig,
   type Segment,
+  type StatementOutcomeMessage,
 } from 'shared';
 import { deriveTransactions, type DerivationFile } from './derive';
 import type { ParsedRow, ParsedStatement } from './parsers/types';
@@ -58,18 +63,38 @@ export interface StatementOutcome {
   warningsByAccount: Record<string, ValidationReason[]>;
   // True when this call only returned the outcome recorded by an earlier one.
   redelivered: boolean;
+  // The message to publish for an outcome committed by this call. Recorded
+  // outcomes also have an outbox row written in the same transaction, so the
+  // publish is recoverable; null for a redelivery, whose row already exists.
+  report: StatementOutcomeMessage | null;
 }
 
 // An uploader who isn't an owner of the upload account can't write a
 // statement_files row (row-level security), so this rejection is reported but
 // not recorded. It is deterministic, so a redelivery reaches the same outcome.
-function unrecordedRejection(reasons: ValidationReason[]): StatementOutcome {
+function unrecordedRejection(
+  reasons: ValidationReason[],
+  s3Key: string,
+  sub: string,
+): StatementOutcome {
   return {
     fileId: null,
     status: 'rejected',
     reasons,
     warningsByAccount: {},
     redelivered: false,
+    // No statement_files row means no outbox row: this one is published
+    // directly, and a redelivery reaches the same deterministic rejection.
+    report: boundOutcomeMessage({
+      fileId: null,
+      s3Key,
+      sub,
+      status: 'rejected',
+      reasons,
+      warningsByAccount: {},
+      newTransactionCount: 0,
+      period: null,
+    }),
   };
 }
 
@@ -178,6 +203,38 @@ async function readRecordedOutcome(
     reasons: parseJsonColumn(file.rejection_reasons, []),
     warningsByAccount,
     redelivered: true,
+    report: null,
+  };
+}
+
+// The outcome committed for this object, recovered from its outbox row. Works
+// whatever the uploader's current membership is: the lookup is scoped to the
+// uploader, not to the account. Nothing is republished here; the row already
+// exists and the sweeper delivers it if the first publish was missed.
+async function findOutcomeInOutbox(
+  ctx: Context,
+  key: string,
+): Promise<StatementOutcome | null> {
+  const { rows } = await inCallerTransaction(ctx, undefined, (tx) =>
+    executeStatement(
+      ctx.client,
+      ctx.config,
+      `SELECT CAST(draupnir.recorded_outcome(:key) AS text) AS payload`,
+      { key },
+      tx,
+    ),
+  );
+  const raw = (rows[0] as { payload: string | null } | undefined)?.payload;
+  if (!raw) return null;
+  const message: unknown = JSON.parse(raw);
+  if (!isOutcomeMessage(message)) return null;
+  return {
+    fileId: message.fileId,
+    status: message.status,
+    reasons: message.reasons,
+    warningsByAccount: message.warningsByAccount,
+    redelivered: true,
+    report: null,
   };
 }
 
@@ -196,8 +253,12 @@ async function insertRejected(
   { client, config }: Context,
   facts: FileFacts,
   reasons: ValidationReason[],
-  transactionId?: string,
-): Promise<{ fileId: string; inserted: boolean }> {
+  transactionId: string,
+): Promise<{
+  fileId: string;
+  inserted: boolean;
+  report: StatementOutcomeMessage;
+}> {
   const fileId = newId();
   const { numberOfRecordsUpdated } = await executeStatement(
     client,
@@ -218,7 +279,22 @@ async function insertRejected(
     },
     transactionId,
   );
-  return { fileId, inserted: numberOfRecordsUpdated > 0 };
+  const report = boundOutcomeMessage({
+    fileId,
+    s3Key: facts.s3Key,
+    sub: facts.uploadedBy,
+    status: 'rejected',
+    reasons,
+    warningsByAccount: {},
+    newTransactionCount: 0,
+    period: null,
+  });
+  const inserted = numberOfRecordsUpdated > 0;
+  // Same transaction as the record: both commit or neither does.
+  if (inserted) {
+    await enqueueOutcome(client, config, transactionId, report);
+  }
+  return { fileId, inserted, report };
 }
 
 // Records a rejection in its own transaction and returns the outcome. If the
@@ -234,7 +310,7 @@ async function recordRejection(
       ctx.config,
       ctx.sub,
       async (transactionId) => {
-        const { fileId, inserted } = await insertRejected(
+        const { fileId, inserted, report } = await insertRejected(
           ctx,
           facts,
           reasons,
@@ -254,6 +330,7 @@ async function recordRejection(
           reasons,
           warningsByAccount: {},
           redelivered: false,
+          report,
         };
       },
     );
@@ -262,12 +339,17 @@ async function recordRejection(
     // write; RLS then refuses the statement_files row. That is the same
     // unrecorded not-owner rejection, not an error that retries into the DLQ.
     if (isStatementFilesPolicyViolation(error)) {
-      return unrecordedRejection([
-        {
-          code: 'not-owner',
-          message: 'The uploader is no longer an owner of the selected account',
-        },
-      ]);
+      return unrecordedRejection(
+        [
+          {
+            code: 'not-owner',
+            message:
+              'The uploader is no longer an owner of the selected account',
+          },
+        ],
+        facts.s3Key,
+        ctx.sub,
+      );
     }
     throw error;
   }
@@ -440,6 +522,12 @@ export async function processStatementFile(
   // be rejected as a duplicate of itself.
   const alreadyProcessed = await findRecordedOutcome(ctx, key);
   if (alreadyProcessed) return alreadyProcessed;
+  // Row-level security hides an approved file from an uploader who has since
+  // left the account, so the lookup above misses it. Without this one, the
+  // redelivery would be judged "not an owner" and reported as a rejection while
+  // the committed approval is still waiting to be published.
+  const fromOutbox = await findOutcomeInOutbox(ctx, key);
+  if (fromOutbox) return fromOutbox;
 
   const { rows: accountRows } = await withCaller(
     dataApiClient,
@@ -459,13 +547,17 @@ export async function processStatementFile(
   // presigned-URL endpoint). Both are an acknowledged, unrecorded not-owner
   // rejection, never a retry that would end in the DLQ.
   if (accountRows.length === 0) {
-    return unrecordedRejection([
-      {
-        code: 'not-owner',
-        message:
-          'The uploader is not an owner of the selected account, or it no longer exists',
-      },
-    ]);
+    return unrecordedRejection(
+      [
+        {
+          code: 'not-owner',
+          message:
+            'The uploader is not an owner of the selected account, or it no longer exists',
+        },
+      ],
+      key,
+      uploaderSub,
+    );
   }
   const uploadAccount = accountRows[0] as unknown as AccountRecord;
 
@@ -508,12 +600,16 @@ export async function processStatementFile(
       uploaderSub,
     )) !== 'owner'
   ) {
-    return unrecordedRejection([
-      {
-        code: 'not-owner',
-        message: 'The uploader is not an owner of the selected account',
-      },
-    ]);
+    return unrecordedRejection(
+      [
+        {
+          code: 'not-owner',
+          message: 'The uploader is not an owner of the selected account',
+        },
+      ],
+      key,
+      uploaderSub,
+    );
   }
 
   // Everything that depends only on the file: format, every row, the chain.
@@ -688,14 +784,13 @@ export async function processStatementFile(
 
         if (reasons.length > 0) {
           if (!stillOwned.has(uploadAccount.id)) {
-            return unrecordedRejection(reasons);
+            return unrecordedRejection(reasons, key, uploaderSub);
           }
-          const { fileId: rejectedId, inserted } = await insertRejected(
-            ctx,
-            facts,
-            reasons,
-            transactionId,
-          );
+          const {
+            fileId: rejectedId,
+            inserted,
+            report,
+          } = await insertRejected(ctx, facts, reasons, transactionId);
           if (!inserted) {
             const recorded = await findRecordedOutcome(ctx, key, transactionId);
             if (recorded) return recorded;
@@ -706,6 +801,7 @@ export async function processStatementFile(
             reasons,
             warningsByAccount: {},
             redelivered: false,
+            report,
           };
         }
 
@@ -792,12 +888,40 @@ export async function processStatementFile(
           );
         }
 
+        const report = boundOutcomeMessage({
+          fileId,
+          s3Key: key,
+          sub: uploaderSub,
+          status: 'approved',
+          reasons: [],
+          warningsByAccount,
+          newTransactionCount: [...newTransactionsByAccount.values()].reduce(
+            (sum, count) => sum + count,
+            0,
+          ),
+          period: coveredPeriod(
+            [...segmentByAccount.values()].map((segment) => ({
+              from: segment.declaredFrom ?? segment.activityFrom,
+              to: segment.declaredTo ?? segment.activityTo,
+            })),
+          ),
+        });
+        // Same transaction as the approval: the outcome cannot commit without
+        // its outbox row, and a failed publish later cannot lose it.
+        await enqueueOutcome(
+          dataApiClient,
+          dataApiConfig,
+          transactionId,
+          report,
+        );
+
         return {
           fileId,
           status: 'approved' as const,
           reasons: [],
           warningsByAccount,
           redelivered: false,
+          report,
         };
       },
     );

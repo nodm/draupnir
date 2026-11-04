@@ -317,6 +317,7 @@ describe('runMigrations (pglite)', () => {
       '0009-bot',
       '0010-bot-link-helpers',
       '0011-pending-upload-offers',
+      '0012-recorded-outcome-lookup',
     ]);
   });
 });
