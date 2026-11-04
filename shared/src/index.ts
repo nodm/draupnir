@@ -5,3 +5,4 @@ export * from './lib/dataApi';
 export * from './lib/migrations';
 export * from './lib/testing/pgliteDataApiClient';
 export * from './lib/accounts';
+export * from './lib/outcomes';
