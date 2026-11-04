@@ -4,6 +4,7 @@ import type { CallbackQuery, Document, Message } from '@grammyjs/types';
 import type { DataApiConfig } from 'shared';
 import type { LinkedContext } from '../dispatcher';
 import type { TelegramClient } from '../telegram';
+import type { Retention } from '../retention/retention';
 import { listMemberAccounts, type MemberAccount } from '../memberAccounts';
 import { isCsvDocument, MAX_STATEMENT_BYTES } from './files';
 import { isPreconditionFailed, statementObjectKey } from './objectKey';
@@ -15,6 +16,7 @@ export interface UploadDeps {
   config: DataApiConfig;
   s3: S3Client;
   bucket: string;
+  retention: Retention;
 }
 
 // Callback data: `up:<pendingId>:<index into the offered accounts>`; 3 + 36 + 1
@@ -47,16 +49,24 @@ export async function handleDocument(
 ): Promise<void> {
   const { telegram, chatId, sub } = ctx;
 
+  // The statement stays in the chat only until it has been dealt with. It is
+  // recorded first, so even if everything below fails the scheduled run
+  // removes it within 24-48 hours.
+  await deps.retention.record(chatId, message.message_id);
+  // A refusal also takes the file out of the chat, after the reply.
+  const refuse = async (text: string) => {
+    await telegram.sendMessage(chatId, text);
+    await deps.retention.discard(telegram, chatId, message.message_id);
+  };
+
   if (!isCsvDocument(document)) {
-    await telegram.sendMessage(
-      chatId,
+    await refuse(
       'Only CSV exports are supported. Export your statement as CSV and send it again.',
     );
     return;
   }
   if ((document.file_size ?? 0) > MAX_STATEMENT_BYTES) {
-    await telegram.sendMessage(
-      chatId,
+    await refuse(
       `That file is larger than ${mb(MAX_STATEMENT_BYTES)}. Export a shorter period and send it again.`,
     );
     return;
@@ -65,8 +75,7 @@ export async function handleDocument(
   const accounts = await listMemberAccounts(deps.client, deps.config, sub);
   const ownAccounts = owned(accounts);
   if (ownAccounts.length === 0) {
-    await telegram.sendMessage(
-      chatId,
+    await refuse(
       accounts.length > 0
         ? 'You can only view the accounts shared with you. An owner has to import statements, or create your own account first with /newaccount.'
         : 'You have no accounts yet. Create one with /newaccount, then send the statement again.',
@@ -76,8 +85,7 @@ export async function handleDocument(
 
   const bytes = await download(telegram, document.file_id);
   if (!bytes) {
-    await telegram.sendMessage(
-      chatId,
+    await refuse(
       `I could not read that file (limit ${mb(MAX_STATEMENT_BYTES)}). Try sending it again.`,
     );
     return;
@@ -192,12 +200,20 @@ export async function handleUploadCallback(
       chatId,
       'That request expired or the account is no longer available. Send the file again.',
     );
+    // With the offer still known, its file is refused: take it out of the chat.
+    // An expired or unknown offer has no message to point at; the file was
+    // recorded when it arrived, so the scheduled run removes it.
+    if (offer) {
+      await deps.retention.discard(telegram, chatId, offer.messageId);
+    }
     return;
   }
 
   // Bound to this upload and account; an upload already bound to another
   // account (a different button pressed first) is refused.
   const key = statementObjectKey(sub, account.id, `pending:${pendingId}`);
+  // (Not discarded: the file is being imported for the other account, and its
+  // outcome report removes it.)
   if (!(await pending.claim(pendingId, key))) {
     await telegram.sendMessage(
       chatId,
@@ -212,6 +228,8 @@ export async function handleUploadCallback(
       chatId,
       `I could not read that file (limit ${mb(MAX_STATEMENT_BYTES)}). Send it again.`,
     );
+    // Nothing will be imported, so no outcome will ever remove the file.
+    await deps.retention.discard(telegram, chatId, offer.messageId);
     return;
   }
   await putAndAcknowledge(ctx, deps, account, key, bytes);

@@ -15,6 +15,7 @@ function setup(sub: string | null) {
   const telegram = {
     sendMessage: vi.fn().mockResolvedValue({}),
     answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+    deleteMessage: vi.fn().mockResolvedValue(undefined),
   } as unknown as TelegramClient;
   const routes = {
     resolveSub: vi.fn().mockResolvedValue(sub),
@@ -132,6 +133,32 @@ describe('dispatch for unlinked users', () => {
     expect(routes.commands.accounts).not.toHaveBeenCalled();
     expect(routes.onDocument).not.toHaveBeenCalled();
     expect(routes.onText).not.toHaveBeenCalled();
+  });
+
+  it('removes a statement sent from an unlinked chat after the refusal, and only a statement', async () => {
+    const withFile = setup(null);
+    await dispatch(
+      message({
+        message_id: 77,
+        document: { file_id: 'f', file_unique_id: 'u' },
+      }),
+      withFile.telegram,
+      withFile.routes,
+    );
+    expect(withFile.telegram.deleteMessage).toHaveBeenCalledWith(7, 77);
+    // after the reply, not before
+    expect(withFile.routes.onUnlinked.mock.invocationCallOrder[0]).toBeLessThan(
+      (withFile.telegram.deleteMessage as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0] as number,
+    );
+
+    const textOnly = setup(null);
+    await dispatch(
+      message({ text: 'hello' }),
+      textOnly.telegram,
+      textOnly.routes,
+    );
+    expect(textOnly.telegram.deleteMessage).not.toHaveBeenCalled();
   });
 
   it('a button press only reaches the link handler', async () => {

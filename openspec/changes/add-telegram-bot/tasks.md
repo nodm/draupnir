@@ -68,7 +68,7 @@
 
 ## 7. Retention
 
-- [ ] 7.1 Record financial messages in `bot_messages`, delete uploaded documents after the
+- [x] 7.1 Record financial messages in `bot_messages`, delete uploaded documents after the
       outcome reply, and implement the scheduled retention handler (24h, no retries, log
       failures); verify every `telegram-message-retention` scenario with a fake clock.
 
@@ -89,6 +89,9 @@
       and `sqs:SendMessage`; the bot worker gets it as a second event source (with
       `ReportBatchItemFailures`) whose **visibility timeout is longer than the 2-minute report
       lease**. The retention Lambda (7.1) also calls `publishDueOutcomes` on its 30-minute schedule.
+      Retention Lambda env: `BOT_TOKEN_SECRET_ARN`, DB vars, optional `OUTCOME_QUEUE_URL`
+      (+ `sqs:SendMessage`); it needs no VPC and no S3/Cognito access. The worker's Telegram client
+      also records every sent message, so the worker needs no extra permission for that.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run
       `bot:set-webhook`. Live check with both users' phones (Android and iPhone): link, create
       an account, share it, upload a Revolut CSV from the banking app's share sheet, receive

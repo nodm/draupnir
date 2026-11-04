@@ -93,8 +93,8 @@ const members = async (accountId: string) =>
 
 // One user's chat, as the worker would see it.
 function user(sub: string, opts: { failSendTo?: number } = {}) {
-  const sendMessage = vi.fn(async (chatId: number) => {
-    if (chatId === opts.failSendTo) throw new Error('blocked');
+  const sendMessage = vi.fn(async (...args: [number, string?, unknown?]) => {
+    if (args[0] === opts.failSendTo) throw new Error('blocked');
     return {};
   });
   const editMessageReplyMarkup = vi.fn().mockResolvedValue(undefined);

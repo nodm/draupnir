@@ -41,11 +41,18 @@ beforeAll(async () => {
     config,
     s3: { send: s3Send } as never,
     bucket: 'uploads-bucket',
+    retention,
   };
 }, 60_000);
 
 afterAll(async () => {
   await db.close();
+});
+
+const retention = { record: vi.fn(), discard: vi.fn() };
+beforeEach(() => {
+  retention.record.mockReset().mockResolvedValue(undefined);
+  retention.discard.mockReset().mockResolvedValue(undefined);
 });
 
 const REVOLUT_CSV =
@@ -448,6 +455,146 @@ describe('what is accepted', () => {
     [{ file_name: undefined, mime_type: undefined }, false],
   ])('isCsvDocument(%j) = %s', (extra, expected) => {
     expect(isCsvDocument(doc(extra as Partial<Document>))).toBe(expected);
+  });
+});
+
+describe('keeping the statement out of the chat', () => {
+  const refusals: [string, () => Promise<ReturnType<typeof fakeTelegram>>][] = [
+    [
+      'a viewer-only user',
+      async () => {
+        const t = fakeTelegram(REVOLUT_CSV);
+        await handleDocument(ctxFor('carol', t.telegram), message, doc(), deps);
+        return t;
+      },
+    ],
+    [
+      'a user with no accounts',
+      async () => {
+        const t = fakeTelegram(REVOLUT_CSV);
+        await handleDocument(
+          ctxFor('nobody', t.telegram),
+          message,
+          doc(),
+          deps,
+        );
+        return t;
+      },
+    ],
+    [
+      'a file that is not CSV',
+      async () => {
+        const t = fakeTelegram('%PDF');
+        await handleDocument(
+          ctxFor('bob', t.telegram),
+          message,
+          doc({ file_name: 'a.pdf', mime_type: 'application/pdf' }),
+          deps,
+        );
+        return t;
+      },
+    ],
+    [
+      'a file that is too large',
+      async () => {
+        const t = fakeTelegram(REVOLUT_CSV);
+        await handleDocument(
+          ctxFor('bob', t.telegram),
+          message,
+          doc({ file_size: 11 * 1024 * 1024 }),
+          deps,
+        );
+        return t;
+      },
+    ],
+    [
+      'a download that fails the size check',
+      async () => {
+        const t = fakeTelegram('x'.repeat(10 * 1024 * 1024 + 1));
+        await handleDocument(
+          ctxFor('bob', t.telegram),
+          message,
+          doc({ file_size: undefined }),
+          deps,
+        );
+        return t;
+      },
+    ],
+  ];
+
+  it.each(refusals)('removes the file after refusing %s', async (_l, run) => {
+    const t = await run();
+
+    expect(retention.discard).toHaveBeenCalledTimes(1);
+    expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, 55);
+    // after the reply
+    expect(t.sendMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      retention.discard.mock.invocationCallOrder[0] as number,
+    );
+  });
+
+  it('records the file when it arrives, so the scheduled run can remove it if nothing else does', async () => {
+    const t = fakeTelegram(sebCsv(SEB_IBAN));
+    await handleDocument(ctxFor('alice', t.telegram), message, doc(), deps);
+
+    expect(retention.record).toHaveBeenCalledWith(100, 55);
+  });
+
+  describe('after the account buttons', () => {
+    const idOf = (data: string) => data.split(':')[1] as string;
+
+    it('removes the file when it turns out to be unreadable', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press(
+        'bob',
+        buttons[0].callback_data,
+        'x'.repeat(10 * 1024 * 1024 + 1),
+      );
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/could not read/);
+      expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, 55);
+    });
+
+    it('removes the file when the chosen account is no longer available', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press(
+        'bob',
+        `up:${idOf(buttons[0].callback_data)}:99`,
+        REVOLUT_CSV,
+      );
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/no longer available/);
+      expect(retention.discard).toHaveBeenCalledWith(t.telegram, 100, 55);
+    });
+
+    it('leaves the file when the request is unknown, for the scheduled run', async () => {
+      const t = await press('bob', 'up:no-such-upload:0', REVOLUT_CSV);
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/expired/);
+      expect(retention.discard).not.toHaveBeenCalled();
+    });
+
+    it('leaves the file while it is being imported for another account', async () => {
+      const { buttons } = await sendAndGetButtons('bob', REVOLUT_CSV);
+      await press('bob', buttons[0].callback_data, REVOLUT_CSV);
+      retention.discard.mockClear();
+
+      const t = await press('bob', buttons[1].callback_data, REVOLUT_CSV);
+
+      expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(/different account/);
+      expect(retention.discard).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps an accepted file in the chat until its outcome has been reported', async () => {
+    const t = fakeTelegram(sebCsv(SEB_IBAN));
+    await handleDocument(ctxFor('alice', t.telegram), message, doc(), deps);
+
+    expect(retention.discard).not.toHaveBeenCalled();
   });
 });
 

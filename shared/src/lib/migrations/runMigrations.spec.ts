@@ -319,6 +319,8 @@ describe('runMigrations (pglite)', () => {
       '0011-pending-upload-offers',
       '0012-recorded-outcome-lookup',
       '0013-member-chat-lookup',
+      '0014-record-bot-message',
+      '0015-claim-bot-messages',
     ]);
   });
 });
