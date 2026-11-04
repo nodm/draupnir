@@ -63,7 +63,7 @@
 - [x] 6.1 Implement `/accounts`, `/coverage`, and the `/newaccount` dialogue with per-step
       validation, confirm, `/cancel`, and expiry; verify every scenario for those
       requirements in `telegram-account-commands`.
-- [ ] 6.2 Implement `/share` (Cognito `ListUsers` email lookup) and `/unshare` with
+- [x] 6.2 Implement `/share` (Cognito `ListUsers` email lookup) and `/unshare` with
       notifications; verify the share, unknown-email, and last-owner scenarios.
 
 ## 7. Retention

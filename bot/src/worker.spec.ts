@@ -31,6 +31,20 @@ vi.mock('./lib/commands/newAccount', () => ({
   handleNewAccountCallback: vi.fn(),
   handleNewAccountText: vi.fn(),
 }));
+vi.mock('@aws-sdk/client-cognito-identity-provider', () => ({
+  CognitoIdentityProviderClient: class {},
+}));
+vi.mock('./lib/directory', () => ({ createCognitoDirectory: () => ({}) }));
+vi.mock('./lib/commands/share', () => ({
+  SHARE_ACCOUNT_PREFIX: 'sa',
+  SHARE_ROLE_PREFIX: 'sr',
+  UNSHARE_ACCOUNT_PREFIX: 'ua',
+  UNSHARE_MEMBER_PREFIX: 'um',
+  createShareHandler: vi.fn(),
+  createUnshareHandler: vi.fn(),
+  handleSharingCallback: vi.fn(),
+  handleSharingText: vi.fn(),
+}));
 vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
 vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
 vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));
@@ -58,6 +72,7 @@ describe('bot worker', () => {
     reportOutcome.mockReset();
     process.env['BOT_TOKEN_SECRET_ARN'] = 'arn:token';
     process.env['UPLOADS_BUCKET'] = 'bucket';
+    process.env['USER_POOL_ID'] = 'pool';
   });
 
   it('processes every record in order and reports no failures', async () => {
