@@ -1,8 +1,10 @@
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { S3Client } from '@aws-sdk/client-s3';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { isOutcomeMessage, loadDataApiConfigFromEnv } from 'shared';
+import { createCognitoDirectory, type UserDirectory } from './lib/directory';
 import { dispatch, HELP_TEXT, type Routes } from './lib/dispatcher';
 import {
   COVERAGE_CALLBACK_PREFIX,
@@ -18,6 +20,16 @@ import {
   handleNewAccountCallback,
   handleNewAccountText,
 } from './lib/commands/newAccount';
+import {
+  createShareHandler,
+  createUnshareHandler,
+  handleSharingCallback,
+  handleSharingText,
+  SHARE_ACCOUNT_PREFIX,
+  SHARE_ROLE_PREFIX,
+  UNSHARE_ACCOUNT_PREFIX,
+  UNSHARE_MEMBER_PREFIX,
+} from './lib/commands/share';
 import { createUnlinkHandler } from './lib/commands/unlink';
 import { loadLinkConfigFromEnv } from './lib/linking/config';
 import { createLinkStore } from './lib/linking/linkStore';
@@ -35,6 +47,18 @@ import { createTelegramClient } from './lib/telegram';
 
 const dataApiClient = new RDSDataClient({});
 const s3Client = new S3Client({});
+const cognitoClient = new CognitoIdentityProviderClient({});
+
+// Built on first use, so updates that never touch /share or /unshare do not
+// depend on USER_POOL_ID (or the Cognito permission) being configured.
+function lazyDirectory(make: () => UserDirectory): UserDirectory {
+  let directory: UserDirectory | undefined;
+  const get = () => (directory ??= make());
+  return {
+    findByEmail: (email) => get().findByEmail(email),
+    emailOf: (sub) => get().emailOf(sub),
+  };
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -62,6 +86,14 @@ export const handler: SQSHandler = async (event) => {
     bucket: requireEnv('UPLOADS_BUCKET'),
   };
   const accountDeps = { client: dataApiClient, config: dataApiConfig };
+  const sharing = {
+    ...accountDeps,
+    directory: lazyDirectory(() =>
+      createCognitoDirectory(cognitoClient, requireEnv('USER_POOL_ID')),
+    ),
+  };
+  const onSharingCallback: Routes['onCallback'] = (ctx, query, data) =>
+    handleSharingCallback(ctx, query, data, sharing);
   const onNewAccountCallback: Routes['onCallback'] = (ctx, query, data) =>
     handleNewAccountCallback(ctx, query, data, accountDeps);
   const routes = createRoutes({
@@ -73,12 +105,15 @@ export const handler: SQSHandler = async (event) => {
       coverage: createCoverageHandler(accountDeps),
       newaccount: createNewAccountHandler(accountDeps),
       cancel: createCancelHandler(accountDeps),
+      share: createShareHandler(sharing),
+      unshare: createUnshareHandler(sharing),
     },
     onDocument: (ctx, message, document) =>
       handleDocument(ctx, message, document, upload),
     // Free text answers an open dialogue; otherwise it is the help reply.
     onText: async (ctx, text) => {
       if (await handleNewAccountText(ctx, text, accountDeps)) return;
+      if (await handleSharingText(ctx, text, sharing)) return;
       await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);
     },
     callbacks: {
@@ -88,6 +123,10 @@ export const handler: SQSHandler = async (event) => {
         handleCoverageCallback(ctx, query, data, accountDeps),
       [BANK_CALLBACK_PREFIX]: onNewAccountCallback,
       [CONFIRM_CALLBACK_PREFIX]: onNewAccountCallback,
+      [SHARE_ACCOUNT_PREFIX]: onSharingCallback,
+      [SHARE_ROLE_PREFIX]: onSharingCallback,
+      [UNSHARE_ACCOUNT_PREFIX]: onSharingCallback,
+      [UNSHARE_MEMBER_PREFIX]: onSharingCallback,
     },
   });
 

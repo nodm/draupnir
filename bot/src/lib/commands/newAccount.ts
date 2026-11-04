@@ -248,6 +248,7 @@ export async function handleNewAccountText(
   if (!state) return false;
 
   if (state.step === 'bank' || state.step === 'confirm') {
+    await store(deps, ctx.sub).set<State>(NEW_ACCOUNT_KIND, state);
     await ctx.telegram.sendMessage(
       ctx.chatId,
       `Please use the buttons above. ${CANCEL_HINT}`,
