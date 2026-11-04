@@ -27,6 +27,7 @@ export interface RoutesOptions {
   onUnlinked: Routes['onUnlinked'];
   commands?: Routes['commands'];
   onDocument?: Routes['onDocument'];
+  onText?: Routes['onText'];
   // Button handlers by the prefix before the first ':' in the callback data.
   callbacks?: Record<string, CallbackRoute>;
 }
@@ -58,8 +59,10 @@ export function createRoutes(options: RoutesOptions): Routes {
         await route(ctx, query, data);
       }
     },
-    onText: async (ctx) => {
-      await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);
-    },
+    onText:
+      options.onText ??
+      (async (ctx) => {
+        await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);
+      }),
   };
 }

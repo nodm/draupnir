@@ -10,6 +10,7 @@ export interface MemberAccount {
   id: string;
   bank: string;
   iban: string;
+  currency: string;
   displayName: string;
   role: MemberRole;
 }
@@ -29,7 +30,7 @@ export async function listMemberAccounts(
         await executeStatement(
           client,
           config,
-          `SELECT a.id, a.bank, a.iban, a.display_name, m.role
+          `SELECT a.id, a.bank, a.iban, a.currency, a.display_name, m.role
            FROM account_members m JOIN accounts a ON a.id = m.account_id
           WHERE m.user_id = :sub
           ORDER BY a.display_name, a.id`,
@@ -43,6 +44,7 @@ export async function listMemberAccounts(
       id: string;
       bank: string;
       iban: string;
+      currency: string;
       display_name: string;
       role: MemberRole;
     }[]
@@ -50,6 +52,7 @@ export async function listMemberAccounts(
     id: r.id,
     bank: r.bank,
     iban: r.iban,
+    currency: r.currency,
     displayName: r.display_name,
     role: r.role,
   }));
