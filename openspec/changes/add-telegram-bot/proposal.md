@@ -86,7 +86,7 @@ user).
   - conversation state;
   - `project.json` with esbuild targets.
 - `shared`:
-  - migration `0004` adds the bot tables, all with RLS:
+  - migration `0009` adds the bot tables, all with RLS:
     - `messenger_links`, `link_requests`;
     - `bot_conversations`, `bot_pending_uploads`, `bot_messages`;
   - domain functions for listing accounts and coverage reused by the bot.

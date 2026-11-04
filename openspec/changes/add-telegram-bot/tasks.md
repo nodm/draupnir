@@ -15,7 +15,7 @@
 - [x] 2.2 Move account creation, membership changes, account listing, and coverage functions
       to `shared/src/lib/accounts/` (design.md decision 4) and switch `ingestion` to them;
       verify ingestion tests pass unchanged.
-- [x] 2.3 Add migration `0004-bot` with the tables, policies, and `SECURITY DEFINER`
+- [x] 2.3 Add migration `0009-bot` with the tables, policies, and `SECURITY DEFINER`
       functions from design.md decision 3; verify pglite tests: RLS guard test passes;
       a user can't read another user's `messenger_links`/`bot_conversations`; `link_requests`
       isn't directly readable; consume-state succeeds once, fails when reused or expired;
@@ -86,4 +86,8 @@
       the outcome, see the CSV message deleted; after 24h confirm the account list message
       is gone.
 - [ ] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
+      `docs/architecture.md`.
+- [ ] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
+      `bot:set-webhook`, rollback with `deleteWebhook`), user guide (linking, every command,
+      upload from the share sheet, retention behaviour), and troubleshooting. Link it from
       `docs/architecture.md`.

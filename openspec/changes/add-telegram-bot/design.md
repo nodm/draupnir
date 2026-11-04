@@ -61,7 +61,7 @@ EventBridge Scheduler (every 30 min) ──▶ retention λ ──▶ Telegram d
   isn't enough. If the commit succeeds and the publish fails, a retry of the
   upload would hit the already-recorded file and the chat would never get the
   original outcome; suppressing the retry would lose the outcome instead.
-  - Migration `0004` adds `statement_outcome_outbox(file_id PK, s3_key,
+  - Migration `0009` adds `statement_outcome_outbox(file_id PK, s3_key,
     payload jsonb, created_at, published_at NULL)`. The ingestion worker
     inserts the row **in the same transaction** that commits the file's
     outcome.
@@ -138,7 +138,7 @@ accepted only from the Telegram account that started the request. The attacker
 would also need the victim to read the code out to them, and the page shows
 whose Telegram account is asking and warns against exactly that.
 
-### 3. Data access and RLS for bot tables (migration `0004`)
+### 3. Data access and RLS for bot tables (migration `0009`)
 
 | Table | Purpose | RLS |
 |---|---|---|
@@ -218,7 +218,7 @@ outcome reply.
 1. Requires `redesign-statement-data-model` and `add-row-level-security`.
 2. Manual: create the bot with BotFather and put its token into the
    Pulumi-created secret.
-3. `infra:up` (migration `0004`, Lambdas, queues, routes, app client), then
+3. `infra:up` (migration `0009`, Lambdas, queues, routes, app client), then
    `pnpm exec nx run bot:set-webhook` registers the URL and secret token.
 4. Rollback: `deleteWebhook`. The bot tables can stay; ingestion is unaffected
    apart from the outcome publish.
