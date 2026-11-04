@@ -1,4 +1,6 @@
 import { createAuroraCluster } from './lib/aurora';
+import { createBot } from './lib/bot';
+import { createBotQueues } from './lib/botQueues';
 import { createAuthPool } from './lib/cognito';
 import { createDatabaseMigrations } from './lib/databaseMigrations';
 import { createIngestionApi } from './lib/ingestionApi';
@@ -21,10 +23,13 @@ const migrations = createDatabaseMigrations(
 const appDbConfig = auroraCluster.appDbConfig;
 // Schema before code: application Lambdas update only after migrations succeed.
 const afterMigrations = [migrations.invocation];
+// Created first: ingestion publishes each file's outcome to it.
+const botQueues = createBotQueues(provider);
 const ingestionPipeline = createIngestionPipeline(
   provider,
   appDbConfig,
   afterMigrations,
+  botQueues.outcomes,
 );
 const ingestionApi = createIngestionApi(
   authPool.userPool,
@@ -34,6 +39,13 @@ const ingestionApi = createIngestionApi(
   afterMigrations,
 );
 const mcpApi = createMcpApi(authPool.userPool, provider, afterMigrations);
+const bot = createBot(provider, {
+  authPool,
+  dbConfig: appDbConfig,
+  uploadsBucket: ingestionPipeline.uploadsBucket,
+  queues: botQueues,
+  dependsOn: afterMigrations,
+});
 
 export const userPoolId = authPool.userPool.id;
 export const userPoolArn = authPool.userPool.arn;
@@ -48,3 +60,11 @@ export const rebuildAccountFunctionName =
   ingestionPipeline.rebuildFunction.name;
 export const mcpApiId = mcpApi.restApi.id;
 export const mcpInvokeUrl = mcpApi.invokeUrl;
+export const botWebhookUrl = bot.webhookUrl;
+export const botCallbackUrl = bot.callbackUrl;
+export const botTokenSecretArn = bot.botTokenSecret.arn;
+export const botWebhookSecretArn = bot.webhookSecret.arn;
+export const botUpdatesQueueUrl = botQueues.updates.url;
+export const botUpdatesDlqUrl = botQueues.updatesDlq.url;
+export const botOutcomesQueueUrl = botQueues.outcomes.url;
+export const botOutcomesDlqUrl = botQueues.outcomesDlq.url;

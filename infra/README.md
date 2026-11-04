@@ -71,13 +71,24 @@ client (Web application type, with the Cognito domain's `/oauth2/idpresponse`
 callback URL registered) — not created by this Pulumi program. `authDomainPrefix`
 must be globally unique across all Cognito user pools (e.g. `draupnir-auth`).
 
+`createBot` (`infra/lib/bot.ts`) also needs the Telegram bot's username (the
+`@name` BotFather gave it, without the `@`); links to the bot are built from it:
+
+```bash
+pulumi config set botUsername "<bot-username>"
+```
+
+The bot token itself is **not** Pulumi config: create the bot with BotFather,
+store the token in the `bot-token` secret (`botTokenSecretArn` stack output),
+then run `pnpm exec nx run bot:set-webhook` (see `docs/telegram-bot.md`).
+
 `callbackUrl`/`logoutUrl` are optional (`pulumi config set callbackUrl "..."`)
 and default to `localhost` values meant for local client development.
 
 ## Deploying
 
 Use the Nx targets, not bare `pulumi preview`/`pulumi up` — the Pulumi program
-archives `dist/infra/preSignUpTrigger`, `dist/ingestion`, and `dist/mcp` as
+archives `dist/infra/preSignUpTrigger`, `dist/ingestion`, `dist/bot`, and `dist/mcp` as
 Lambda code, and those `dist/` directories don't exist until the Nx targets
 that build them run first:
 
@@ -87,5 +98,5 @@ pnpm exec nx run infra:up
 ```
 
 Both targets depend on `infra:build-pre-sign-up-trigger`, `ingestion:build`,
-and `mcp:build`, so Nx builds all three Lambda archives before invoking
+`bot:build`, and `mcp:install-deps`, so Nx builds all the Lambda archives before invoking
 Pulumi.
