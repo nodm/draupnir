@@ -21,9 +21,9 @@ picked compute (Lambda + API Gateway REST), auth (Cognito + Managed Login), DB a
 AWS region** any of this runs in. ADR-0003 named **eu-north-1 (Stockholm)** as a
 "target deployment region" and confirmed RDS Data API landed there, but that was
 stated as a working assumption to unblock that ADR's decision, not a resolved choice.
-ADR-0004 went further and explicitly flagged the gap as an open action item: *"Confirm
+ADR-0004 went further and explicitly flagged the gap as an open action item: _"Confirm
 current SES receiving region availability... don't assume region parity with the
-Aurora/API Gateway deployment region from ADR-0001–3."* This ADR closes both: it
+Aurora/API Gateway deployment region from ADR-0001–3."_ This ADR closes both: it
 re-verifies eu-north-1 against current (2026-08) AWS facts rather than carrying the
 assumption forward unexamined, and it resolves ADR-0004's specific open question.
 
@@ -37,7 +37,7 @@ APIs, S3 buckets, SQS queue, SES receiving) lands in one region.
 **Revolut Lithuania** (both EU-regulated banks, statements arrive as email
 attachments or CSV per ADR-0004), and **monobank (Ukraine)** — also email/CSV only,
 same as the other two. monobank being Ukrainian doesn't add an infrastructure
-consideration: it's a data *source*, not a system Draupnir integrates with over an
+consideration: it's a data _source_, not a system Draupnir integrates with over an
 API in a specific region; the transaction data it sends becomes rows in Aurora
 wherever Aurora lives, same as SEB/Revolut's data.
 
@@ -61,7 +61,7 @@ volunteers a residency question this ADR doesn't need to raise.
 Both users and both EU banks' data originate in the EU. GDPR's substantive rules
 (lawful basis, data minimization, retention, breach notification) apply regardless
 of which AWS region is picked — region choice is not what makes a system
-GDPR-compliant. What region choice *does* affect: keeping data at rest and
+GDPR-compliant. What region choice _does_ affect: keeping data at rest and
 processing inside the EU avoids the **international-transfer** question for the
 resources this ADR controls directly — no adequacy-decision/Standard Contractual
 Clauses analysis is needed just to pick a region, the way it would be for a non-EU
@@ -93,14 +93,14 @@ ADR-0003's working assumption:
   `inbound-smtp` endpoint**, i.e. both support email receiving today.
   ([AWS General Reference: SES endpoints](https://docs.aws.amazon.com/general/latest/gr/ses.html#ses_inbound_endpoints))
   This resolves ADR-0004's open item: region choice does not force SES into a
-  different region from the rest of the stack. Worth getting the *mechanism* right
+  different region from the rest of the stack. Worth getting the _mechanism_ right
   for the data-access design, though, since ADR-0004's receipt rule uses an S3
   action only — no SNS or Lambda action on the rule itself. SES's own same-region
-  rule (*"with the exception of Amazon S3 buckets, all of the AWS resources that you
+  rule (_"with the exception of Amazon S3 buckets, all of the AWS resources that you
   use for receiving email with SES have to be in the same AWS Region as the SES
-  endpoint"*) binds only the resources a receipt rule *directly* references, which
+  endpoint"_) binds only the resources a receipt rule _directly_ references, which
   here is nothing but the S3 bucket — and even that bucket only needs to sit in
-  *some* region where SES receiving is available, not necessarily the same one as
+  _some_ region where SES receiving is available, not necessarily the same one as
   the rule set itself, per the S3-action docs.
   ([AWS: S3 action, region note](https://docs.aws.amazon.com/ses/latest/dg/receiving-email-action-s3.html))
   The reason the SQS queue and ingestion Lambda from ADR-0004 still end up pinned to
@@ -122,9 +122,9 @@ hop from Vilnius," not "which region is local." Measured via WonderNetwork's
 distributed ping mesh (a proxy for real network path latency, not a synthetic
 great-circle estimate):
 
-| Route | Latency |
-|---|---|
-| Vilnius → Frankfurt | 32.63 ms |
+| Route               | Latency      |
+| ------------------- | ------------ |
+| Vilnius → Frankfurt | 32.63 ms     |
 | Vilnius → Stockholm | **15.84 ms** |
 
 ([WonderNetwork: pings from Vilnius](https://wondernetwork.com/pings/Vilnius))
@@ -154,12 +154,12 @@ at IaC-build time rather than trusted from this ADR months later. What's availab
 now, from a third-party regional cost benchmark comparing the same instance/service
 types across regions:
 
-| Service | Stockholm (eu-north-1) | Frankfurt (eu-central-1) | Frankfurt premium |
-|---|---|---|---|
-| RDS/Aurora (db.r5/r4.2xlarge, as a proxy for Aurora compute pricing) | $1.20/hr | $1.40/hr | **+17%** |
-| EC2 (m5.2xlarge) | $0.408/hr | $0.460/hr | +13% |
-| S3 Standard (first 50TB) | $0.0230/GB | $0.0245/GB | +7% |
-| DynamoDB on-demand writes | $1.343/M | $1.525/M | +14% |
+| Service                                                              | Stockholm (eu-north-1) | Frankfurt (eu-central-1) | Frankfurt premium |
+| -------------------------------------------------------------------- | ---------------------- | ------------------------ | ----------------- |
+| RDS/Aurora (db.r5/r4.2xlarge, as a proxy for Aurora compute pricing) | $1.20/hr               | $1.40/hr                 | **+17%**          |
+| EC2 (m5.2xlarge)                                                     | $0.408/hr              | $0.460/hr                | +13%              |
+| S3 Standard (first 50TB)                                             | $0.0230/GB             | $0.0245/GB               | +7%               |
+| DynamoDB on-demand writes                                            | $1.343/M               | $1.525/M                 | +14%              |
 
 ([tecRacer: European region cost benchmark](https://www.tecracer.com/blog/2022/11/high-level-aws-cost-benchmark-in-european-regions-including-new-zurich-region.html))
 
@@ -188,7 +188,7 @@ expansion, roughly 14 months later**. That's not a hypothetical concern — it a
 happened, to the exact service this stack depends on, and this ADR only discovered
 Stockholm had caught up by checking rather than assuming.
 
-Both regions are at feature parity for everything Draupnir needs *today* (per
+Both regions are at feature parity for everything Draupnir needs _today_ (per
 section 2), so this isn't a current blocker. But it's a legitimate asymmetric risk
 going forward: this project deliberately rides recent AWS launches (Data API's 2023
 redesign, API Gateway response streaming from Nov 2025 per ADR-0001, Cognito Managed
@@ -201,8 +201,8 @@ Items.
 **Deploy all infrastructure to eu-north-1 (Stockholm).**
 
 - Every resource across ADR-0001–4 (Cognito User Pool, Aurora Serverless v2 cluster
-  + Data API, Lambda functions, API Gateway REST APIs, S3 buckets, SQS queue + DLQ,
-  SES receiving) is provisioned in `eu-north-1` as one Pulumi stack (`prod`).
+  - Data API, Lambda functions, API Gateway REST APIs, S3 buckets, SQS queue + DLQ,
+    SES receiving) is provisioned in `eu-north-1` as one Pulumi stack (`prod`).
 - This **confirms** ADR-0003's working assumption rather than overturning it, but on
   the basis of this ADR's direct verification (SES receiving parity, current Data
   API availability, actual latency/cost numbers) — not by inheriting it unchecked.
@@ -214,19 +214,19 @@ Items.
 
 ## Options Considered
 
-| Option | GDPR/residency | Data API / Managed Login / SES receiving | Latency from Vilnius | Relative cost | Regional maturity |
-|---|---|---|---|---|---|
-| **eu-north-1 (Stockholm) — chosen** | EU, no differentiator | All confirmed available (Data API since 2025-02-26) | **15.84 ms** — best of the three | Lowest checked (Aurora/RDS ~17% cheaper than Frankfurt) | Newer region (opened 2018); historically ~14mo behind Frankfurt on Data API rollout, now caught up |
-| eu-central-1 (Frankfurt) | EU, no differentiator | All confirmed available (Data API since launch, Dec 2023) | 32.63 ms — ~2x Stockholm | Highest of the three checked | Older, larger EU region; best track record for day-one feature availability |
-| eu-west-1 (Ireland) | EU, no differentiator | Not individually re-verified — AWS's most mature EU region, no reason to expect a gap | 48.55 ms — worst of the three | ~5% pricier than Stockholm per the same benchmark family | Oldest EU region (2007); ruled out on cost + latency before a full feature check was needed |
+| Option                              | GDPR/residency        | Data API / Managed Login / SES receiving                                              | Latency from Vilnius             | Relative cost                                            | Regional maturity                                                                                  |
+| ----------------------------------- | --------------------- | ------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **eu-north-1 (Stockholm) — chosen** | EU, no differentiator | All confirmed available (Data API since 2025-02-26)                                   | **15.84 ms** — best of the three | Lowest checked (Aurora/RDS ~17% cheaper than Frankfurt)  | Newer region (opened 2018); historically ~14mo behind Frankfurt on Data API rollout, now caught up |
+| eu-central-1 (Frankfurt)            | EU, no differentiator | All confirmed available (Data API since launch, Dec 2023)                             | 32.63 ms — ~2x Stockholm         | Highest of the three checked                             | Older, larger EU region; best track record for day-one feature availability                        |
+| eu-west-1 (Ireland)                 | EU, no differentiator | Not individually re-verified — AWS's most mature EU region, no reason to expect a gap | 48.55 ms — worst of the three    | ~5% pricier than Stockholm per the same benchmark family | Oldest EU region (2007); ruled out on cost + latency before a full feature check was needed        |
 
 ## Trade-off Analysis
 
 - **Why Stockholm over Frankfurt despite Frankfurt's better feature-rollout track
-  record**: the track-record risk is about *future* AWS launches landing in
+  record**: the track-record risk is about _future_ AWS launches landing in
   Frankfurt first, not a gap in what's needed today — every service this stack
   actually uses was independently re-verified as available in Stockholm right now.
-  Weighed against a *confirmed* ~17% Aurora cost saving and roughly half the network
+  Weighed against a _confirmed_ ~17% Aurora cost saving and roughly half the network
   latency from Vilnius, a "might lag by some months on some future feature" risk is
   the weaker signal. If a future ADR needs a service that hasn't reached Stockholm
   yet, that's the trigger to revisit — not a reason to preemptively pay Frankfurt's

@@ -102,7 +102,7 @@
       is gone.
 - [ ] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
       `docs/architecture.md`.
-- [ ] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
+- [x] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
       `bot:set-webhook`, rollback with `deleteWebhook`), user guide (linking, every command,
       upload from the share sheet, retention behaviour), and troubleshooting. Link it from
       `docs/architecture.md`.

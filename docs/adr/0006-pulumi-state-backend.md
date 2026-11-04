@@ -125,7 +125,7 @@ not a bare passphrase.**
       out-of-band (console or a one-off script — not the `draupnir-infra` stack
       itself).
 - [ ] `pulumi login s3://nodm-pulumi-state/draupnir`, then `pulumi stack init
-    prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"` before the
+prod --secrets-provider="awskms://alias/nodm-pulumi-state?region=eu-north-1"` before the
       first `pulumi up`.
 - [x] Store the bucket name and KMS key ARN somewhere durable outside Pulumi
       state itself — see [infra/README.md](../../infra/README.md).
