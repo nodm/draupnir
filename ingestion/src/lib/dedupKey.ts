@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { minorUnitExponent } from 'shared';
 
 // Bank statements never carry a timezone offset for their date-only or
 // datetime fields; a fixed zone makes `posted_date` resolution deterministic
@@ -9,56 +10,10 @@ export function normalizeDescription(description: string): string {
   return description.trim().toLowerCase();
 }
 
-// ISO 4217 currencies whose minor-unit exponent isn't the default of 2 —
-// assuming 2 decimals everywhere silently mis-scales amounts (e.g. a JPY
-// 100 would become 10,000 minor units) rather than erroring, so this has
-// to be explicit rather than assumed.
-const ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF',
-  'CLP',
-  'DJF',
-  'GNF',
-  'ISK',
-  'JPY',
-  'KMF',
-  'KRW',
-  'PYG',
-  'RWF',
-  'UGX',
-  'VND',
-  'VUV',
-  'XAF',
-  'XOF',
-  'XPF',
-]);
-const THREE_DECIMAL_CURRENCIES = new Set([
-  'BHD',
-  'IQD',
-  'JOD',
-  'KWD',
-  'LYD',
-  'OMR',
-  'TND',
-]);
-const FOUR_DECIMAL_CURRENCIES = new Set(['CLF', 'UYW']);
-
-export function minorUnitExponent(currency: string): number {
-  const code = currency.trim().toUpperCase();
-  if (ZERO_DECIMAL_CURRENCIES.has(code)) return 0;
-  if (THREE_DECIMAL_CURRENCIES.has(code)) return 3;
-  if (FOUR_DECIMAL_CURRENCIES.has(code)) return 4;
-  return 2;
-}
+export { formatMinorUnits, minorUnitExponent } from 'shared';
 
 export function toMinorUnits(amount: number, currency: string): number {
   return Math.round(amount * 10 ** minorUnitExponent(currency));
-}
-
-// Inverse of toMinorUnits, for human-readable messages: (-1050, 'EUR') -> '-10.50'.
-export function formatMinorUnits(minor: number, currency: string): string {
-  return (minor / 10 ** minorUnitExponent(currency)).toFixed(
-    minorUnitExponent(currency),
-  );
 }
 
 export function resolvePostedDate(date: Date): string {

@@ -55,7 +55,7 @@ function isBank(value: string): value is Bank {
   return (BANKS as readonly string[]).includes(value);
 }
 
-function isValidIsoDate(value: unknown): value is string {
+export function isValidIsoDate(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
   }
@@ -71,7 +71,7 @@ function isNonEmptyString(value: unknown): value is string {
 // per-row resolution query (owner membership + iban) can't be bypassed by casing/whitespace —
 // e.g. SEB statements carry uppercase, unspaced IBANs, so an account
 // created with lowercase or spaced input would never resolve a row.
-function canonicalizeIban(iban: string): string {
+export function canonicalizeIban(iban: string): string {
   return iban.replace(/\s+/g, '').toUpperCase();
 }
 
@@ -92,6 +92,19 @@ function hasValidIbanChecksum(iban: string): boolean {
   return BigInt(numeric) % BigInt(97) === BigInt(1);
 }
 
+// True for a canonical IBAN (see canonicalizeIban) with a valid shape and
+// checksum.
+export function isValidIban(canonicalIban: string): boolean {
+  return (
+    IBAN_SHAPE_PATTERN.test(canonicalIban) &&
+    hasValidIbanChecksum(canonicalIban)
+  );
+}
+
+export function isSupportedBank(value: string): value is Bank {
+  return isBank(value);
+}
+
 export async function createAccount(
   client: RDSDataClient,
   config: DataApiConfig,
@@ -108,7 +121,7 @@ export async function createAccount(
     throw new InvalidAccountInputError('iban');
   }
   const iban = canonicalizeIban(input.iban);
-  if (!IBAN_SHAPE_PATTERN.test(iban) || !hasValidIbanChecksum(iban)) {
+  if (!isValidIban(iban)) {
     throw new InvalidAccountInputError('iban');
   }
   if (!isNonEmptyString(input.currency)) {
