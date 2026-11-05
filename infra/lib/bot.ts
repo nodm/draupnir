@@ -17,7 +17,10 @@ const WEBHOOK_TIMEOUT_SECONDS = 10;
 const CALLBACK_TIMEOUT_SECONDS = 29;
 // One try per message: up to 2000 deletions per run plus an Aurora resume.
 const RETENTION_TIMEOUT_SECONDS = 600;
-const RETENTION_SCHEDULE = 'rate(30 minutes)';
+// Every run wakes the paused Aurora cluster, so this is as sparse as the work
+// allows: messages go 24-25 hours after sending (Telegram allows 48), and a
+// missed outcome is republished within the hour.
+const RETENTION_SCHEDULE = 'rate(1 hour)';
 
 // The public endpoints are open to the internet by design (Telegram and the
 // user's browser call them), so cap what a flood can cost.

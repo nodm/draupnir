@@ -47,7 +47,7 @@ Telegram ──POST /telegram/webhook──▶ webhook λ ──▶ SQS FIFO (gr
                                            ▼    │
                          ingestion pipeline ──▶ outcome SQS ──┘ (same worker, second event source)
 Browser ──GET /telegram/callback──▶ callback λ ──▶ Cognito token endpoint, Aurora, Telegram
-EventBridge Scheduler (every 30 min) ──▶ retention λ ──▶ Telegram deleteMessage, Aurora
+EventBridge Scheduler (every hour) ──▶ retention λ ──▶ Telegram deleteMessage, Aurora
 ```
 
 - **Webhook λ:** only checks the secret (`crypto.timingSafeEqual`) and does
@@ -66,7 +66,7 @@ EventBridge Scheduler (every 30 min) ──▶ retention λ ──▶ Telegram d
     inserts the row **in the same transaction** that commits the file's
     outcome.
   - After commit it publishes to the outcome queue and sets `published_at`.
-  - A scheduled sweeper (the retention λ's schedule, every 30 min, plus once
+  - A scheduled sweeper (the retention λ's schedule, every hour, plus once
     right after each ingestion run) re-publishes rows still unpublished after
     1 minute.
   - Redelivered upload messages re-emit the recorded outcome
@@ -194,7 +194,7 @@ just having signed in.
 ### 8. Retention
 
 `bot_messages` rows are written for every financial message sent. The retention
-λ runs every 30 minutes and deletes messages older than 24 hours. Any delete
+λ runs every hour and deletes messages older than 24 hours. Any delete
 error marks `failed_at` and logs, with no retry, so a missed 48-hour window is
 reported instead of looping. The uploaded document is deleted right after the
 outcome reply.

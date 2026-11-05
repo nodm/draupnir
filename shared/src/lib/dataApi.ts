@@ -18,6 +18,58 @@ export interface DataApiConfig {
   resourceArn: string;
   secretArn: string;
   database: string;
+  // How long calls wait for a paused cluster to wake (see withResumeRetry).
+  resumeRetry?: ResumeRetryOptions;
+}
+
+export interface ResumeRetryOptions {
+  maxTotalWaitMs?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+// Fits the bot worker's 90-second timeout; the migration runner, which has 300
+// seconds, asks for more.
+const DEFAULT_MAX_TOTAL_WAIT_MS = 60_000;
+const DEFAULT_INITIAL_DELAY_MS = 1000;
+const DEFAULT_MAX_DELAY_MS = 15_000;
+
+const isResumeInProgress = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'DatabaseResumingException';
+
+// The cluster scales to zero (aurora.ts). The first Data API call after a pause
+// is refused with DatabaseResumingException while it wakes, which takes seconds
+// up to about a minute. The refusal comes before anything runs, so waiting and
+// asking again is always safe. Without this, the first message after a quiet
+// spell would fail and wait for its queue's next delivery instead. Only that
+// error is retried, with capped exponential backoff. This is the one retry
+// layer: every executeStatement, batchExecuteStatement and beginTransaction
+// goes through it, so callers (and the migration runner) must not add another.
+export async function withResumeRetry<T>(
+  call: () => Promise<T>,
+  options: ResumeRetryOptions = {},
+): Promise<T> {
+  const maxTotal = options.maxTotalWaitMs ?? DEFAULT_MAX_TOTAL_WAIT_MS;
+  const maxDelay = options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
+  const sleep =
+    options.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  let delay = options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS;
+  let waited = 0;
+
+  for (;;) {
+    try {
+      return await call();
+    } catch (error) {
+      if (!isResumeInProgress(error) || waited >= maxTotal) {
+        throw error;
+      }
+      const wait = Math.min(delay, maxDelay, maxTotal - waited);
+      await sleep(wait);
+      waited += wait;
+      delay *= 2;
+    }
+  }
 }
 
 export function loadDataApiConfigFromEnv(): DataApiConfig {
@@ -101,16 +153,20 @@ export async function executeStatement(
   parameters: Record<string, SqlParameterValue> = {},
   transactionId?: string,
 ): Promise<ExecuteResult> {
-  const response = await client.send(
-    new ExecuteStatementCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-      sql,
-      parameters: toSqlParameters(parameters),
-      transactionId,
-      formatRecordsAs: 'JSON',
-    }),
+  const response = await withResumeRetry(
+    () =>
+      client.send(
+        new ExecuteStatementCommand({
+          resourceArn: config.resourceArn,
+          secretArn: config.secretArn,
+          database: config.database,
+          sql,
+          parameters: toSqlParameters(parameters),
+          transactionId,
+          formatRecordsAs: 'JSON',
+        }),
+      ),
+    config.resumeRetry,
   );
 
   return {
@@ -133,15 +189,19 @@ export async function batchExecuteStatement(
   parameterSets: Record<string, SqlParameterValue>[],
   transactionId?: string,
 ): Promise<void> {
-  await client.send(
-    new BatchExecuteStatementCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-      sql,
-      parameterSets: parameterSets.map(toSqlParameters),
-      transactionId,
-    }),
+  await withResumeRetry(
+    () =>
+      client.send(
+        new BatchExecuteStatementCommand({
+          resourceArn: config.resourceArn,
+          secretArn: config.secretArn,
+          database: config.database,
+          sql,
+          parameterSets: parameterSets.map(toSqlParameters),
+          transactionId,
+        }),
+      ),
+    config.resumeRetry,
   );
 }
 
@@ -149,12 +209,16 @@ export async function beginTransaction(
   client: RDSDataClient,
   config: DataApiConfig,
 ): Promise<string> {
-  const response = await client.send(
-    new BeginTransactionCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-    }),
+  const response = await withResumeRetry(
+    () =>
+      client.send(
+        new BeginTransactionCommand({
+          resourceArn: config.resourceArn,
+          secretArn: config.secretArn,
+          database: config.database,
+        }),
+      ),
+    config.resumeRetry,
   );
 
   if (!response.transactionId) {

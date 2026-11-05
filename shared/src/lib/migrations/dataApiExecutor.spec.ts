@@ -1,5 +1,6 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { createDataApiExecutor, withResumeRetry } from './dataApiExecutor';
+import { withResumeRetry } from '../dataApi';
+import { createDataApiExecutor } from './dataApiExecutor';
 
 const config = {
   resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',
@@ -31,6 +32,40 @@ describe('createDataApiExecutor resume retry', () => {
 
     expect(send).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1000, 2000]);
+  });
+
+  it('waits for the cluster once, not once per layer', async () => {
+    const send = vi.fn().mockRejectedValue(resumingError());
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const executor = createDataApiExecutor(
+      { send } as unknown as RDSDataClient,
+      config,
+      { sleep, maxTotalWaitMs: 5000 },
+    );
+
+    await expect(executor.begin()).rejects.toMatchObject({
+      name: 'DatabaseResumingException',
+    });
+
+    // 1 + 2 + 2 s of waiting (capped at the 5 s budget), then it gives up: no
+    // second cycle inside another retry.
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1000, 2000, 2000]);
+    expect(send).toHaveBeenCalledTimes(4);
+  });
+
+  it('gives the migration runner a longer budget than the default', async () => {
+    const send = vi.fn().mockRejectedValue(resumingError());
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const executor = createDataApiExecutor(
+      { send } as unknown as RDSDataClient,
+      config,
+      { sleep },
+    );
+
+    await expect(executor.begin()).rejects.toThrow();
+
+    const total = sleep.mock.calls.reduce((n, [ms]) => n + (ms as number), 0);
+    expect(total).toBe(120_000);
   });
 
   it('does not retry other errors', async () => {
