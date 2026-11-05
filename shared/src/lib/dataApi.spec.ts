@@ -157,6 +157,22 @@ describe('waking from an Aurora pause', () => {
     expect(send.mock.calls.length).toBeLessThan(15);
   });
 
+  it('waits at most the budget its config gives it', async () => {
+    const { client, send } = sleepyClient(Number.POSITIVE_INFINITY);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      executeStatement(
+        client,
+        { ...config, resumeRetry: { maxTotalWaitMs: 3000, sleep } },
+        'SELECT 1',
+      ),
+    ).rejects.toMatchObject({ name: 'DatabaseResumingException' });
+
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([1000, 2000]);
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+
   it('does not retry any other error', async () => {
     const { client, send } = sleepyClient(1, () => new Error('syntax error'));
 
