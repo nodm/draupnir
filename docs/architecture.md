@@ -81,7 +81,9 @@ graph TB
     WorkerFn["λ bot-worker<br/>no VPC"]
     RetentionFn["λ bot-retention<br/>every hour, no retries"]
     TelegramClient["Cognito client<br/>draupnir-telegram"]
-    BotSecrets[("Secrets: bot token,<br/>webhook secret, client secret")]
+    BotToken[("Secret: bot token<br/>(value stored by hand)")]
+    WebhookSecret[("Secret: webhook<br/>secret header")]
+    ClientSecret[("Secret: Cognito<br/>client secret")]
 
     BotApi --> WebhookFn
     BotApi --> CallbackFn
@@ -102,8 +104,14 @@ graph TB
   CallbackFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   RetentionFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   IngestFn -- "publishes each outcome" --> OutcomesQ
-  WebhookFn & CallbackFn & WorkerFn & RetentionFn -. "read" .-> BotSecrets
+  WebhookFn -. "read" .-> WebhookSecret
+  CallbackFn -. "read" .-> BotToken
+  CallbackFn -. "read" .-> ClientSecret
+  WorkerFn -. "read" .-> BotToken
+  RetentionFn -. "read" .-> BotToken
+  MigrateInvocation -. "dependsOn" .-> CallbackFn
   MigrateInvocation -. "dependsOn" .-> WorkerFn
+  MigrateInvocation -. "dependsOn" .-> RetentionFn
 
   UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
   UploadFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
