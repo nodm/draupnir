@@ -74,7 +74,7 @@
 
 ## 8. Infra and live verification
 
-- [ ] 8.1 Add `infra/lib/bot.ts`: webhook route without authorizer, callback route, FIFO and
+- [x] 8.1 Add `infra/lib/bot.ts`: webhook route without authorizer, callback route, FIFO and
       outcome queues, Lambdas without VPC, Scheduler rule, worker event source mapping with
       `ReportBatchItemFailures` (the worker returns `batchItemFailures`) and a DLQ, `draupnir-telegram` Cognito app
       client with its own `ManagedLoginBranding` (`useCognitoProvidedValues: true`,
@@ -92,15 +92,15 @@
       Retention Lambda env: `BOT_TOKEN_SECRET_ARN`, DB vars, optional `OUTCOME_QUEUE_URL`
       (+ `sqs:SendMessage`); it needs no VPC and no S3/Cognito access. The worker's Telegram client
       also records every sent message, so the worker needs no extra permission for that.
-      Status: code, `infra:build`, an offline Pulumi-mock test (`infra/src/bot.spec.ts`) and the
-      `bot:set-webhook` / `bot:delete-webhook` targets are done. Still open: a real
-      `nx run infra:preview` (needs `aws login`, and `pulumi config set botUsername ...`).
+      Status: done. `infra:build`, an offline Pulumi-mock test (`infra/src/bot.spec.ts`), the
+      `bot:set-webhook` / `bot:delete-webhook` targets, and a real `nx run infra:preview` (46 to
+      create, 8 to update, 1 replace: the migration invocation, expected) all pass.
 - [ ] 8.2 Manual: create the bot with BotFather, store the token, `infra:up`, run
       `bot:set-webhook`. Live check with both users' phones (Android and iPhone): link, create
       an account, share it, upload a Revolut CSV from the banking app's share sheet, receive
       the outcome, see the CSV message deleted; after 24h confirm the account list message
       is gone.
-- [ ] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
+- [x] 8.3 Verify `pnpm exec nx run-many -t lint test build` passes; update
       `docs/architecture.md`.
 - [x] 8.4 Write `docs/telegram-bot.md`: one-time setup runbook (BotFather, secrets, `infra:up`,
       `bot:set-webhook`, rollback with `deleteWebhook`), user guide (linking, every command,
