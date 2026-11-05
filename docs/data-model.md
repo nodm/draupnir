@@ -1,10 +1,13 @@
 # Data model
 
-Reference for every table in the `public` schema and every function in the `draupnir`
-schema of the Aurora database. The migrations in `shared/src/lib/migrations/` are the
+Reference for the 13 application tables in the `public` schema and every function in the
+`draupnir` schema of the Aurora database. (The migration runner's own bookkeeping table,
+`schema_migrations` with `id`, `checksum` and `applied_at`, is created by the runner on its
+first run rather than by a migration, and is not covered here or by the test.) The migrations in `shared/src/lib/migrations/` are the
 source of truth; this page explains them. A test (`shared/src/lib/dataModelDoc.spec.ts`)
-fails when a table, a column, a column's type or nullability, or a function is added,
-removed or changed without this page following, so it cannot silently go stale.
+fails when a table, a column, a column's type or nullability, a function, or what the
+application role may do to a table is added, removed or changed without this page following,
+so it cannot silently go stale.
 
 Why the statement tables look this way: [ADR-0008](./adr/0008-statement-data-model.md). How
 they are reached: [ADR-0003](./adr/0003-aurora-access-pattern.md) (RDS Data API only).
@@ -91,7 +94,8 @@ One row per import attempt, approved or rejected.
   twice.
 - Access: a rejected file is visible only to its uploader; an approved file to members of
   the upload account or of any account it resolved to. Insert needs `uploaded_by` = caller
-  and ownership of the upload account.
+  and ownership of the upload account. The application role can never update or delete a
+  file row.
 - Written by `processStatementFile` in `ingestion`.
 
 ### `statement_file_accounts`
@@ -113,7 +117,9 @@ What an approved file did to each account it covered (one file can span accounts
 
 - Primary key `(file_id, account_id)`; index on `account_id`.
 - Source of `/coverage`: periods, gaps and the "reconciled up to" date are computed from it.
-- Access: members read; owners insert, but only for a file they may link (`can_link_file`).
+- Access: members read; owners insert (only for a file they may link, `can_link_file`) and
+  delete. The one column ever updated is `new_transaction_count` (a rebuild refreshes it);
+  every other column is immutable to the application role.
 
 ### `raw_rows`
 
@@ -283,12 +289,36 @@ commits the file, so a committed outcome is never lost.
 - Access: none directly (deny-all policy). Only `enqueue_outcome`, `due_outcomes`,
   `mark_outcome_published`, `unreported_outcomes` and `recorded_outcome` touch it.
 
+## Privileges of the application role
+
+What `draupnir_app` (the role every Lambda except the migration runner uses) is granted on
+each table, before row-level security narrows it further. `UPDATE(column)` means the role
+may update only that column. A test compares this table with the database's grants.
+
+| Table                      | Grants                                                | Why                                                        |
+| -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------- |
+| `accounts`                 | DELETE, SELECT, UPDATE                                | Created through `create_account`, so no INSERT.            |
+| `account_members`          | DELETE, INSERT, SELECT, UPDATE                        | Owners manage membership.                                  |
+| `statement_files`          | INSERT, SELECT                                        | An import record is never changed or removed.              |
+| `statement_file_accounts`  | DELETE, INSERT, SELECT, UPDATE(new_transaction_count) | Only the count is refreshed, by a rebuild.                 |
+| `raw_rows`                 | DELETE, INSERT, SELECT, UPDATE                        | Owners write; a rebuild rewrites derived data.             |
+| `transactions`             | DELETE, INSERT, SELECT, UPDATE                        | As above.                                                  |
+| `transaction_sources`      | DELETE, INSERT, SELECT, UPDATE                        | As above.                                                  |
+| `messenger_links`          | DELETE, SELECT                                        | Read and `/unlink` own row; created by `redeem_link_code`. |
+| `link_requests`            | none                                                  | Only through functions.                                    |
+| `bot_conversations`        | DELETE, INSERT, SELECT, UPDATE                        | Own rows only (policy).                                    |
+| `bot_pending_uploads`      | DELETE, INSERT, SELECT, UPDATE                        | Own rows only (policy).                                    |
+| `bot_messages`             | DELETE, INSERT, SELECT, UPDATE                        | Own rows only (policy).                                    |
+| `statement_outcome_outbox` | none                                                  | Only through functions.                                    |
+
 ## Functions (`draupnir` schema)
 
 Every `SECURITY DEFINER` function pins `search_path = pg_catalog, pg_temp`, schema-qualifies
-what it touches, has `EXECUTE` revoked from `PUBLIC` and granted to `draupnir_app` only. A
-guard test enforces that. `current_sub` and `is_member` are the building blocks of the
-policies; the rest let a job act where a policy would (rightly) refuse it.
+what it touches, and has `EXECUTE` revoked from `PUBLIC`. All of them are granted to
+`draupnir_app` except `keep_last_owner`, a trigger function that only its trigger calls and
+nobody may call directly. `current_sub` is not `SECURITY DEFINER`; it only reads the caller.
+A guard test enforces the rest. `current_sub` and `is_member` are the building blocks of the
+policies; the others let a job act where a policy would (rightly) refuse it.
 
 | Function                   | Purpose                                                                                      |
 | -------------------------- | -------------------------------------------------------------------------------------------- |

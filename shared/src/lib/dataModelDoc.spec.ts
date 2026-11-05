@@ -25,12 +25,15 @@ interface DocColumn {
 function parseDoc(markdown: string) {
   const tables = new Map<string, Map<string, DocColumn>>();
   const functions = new Set<string>();
+  const privileges = new Map<string, string>();
   let table: string | null = null;
   let inFunctions = false;
+  let inPrivileges = false;
 
   for (const line of markdown.split('\n')) {
     if (line.startsWith('## ')) {
       inFunctions = line.startsWith('## Functions');
+      inPrivileges = line.startsWith('## Privileges');
       table = null;
       continue;
     }
@@ -43,7 +46,9 @@ function parseDoc(markdown: string) {
     const cells = line.split('|').map((c) => c.trim());
     const name = /^`([a-z0-9_]+)`$/.exec(cells[1] ?? '')?.[1];
     if (!name) continue;
-    if (inFunctions) {
+    if (inPrivileges) {
+      privileges.set(name, (cells[2] ?? '').replace(/\s+/g, ' '));
+    } else if (inFunctions) {
       functions.add(name);
     } else if (table) {
       (tables.get(table) as Map<string, DocColumn>).set(name, {
@@ -52,7 +57,7 @@ function parseDoc(markdown: string) {
       });
     }
   }
-  return { tables, functions };
+  return { tables, functions, privileges };
 }
 
 let db: PGlite;
@@ -113,6 +118,73 @@ describe('docs/data-model.md matches the migrations', () => {
       SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'draupnir' ORDER BY 1`);
     expect([...doc().functions].sort()).toEqual(rows.map((r) => r.proname));
+  });
+
+  it('states exactly what the application role may do to each table', async () => {
+    const grants = await db.query<{ table_name: string; privs: string }>(`
+      SELECT table_name, string_agg(privilege_type, ', ' ORDER BY privilege_type) AS privs
+        FROM information_schema.role_table_grants
+       WHERE grantee = 'draupnir_app' AND table_schema = 'public'
+       GROUP BY table_name`);
+    const columns = await db.query<{ table_name: string; cols: string }>(`
+      SELECT table_name, string_agg(column_name, ', ' ORDER BY column_name) AS cols
+        FROM information_schema.column_privileges
+       WHERE grantee = 'draupnir_app' AND table_schema = 'public'
+         AND privilege_type = 'UPDATE'
+       GROUP BY table_name`);
+    const tables = await db.query<{ tablename: string }>(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY 1`,
+    );
+
+    const tableLevel = new Map(grants.rows.map((r) => [r.table_name, r.privs]));
+    const columnLevel = new Map(
+      columns.rows.map((r) => [r.table_name, r.cols]),
+    );
+    const actual: Record<string, string> = {};
+    for (const { tablename } of tables.rows) {
+      const parts = (tableLevel.get(tablename) ?? '')
+        .split(', ')
+        .filter(Boolean);
+      const columnsOnly = columnLevel.get(tablename);
+      // A column-level UPDATE only counts when there is no table-level UPDATE.
+      if (columnsOnly && !parts.includes('UPDATE')) {
+        parts.push(`UPDATE(${columnsOnly})`);
+      }
+      actual[tablename] = parts.length > 0 ? parts.join(', ') : 'none';
+    }
+
+    expect(Object.fromEntries(doc().privileges)).toEqual(actual);
+  });
+
+  it('keeps every SECURITY DEFINER function pinned, closed to PUBLIC, and open to the app role except the trigger-only one', async () => {
+    const { rows } = await db.query<{
+      proname: string;
+      prosecdef: boolean;
+      app: boolean;
+      public_exec: boolean;
+      pinned: boolean;
+    }>(`
+      SELECT p.proname, p.prosecdef,
+             has_function_privilege('draupnir_app', p.oid, 'EXECUTE') AS app,
+             EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                      WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS public_exec,
+             coalesce(p.proconfig, '{}') @> ARRAY['search_path=pg_catalog, pg_temp'] AS pinned
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'draupnir' ORDER BY 1`);
+
+    const definers = rows.filter((r) => r.prosecdef);
+    expect(definers.length).toBeGreaterThan(20);
+    for (const f of definers) {
+      expect(f.pinned, `${f.proname} pins search_path`).toBe(true);
+      expect(f.public_exec, `${f.proname} closed to PUBLIC`).toBe(false);
+      expect(f.app, `${f.proname} open to draupnir_app`).toBe(
+        f.proname !== 'keep_last_owner',
+      );
+    }
+    // The only function that is not SECURITY DEFINER is the one the page says.
+    expect(rows.filter((r) => !r.prosecdef).map((r) => r.proname)).toEqual([
+      'current_sub',
+    ]);
   });
 
   it('has something to check: the parser found tables, columns and functions', () => {
