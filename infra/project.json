@@ -65,6 +65,13 @@
         "cwd": "infra"
       }
     },
+    "reset-data": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "infra/scripts/reset-data.sh"
+      }
+    },
     "destroy": {
       "executor": "nx:run-commands",
       "options": {
