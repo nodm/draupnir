@@ -79,7 +79,7 @@ graph TB
     OutcomesQ["SQS: bot-outcomes"]
     BotDlq["DLQs (updates, outcomes)"]
     WorkerFn["λ bot-worker<br/>no VPC"]
-    RetentionFn["λ bot-retention<br/>every 30 min, no retries"]
+    RetentionFn["λ bot-retention<br/>every hour, no retries"]
     TelegramClient["Cognito client<br/>draupnir-telegram"]
     BotSecrets[("Secrets: bot token,<br/>webhook secret, client secret")]
 
