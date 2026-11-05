@@ -108,6 +108,24 @@ done
 
 (The description is not managed by Pulumi, so this does not conflict with the next deploy.)
 
+### Starting over
+
+To wipe everything (all accounts, statements, transactions, uploaded CSVs, queued messages
+and the Telegram link) and begin again:
+
+```bash
+pnpm exec nx run infra:reset-data                                     # only looks
+pnpm exec nx run infra:reset-data -- --i-know-this-deletes-everything
+```
+
+The first command is a dry run: it prints what exists and changes nothing. Add `--snapshot`
+to the second to take a database snapshot first. A real reset first switches off the bot's
+queue consumers and waits about 100 seconds for work already running, then wipes, then
+switches them back on (also if it fails part way), so nothing recreates data mid-reset. It keeps the schema, `schema_migrations` and `bot_messages`, so
+the hourly run still deletes the bot's old messages from your chat. Afterwards send `/start`
+and link again. The script is `infra/scripts/reset-data.sh`; tests keep its table list in
+step with the schema.
+
 ## User guide
 
 Talk to the bot in a **private chat**. Send it anything it does not understand to see the
