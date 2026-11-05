@@ -14,6 +14,33 @@ import {
 // touch @aws-sdk/client-rds-data directly, so a future move to a driver-based
 // client stays contained to this module.
 
+// The cluster scales to zero (aurora.ts). The first Data API call after a pause
+// is refused with DatabaseResumingException while it wakes, which takes seconds
+// up to about a minute. The refusal comes before anything runs, so waiting and
+// asking again is always safe. Without this, the first message after a quiet
+// spell would fail and wait for its queue's next delivery instead.
+const RESUME_BUDGET_MS = 50_000;
+const RESUME_FIRST_DELAY_MS = 1_000;
+const RESUME_MAX_DELAY_MS = 10_000;
+
+const isResuming = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'DatabaseResumingException';
+
+async function sendResilient<T>(send: () => Promise<T>): Promise<T> {
+  let waited = 0;
+  let delay = RESUME_FIRST_DELAY_MS;
+  for (;;) {
+    try {
+      return await send();
+    } catch (error) {
+      if (!isResuming(error) || waited + delay > RESUME_BUDGET_MS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      waited += delay;
+      delay = Math.min(delay * 2, RESUME_MAX_DELAY_MS);
+    }
+  }
+}
+
 export interface DataApiConfig {
   resourceArn: string;
   secretArn: string;
@@ -101,16 +128,18 @@ export async function executeStatement(
   parameters: Record<string, SqlParameterValue> = {},
   transactionId?: string,
 ): Promise<ExecuteResult> {
-  const response = await client.send(
-    new ExecuteStatementCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-      sql,
-      parameters: toSqlParameters(parameters),
-      transactionId,
-      formatRecordsAs: 'JSON',
-    }),
+  const response = await sendResilient(() =>
+    client.send(
+      new ExecuteStatementCommand({
+        resourceArn: config.resourceArn,
+        secretArn: config.secretArn,
+        database: config.database,
+        sql,
+        parameters: toSqlParameters(parameters),
+        transactionId,
+        formatRecordsAs: 'JSON',
+      }),
+    ),
   );
 
   return {
@@ -133,15 +162,17 @@ export async function batchExecuteStatement(
   parameterSets: Record<string, SqlParameterValue>[],
   transactionId?: string,
 ): Promise<void> {
-  await client.send(
-    new BatchExecuteStatementCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-      sql,
-      parameterSets: parameterSets.map(toSqlParameters),
-      transactionId,
-    }),
+  await sendResilient(() =>
+    client.send(
+      new BatchExecuteStatementCommand({
+        resourceArn: config.resourceArn,
+        secretArn: config.secretArn,
+        database: config.database,
+        sql,
+        parameterSets: parameterSets.map(toSqlParameters),
+        transactionId,
+      }),
+    ),
   );
 }
 
@@ -149,12 +180,14 @@ export async function beginTransaction(
   client: RDSDataClient,
   config: DataApiConfig,
 ): Promise<string> {
-  const response = await client.send(
-    new BeginTransactionCommand({
-      resourceArn: config.resourceArn,
-      secretArn: config.secretArn,
-      database: config.database,
-    }),
+  const response = await sendResilient(() =>
+    client.send(
+      new BeginTransactionCommand({
+        resourceArn: config.resourceArn,
+        secretArn: config.secretArn,
+        database: config.database,
+      }),
+    ),
   );
 
   if (!response.transactionId) {
