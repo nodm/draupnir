@@ -135,6 +135,8 @@ graph TB
 
 ## Statement storage model
 
+Every table, column and function is described in [data-model.md](./data-model.md), which a test keeps in step with the migrations.
+
 Three layers (ADR-0008); access is by account membership (`account_members`, role `owner` | `viewer`), and every account-scoped table carries its own `account_id`.
 
 ```mermaid
