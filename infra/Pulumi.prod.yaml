@@ -3,7 +3,7 @@ encryptedkey: AQICAHjmeTmc2x1foxZauBBjLk+3ShA9/cGlw+sOwyybCifzjwHbskeSfB6tbw6N2e
 config:
   aws:region: eu-north-1
   draupnir-infra:allowlistedEmails:
-    secure: v1:25y4j0W6G5oUy4xC:GtbwFDnpkrURTjMqQ+6jfyKBRrOHtKbF/qSvXsMWaVgEtX3dylFlObWIPVwCwRTshZ6XxAkD
+    secure: v1:A2PH47u4CD3Q6Ryh:E1YsHJfUgxNAwqe8lXvpQ5DSiZ7kUUX5SyWUg9BqMeI5SN+4YuGFDGZTJ8aJQo48o+rSuhrmmB/ML/LaRnKx
   google:clientId:
     secure: v1:dwRE44BVjdsWHXQp:lWjp5sfrBRl3hN0+zj60HKLsf7fq2nISuz5hiLsplgPN31XFnmMSFpFG0A6fklAQ/vk2ElxXhDlsr15e0mQPAk7wFt4cE/2xlo+sZ80tzhxk/GY+XgkTwA==
   google:clientSecret:
