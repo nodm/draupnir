@@ -291,9 +291,9 @@ describe('webhook', () => {
 });
 
 describe('retention', () => {
-  it('runs every 30 minutes and a failed run is not retried', async () => {
+  it('runs every hour and a failed run is not retried', async () => {
     const schedule = one('aws:scheduler/schedule:Schedule', 'bot-retention');
-    expect(schedule['scheduleExpression']).toBe('rate(30 minutes)');
+    expect(schedule['scheduleExpression']).toBe('rate(1 hour)');
     expect(schedule['flexibleTimeWindow']).toEqual({ mode: 'OFF' });
     expect(
       (schedule['target'] as { retryPolicy: unknown }).retryPolicy,

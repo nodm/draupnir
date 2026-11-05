@@ -166,7 +166,7 @@ bot keeps as little as it can:
 
 - Your **CSV message is deleted** right after the bot reports the result (or refuses it).
 - **Messages the bot sends in your linked chat are deleted about 24 hours later** (within
-  about 30 minutes after that): account lists, coverage, import reports, share notices and
+  about an hour after that): account lists, coverage, import reports, share notices and
   its questions. Telegram only allows deleting messages younger than 48 hours.
 - Not covered: your own messages other than statements, the sign-in link and its replies
   (sent before the chat is linked), and the "Linked to …" confirmation. None of them

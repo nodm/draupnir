@@ -40,7 +40,7 @@ async function republishOutcomes(
   }
 }
 
-// Runs on a schedule (every 30 minutes). Deletes recorded messages older than
+// Runs on a schedule (every hour). Deletes recorded messages older than
 // 24 hours, and re-publishes statement outcomes that were never published or
 // never reported (the outbox sweeper shares this schedule).
 export const handler = async (): Promise<void> => {
