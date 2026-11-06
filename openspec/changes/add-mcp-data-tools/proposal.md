@@ -3,14 +3,14 @@
 `provision-mcp-base-api` shipped the deployed MCP transport (Lambda + API
 Gateway + Cognito authorizer) with only a proof-of-wiring `whoami` tool. MCP
 clients (Claude Desktop, Claude Code) still can't read any of the user's data.
-`add-bot-ai-chat` defines the read-only data tools once, in `shared`, for the
-Telegram AI chat. Exposing the same tools over MCP gives both AI surfaces
-exactly the same, caller-scoped view of the data, without a second
-implementation.
+`add-data-tools` defines the read-only data tools once, in `shared`. Exposing
+them over MCP is now the priority; the Telegram AI chat reuses the same tools
+later, without a second implementation.
 
-Depends on `add-bot-ai-chat` (tool definitions, indexes) and, through it, on
-`add-db-migrations`, `redesign-statement-data-model`, and
-`add-row-level-security`.
+**Priority: ships before the bot AI assistant** (`add-bot-ai-chat`, which does
+not block this change). Depends on `add-data-tools` (tool definitions, indexes)
+and, through it, on `redesign-statement-data-model` and
+`add-row-level-security`. Records [ADR-0010](../../../docs/adr/0010-mcp-data-tools.md).
 
 ## What Changes
 
