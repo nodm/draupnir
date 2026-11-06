@@ -16,6 +16,7 @@
     "strict": false,
     "paths": {
       "shared": ["./shared/src/index.ts"],
+      "shared/dataTools": ["./shared/src/lib/dataTools/index.ts"],
       "ingestion": ["./ingestion/src/index.ts"],
       "mcp": ["./mcp/src/index.ts"],
       "bot": ["./bot/src/index.ts"]
