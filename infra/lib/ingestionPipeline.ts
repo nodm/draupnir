@@ -40,13 +40,15 @@ export interface DbConfig {
 
 export function dataApiPolicyStatements(
   dbConfig: DbConfig,
+  // Read-only callers (mcp) don't need BatchExecuteStatement.
+  { batch = true }: { batch?: boolean } = {},
 ): pulumi.Input<Record<string, unknown>>[] {
   return [
     {
       Effect: 'Allow',
       Action: [
         'rds-data:ExecuteStatement',
-        'rds-data:BatchExecuteStatement',
+        ...(batch ? ['rds-data:BatchExecuteStatement'] : []),
         'rds-data:BeginTransaction',
         'rds-data:CommitTransaction',
         'rds-data:RollbackTransaction',

@@ -38,7 +38,12 @@ const ingestionApi = createIngestionApi(
   ingestionPipeline.uploadsBucket,
   afterMigrations,
 );
-const mcpApi = createMcpApi(authPool.userPool, provider, afterMigrations);
+const mcpApi = createMcpApi(
+  authPool.userPool,
+  provider,
+  appDbConfig,
+  afterMigrations,
+);
 const bot = createBot(provider, {
   authPool,
   dbConfig: appDbConfig,
