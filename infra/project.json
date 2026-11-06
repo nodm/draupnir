@@ -31,6 +31,7 @@
         "outputPath": "dist/infra/migrateDatabase",
         "main": "infra/src/migrateDatabase.ts",
         "tsConfig": "infra/tsconfig.json",
+        "thirdParty": true,
         "platform": "node",
         "format": ["cjs"],
         "external": ["@aws-sdk/*"],
