@@ -9,7 +9,8 @@
     "@aws-sdk/client-rds-data": "3.1121.0",
     "tslib": "^2.3.0",
     "@electric-sql/pglite": "0.5.8",
-    "@aws-sdk/client-sqs": "3.1121.0"
+    "@aws-sdk/client-sqs": "3.1121.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "pgsql-ast-parser": "^12.0.2"

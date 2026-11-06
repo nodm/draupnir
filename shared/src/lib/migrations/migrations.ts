@@ -14,6 +14,7 @@ import { m0013 } from './0013-member-chat-lookup';
 import { m0014 } from './0014-record-bot-message';
 import { m0015 } from './0015-claim-bot-messages';
 import { m0016 } from './0016-unreported-outcomes';
+import { m0017 } from './0017-transactions-indexes';
 import type { Migration } from './migration';
 
 // Append-only, ascending by id. Never edit or remove an applied migration.
@@ -34,4 +35,5 @@ export const MIGRATIONS: readonly Migration[] = [
   m0014,
   m0015,
   m0016,
+  m0017,
 ];

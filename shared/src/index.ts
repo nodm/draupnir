@@ -6,4 +6,5 @@ export * from './lib/migrations';
 export * from './lib/testing/pgliteDataApiClient';
 export * from './lib/accounts';
 export * from './lib/outcomes';
+export * from './lib/dataTools';
 export * from './lib/money';
