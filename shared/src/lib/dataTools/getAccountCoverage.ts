@@ -46,10 +46,11 @@ export const getAccountCoverageTool = defineDataTool({
     if (!account) return EMPTY;
 
     const { rows: segmentRows } = await q.query(
-      `SELECT file_id, declared_from, declared_to, activity_from, activity_to,
-              opening_balance_minor_units, closing_balance_minor_units
-         FROM statement_file_accounts WHERE account_id = :accountId`,
-      { accountId: input.accountId },
+      `SELECT f.file_id, f.declared_from, f.declared_to, f.activity_from, f.activity_to,
+              f.opening_balance_minor_units, f.closing_balance_minor_units
+         FROM statement_file_accounts f
+        WHERE f.account_id = :accountId AND ${memberPredicate('f', 'account_id')}`,
+      { accountId: input.accountId, sub: q.sub },
     );
     const coverage = computeCoverage(
       {

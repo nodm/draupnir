@@ -43,6 +43,7 @@ export interface SummarizeTransactionsResult {
 interface SummaryRow {
   group_key: string;
   currency: string;
+  rank?: number;
   incoming: number;
   outgoing: number;
   fees: number;
@@ -85,22 +86,43 @@ export const summarizeTransactions = defineDataTool({
       params['text'] = likeContains(input.text);
     }
     const key = GROUP_KEY_SQL[input.groupBy];
+    const aggregates = (a: string): string => `
+              COALESCE(SUM(${a}.amount_minor_units) FILTER (WHERE ${a}.amount_minor_units > 0), 0) AS incoming,
+              COALESCE(SUM(${a}.amount_minor_units) FILTER (WHERE ${a}.amount_minor_units < 0), 0) AS outgoing,
+              COALESCE(SUM(${a}.fee_minor_units), 0) AS fees,
+              COUNT(*) AS transaction_count`;
     const capped = input.groupBy === 'description';
-    if (capped) params['maxGroups'] = MAX_DESCRIPTION_GROUPS + 1;
+    // The cap counts distinct descriptions, ranked by total transactions across
+    // currencies (then description), before splitting each into per-currency
+    // rows, so a description is never cut off part-way through its currencies.
+    // One extra rank (cap + 1) tells whether any were dropped.
+    if (capped) params['maxRank'] = MAX_DESCRIPTION_GROUPS + 1;
     const { rows } = await q.query(
-      `SELECT ${key} AS group_key, t.currency,
-              COALESCE(SUM(t.amount_minor_units) FILTER (WHERE t.amount_minor_units > 0), 0) AS incoming,
-              COALESCE(SUM(t.amount_minor_units) FILTER (WHERE t.amount_minor_units < 0), 0) AS outgoing,
-              COALESCE(SUM(t.fee_minor_units), 0) AS fees,
-              COUNT(*) AS transaction_count
-         FROM transactions t
-        WHERE ${where.join(' AND ')}
-        GROUP BY ${key}, t.currency
-        ORDER BY ${capped ? 'transaction_count DESC, ' : ''}group_key, t.currency${capped ? '\n        LIMIT :maxGroups::bigint' : ''}`,
+      capped
+        ? `WITH f AS (
+             SELECT t.description, t.currency, t.amount_minor_units, t.fee_minor_units
+               FROM transactions t WHERE ${where.join(' AND ')}
+           ), ranked AS (
+             SELECT description,
+                    ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, description) AS rank
+               FROM f GROUP BY description
+           )
+           SELECT f.description AS group_key, f.currency, MIN(r.rank) AS rank,${aggregates('f')}
+             FROM f JOIN ranked r ON r.description = f.description
+            WHERE r.rank <= :maxRank::bigint
+            GROUP BY f.description, f.currency
+            ORDER BY rank, f.currency`
+        : `SELECT ${key} AS group_key, t.currency,${aggregates('t')}
+             FROM transactions t
+            WHERE ${where.join(' AND ')}
+            GROUP BY ${key}, t.currency
+            ORDER BY group_key, t.currency`,
       params,
     );
     const all = rows as unknown as SummaryRow[];
-    const kept = capped ? all.slice(0, MAX_DESCRIPTION_GROUPS) : all;
+    const kept = capped
+      ? all.filter((r) => (r.rank ?? 0) <= MAX_DESCRIPTION_GROUPS)
+      : all;
     return {
       groupBy: input.groupBy,
       truncated: kept.length < all.length,

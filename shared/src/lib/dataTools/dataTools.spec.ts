@@ -365,6 +365,38 @@ describe('summarize_transactions', () => {
     expect(result.truncated).toBe(true);
   });
 
+  it('caps distinct descriptions, never splitting one across the cut', async () => {
+    // Frequent descriptions in two currencies must each keep both currency
+    // rows; the cap counts descriptions, not description/currency rows.
+    await db.exec(`
+      INSERT INTO account_members (account_id, user_id, role) VALUES ('D1', 'gina', 'owner'), ('D2', 'gina', 'owner');
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key)
+        SELECT 'mc-' || a.acc || i, a.acc, '2027-01-01', -1, a.cur, 'Multi ' || i, 'mc-' || a.acc || i
+          FROM generate_series(1, 150) i,
+               (VALUES ('D1', 'EUR'), ('D2', 'UAH')) AS a(acc, cur);
+    `);
+    const result = (await summarizeTransactions.run(ctxFor('gina'), {
+      from: '2027-01-01',
+      to: '2027-01-31',
+      groupBy: 'description',
+      text: 'multi',
+    })) as {
+      groups: { currency: string; untrusted: { description: string } }[];
+      truncated: boolean;
+    };
+
+    // 150 distinct descriptions x 2 currencies = 300 rows, all kept.
+    expect(result.truncated).toBe(false);
+    expect(result.groups).toHaveLength(300);
+    const byDescription = Map.groupBy(
+      result.groups,
+      (g) => g.untrusted.description,
+    );
+    for (const rows of byDescription.values()) {
+      expect(rows.map((r) => r.currency)).toEqual(['EUR', 'UAH']);
+    }
+  });
+
   it('sees nothing of other callers accounts and rejects a reversed range', async () => {
     const empty = await summarizeTransactions.run(ctxFor('bob'), {
       from: '2026-01-01',
