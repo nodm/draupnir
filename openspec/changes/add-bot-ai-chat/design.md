@@ -115,7 +115,7 @@ conversation:
   result. Together with the Confirm requirement, neither model output nor
   stored bank text can change data or pick a recipient.
 
-### 4. Storage (migration `0005`)
+### 4. Storage (migration `0017`)
 
 | Table | Content | RLS |
 |---|---|---|
@@ -161,6 +161,6 @@ current retention terms at implementation time and record them in the ADR.
 
 1. Requires `add-telegram-bot`.
 2. Put the Anthropic API key into the Pulumi-created secret; `infra:up` (migration
-   `0005`, worker config).
+   `0017`, worker config).
 3. Rollback: set the daily limit to 0 (config) to switch the assistant off
    without a redeploy of code paths. Commands and uploads are unaffected.
