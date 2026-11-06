@@ -7,7 +7,7 @@
 
 ## 2. Data tools
 
-- [ ] 2.1 Add migration `0005-ai-chat` (indexes on `transactions`, `chat_history`,
+- [ ] 2.1 Add migration `0017-ai-chat` (indexes on `transactions`, `chat_history`,
       `pending_actions`, `ai_usage`, policies, purge functions); verify pglite tests: RLS
       guard test passes, users can't read each other's history/actions/usage.
 - [ ] 2.2 Implement the `DataTool` interface and `list_accounts` / `get_account_coverage` in

@@ -60,11 +60,11 @@ Depends on `add-telegram-bot` (chat, linking, retention) and
 - `shared/src/lib/dataTools/`: tool definitions (JSON schema + handler) and
   query helpers. They use `withCaller`, membership predicates, and keyset
   pagination (indexes on `transactions(account_id, posted_date, id)` and
-  `transactions(posted_date, id)` via migration `0005`).
+  `transactions(posted_date, id)` via migration `0017`).
 - `bot/`:
   - the Claude API client and tool loop;
   - the pending-action flow;
-  - chat history and budgets: migration `0005` adds `chat_history`,
+  - chat history and budgets: migration `0017` adds `chat_history`,
     `pending_actions`, and `ai_usage`, all with RLS.
 - New dependency: `@anthropic-ai/sdk`.
 - `infra/lib/bot.ts`: an Anthropic API key secret, and a worker timeout and
