@@ -9,11 +9,8 @@
   - the scheduled retention Lambda.
 - `add-row-level-security` provides `withCaller(sub, fn)`; every new table
   needs RLS (guard test).
-- `transactions` has no indexes beyond its PK and `UNIQUE (account_id,
-  dedup_key)`. The parked `add-mcp-data-tools` design already worked out keyset
-  pagination (`(posted_date, id)` cursor, `limit + 1` fetch, `LIMIT
-  :limit::bigint` because Data API sends JS numbers as doubles) and the two
-  supporting indexes. That design is reused here.
+- `add-data-tools` provides the `DataTool` definitions and the `transactions`
+  indexes (migration `0017`).
 
 ## Goals / Non-Goals
 
@@ -28,30 +25,16 @@
 - Categorisation or ML on transactions.
 - Streaming partial answers into Telegram.
 - Voice messages.
-- Exposing the tools via MCP (`add-mcp-data-tools`, revised next).
+- Changing the tools (owned by `add-data-tools`) or exposing them via MCP
+  (`add-mcp-data-tools`).
 
 ## Decisions
 
-### 1. Tool definitions live in `shared`, independent of any AI SDK
+### 1. Tools come from `add-data-tools`
 
-```ts
-interface DataTool<I, O> {
-  name: string;
-  description: string;
-  inputSchema: JSONSchema;
-  run(ctx: { sub: string; db: DbContext }, input: I): Promise<O>;
-}
-```
-
-- Input is validated with zod derived from the same definition. Output
-  separates system fields from `untrusted: { description, counterparty }`
-  (spec: "Bank-provided text is marked as untrusted").
-- The bot adapts these definitions to Claude API tool definitions, and the MCP
-  server will adapt them to `server.registerTool`. Neither adapter has data
-  logic.
-- `summarize_transactions` aggregates in SQL (`GROUP BY` group key, currency),
-  so the model never receives thousands of rows to add up itself, which would
-  be both expensive and error-prone.
+The bot adapts the shared `DataTool` definitions to Claude API tool
+definitions. The adapter has no data logic. `summarize_transactions` aggregates
+in SQL, so the model never adds up thousands of rows itself.
 
 ### 2. Tool loop in the bot worker
 
@@ -115,7 +98,9 @@ conversation:
   result. Together with the Confirm requirement, neither model output nor
   stored bank text can change data or pick a recipient.
 
-### 4. Storage (migration `0017`)
+### 4. Storage (migration `0018`)
+
+(`0017` is the `transactions` indexes, shipped by `add-data-tools`.)
 
 | Table | Content | RLS |
 |---|---|---|
@@ -123,8 +108,7 @@ conversation:
 | `pending_actions(id, user_id, kind, payload jsonb, expires_at, executed_at)` | proposals | `user_id = current_sub()` |
 | `ai_usage(user_id, day date, requests int, input_tokens, output_tokens)` | budget + cost visibility | `user_id = current_sub()` |
 
-Indexes: `transactions(posted_date, id)` and `transactions(account_id,
-posted_date, id)` for keyset pagination. The retention Lambda additionally
+The retention Lambda additionally
 deletes `chat_history` older than 24h and expired `pending_actions`, through
 `SECURITY DEFINER` purge functions (it has no single user identity).
 
@@ -139,7 +123,7 @@ deletes `chat_history` older than 24h and expired `pending_actions`, through
 ### 6. Data leaving AWS
 
 Questions, answers, and tool results (transaction data) are sent to the
-Anthropic API. ADR-0010 (task 1.1) records this alongside Telegram's chat
+Anthropic API. ADR-0011 (task 1.1) records this alongside Telegram's chat
 storage. Anthropic API inputs are not used for training by default; check the
 current retention terms at implementation time and record them in the ADR.
 
@@ -154,13 +138,13 @@ current retention terms at implementation time and record them in the ADR.
   seconds while the loop runs.
 - **Prompt injection through statements.** → The clean action context and argument checks (decision 3),
   read-only tools, and untrusted-field marking.
-- **Privacy: data sent to a third party.** → Documented in ADR-0010; scoped per
+- **Privacy: data sent to a third party.** → Documented in ADR-0011; scoped per
   user by RLS; retention limits on the Telegram side.
 
 ## Migration Plan
 
 1. Requires `add-telegram-bot`.
 2. Put the Anthropic API key into the Pulumi-created secret; `infra:up` (migration
-   `0017`, worker config).
+   `0018`, worker config).
 3. Rollback: set the daily limit to 0 (config) to switch the assistant off
    without a redeploy of code paths. Commands and uploads are unaffected.
