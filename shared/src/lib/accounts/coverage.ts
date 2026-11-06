@@ -165,7 +165,7 @@ export function computeCoverage(
   return { periods, links, reconciledUpTo, connectsToOpening: opening };
 }
 
-interface SegmentRow {
+export interface SegmentRow {
   file_id: string;
   declared_from: string | null;
   declared_to: string | null;
@@ -173,6 +173,18 @@ interface SegmentRow {
   activity_to: string | null;
   opening_balance_minor_units: number | null;
   closing_balance_minor_units: number | null;
+}
+
+export function segmentFromRow(r: SegmentRow): Segment {
+  return {
+    fileId: r.file_id,
+    declaredFrom: r.declared_from,
+    declaredTo: r.declared_to,
+    activityFrom: r.activity_from,
+    activityTo: r.activity_to,
+    openingBalanceMinorUnits: r.opening_balance_minor_units,
+    closingBalanceMinorUnits: r.closing_balance_minor_units,
+  };
 }
 
 // Reads only `statement_file_accounts`, which is scoped to the account, so a
@@ -192,15 +204,7 @@ export async function loadSegments(
     { accountId },
     transactionId,
   );
-  return (rows as unknown as SegmentRow[]).map((r) => ({
-    fileId: r.file_id,
-    declaredFrom: r.declared_from,
-    declaredTo: r.declared_to,
-    activityFrom: r.activity_from,
-    activityTo: r.activity_to,
-    openingBalanceMinorUnits: r.opening_balance_minor_units,
-    closingBalanceMinorUnits: r.closing_balance_minor_units,
-  }));
+  return (rows as unknown as SegmentRow[]).map(segmentFromRow);
 }
 
 // Runs as `sub`: an account the caller isn't a member of is "not found".

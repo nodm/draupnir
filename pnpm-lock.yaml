@@ -393,6 +393,9 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       pgsql-ast-parser:
         specifier: ^12.0.2

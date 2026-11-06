@@ -322,6 +322,7 @@ describe('runMigrations (pglite)', () => {
       '0014-record-bot-message',
       '0015-claim-bot-messages',
       '0016-unreported-outcomes',
+      '0017-transactions-indexes',
     ]);
   });
 });

@@ -81,11 +81,19 @@ It SHALL return, per group and per currency:
 
 Amounts in different currencies SHALL never be added together.
 
+When grouped by `description`, it SHALL return at most 200 groups, the most
+frequent first, and SHALL set `truncated` to true when groups were dropped.
+
 #### Scenario: Monthly totals per currency
 - **WHEN** a caller summarizes January–March grouped by month across EUR and UAH
   accounts
 - **THEN** each month has separate EUR and UAH totals, and no total combines
   the two currencies
+
+#### Scenario: Description groups are capped
+- **WHEN** a caller summarizes by `description` and more than 200 distinct
+  descriptions match
+- **THEN** 200 groups are returned, most frequent first, with `truncated` true
 
 ### Requirement: get_account_coverage reports covered periods
 `get_account_coverage` SHALL take an `accountId` and return its covered periods,
