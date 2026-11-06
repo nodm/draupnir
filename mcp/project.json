@@ -15,6 +15,7 @@
         "assets": ["mcp/*.md"],
         "platform": "node",
         "format": ["cjs"],
+        "thirdParty": true,
         "external": ["@aws-sdk/*", "@modelcontextprotocol/*"],
         "generatePackageJson": true
       }
