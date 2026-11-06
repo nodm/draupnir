@@ -9,14 +9,19 @@ runtime or by convention.
 ## Requirements
 
 ### Requirement: Cross-scope imports are restricted by tag
-The workspace SHALL configure `@nx/enforce-module-boundaries` so that: `scope:infra` may
-depend on `scope:shared`; `scope:ingestion` and `scope:mcp` may each depend on
-`scope:shared`; `scope:ingestion` and `scope:mcp` SHALL NOT depend on each other; and any
-project tagged `scope:web` SHALL NOT depend on `scope:ingestion` at all (only on
-`scope:shared`). `depConstraints` gates dependencies at the whole-project level, not per
-export, so there is no "public export exempt" carve-out for any of these pairs — anything
-a `type:app` Lambda project needs to share with another app belongs in `scope:shared`,
-not in an exported surface of the app itself.
+The workspace SHALL configure `@nx/enforce-module-boundaries` so that:
+- `scope:infra` may depend on `scope:shared`;
+- `scope:ingestion`, `scope:mcp`, and `scope:bot` may each depend on
+  `scope:shared`;
+- `scope:ingestion`, `scope:mcp`, and `scope:bot` SHALL NOT depend on each
+  other;
+- any project tagged `scope:web` SHALL NOT depend on `scope:ingestion` at all
+  (only on `scope:shared`).
+
+`depConstraints` gates dependencies at the whole-project level, not per export,
+so there is no "public export exempt" carve-out for any of these pairs.
+Anything a `type:app` Lambda project needs to share with another app belongs in
+`scope:shared`, not in an exported surface of the app itself.
 
 #### Scenario: Disallowed import fails lint
 - **WHEN** a file in a project tagged `scope:mcp` imports directly from a file inside the
@@ -34,3 +39,7 @@ not in an exported surface of the app itself.
 - **WHEN** a file in the `ingestion` project imports from the `shared` project's public
   entry point
 - **THEN** `nx lint ingestion` passes with no boundary violation
+
+#### Scenario: Bot-to-ingestion import fails lint
+- **WHEN** a file in the `bot` project imports from the `ingestion` project
+- **THEN** `nx lint bot` fails with an `enforce-module-boundaries` violation
