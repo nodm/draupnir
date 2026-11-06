@@ -25,7 +25,11 @@
       "dependsOn": ["build"],
       "outputs": ["{workspaceRoot}/dist/mcp/node_modules"],
       "options": {
-        "command": "npm install --omit=dev --no-audit --no-fund --package-lock=false",
+        "commands": [
+          "node -e \"const f='package.json',p=JSON.parse(require('fs').readFileSync(f));for(const[k,v]of Object.entries(p.dependencies))if(v.startsWith('workspace:'))delete p.dependencies[k];require('fs').writeFileSync(f,JSON.stringify(p,null,2))\"",
+          "npm install --omit=dev --no-audit --no-fund --package-lock=false"
+        ],
+        "parallel": false,
         "cwd": "dist/mcp"
       }
     }
