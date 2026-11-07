@@ -2,6 +2,8 @@ import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { executeStatement, type Bank, type DataApiConfig } from 'shared';
 import type { DerivationFile } from './derive';
 
+const PAGE_SIZE = 200;
+
 interface StoredRawRow {
   id: string;
   file_id: string;
@@ -28,24 +30,46 @@ export async function loadStoredRawRows(
   transactionId: string,
   accountId: string,
   accountIban: string,
+  pageSize = PAGE_SIZE,
 ): Promise<StoredRawRows> {
-  const { rows } = await executeStatement(
-    client,
-    config,
-    `SELECT r.id, r.file_id, r.row_number, r.bank, CAST(r.payload AS text) AS payload
-       FROM raw_rows r
-       JOIN statement_files f ON f.id = r.file_id AND f.status = 'approved'
-       JOIN statement_file_accounts fa ON fa.file_id = r.file_id AND fa.account_id = r.account_id
-      WHERE r.account_id = :accountId
-      ORDER BY f.import_seq, r.row_number`,
-    { accountId },
-    transactionId,
-  );
+  // The Data API caps one result at 1 MB and a raw payload is about a
+  // kilobyte, so a large account is read in keyset pages ordered by
+  // (import_seq, row_number), which is unique.
+  const rows: StoredRawRow[] = [];
+  let after: { importSeq: number; rowNumber: number } | null = null;
+  for (;;) {
+    const { rows: page } = await executeStatement(
+      client,
+      config,
+      `SELECT r.id, r.file_id, r.row_number, r.bank, CAST(r.payload AS text) AS payload,
+              f.import_seq
+         FROM raw_rows r
+         JOIN statement_files f ON f.id = r.file_id AND f.status = 'approved'
+         JOIN statement_file_accounts fa ON fa.file_id = r.file_id AND fa.account_id = r.account_id
+        WHERE r.account_id = :accountId
+          AND (:hasAfter = false OR (f.import_seq, r.row_number) > (CAST(:afterSeq AS bigint), CAST(:afterRow AS integer)))
+        ORDER BY f.import_seq, r.row_number
+        LIMIT CAST(:pageSize AS bigint)`,
+      {
+        accountId,
+        hasAfter: after !== null,
+        afterSeq: after?.importSeq ?? 0,
+        afterRow: after?.rowNumber ?? 0,
+        pageSize,
+      },
+      transactionId,
+    );
+    const batch = page as unknown as (StoredRawRow & { import_seq: number })[];
+    rows.push(...batch);
+    const last = batch[batch.length - 1];
+    if (batch.length < pageSize || !last) break;
+    after = { importSeq: last.import_seq, rowNumber: last.row_number };
+  }
 
   const filesInOrder: DerivationFile[] = [];
   const fileIdByRawRow = new Map<string, string>();
   const fileIndex = new Map<string, DerivationFile>();
-  for (const raw of rows as unknown as StoredRawRow[]) {
+  for (const raw of rows) {
     let file = fileIndex.get(raw.file_id);
     if (!file) {
       file = { bank: raw.bank, accountId, accountIban, rows: [] };
