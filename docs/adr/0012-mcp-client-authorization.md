@@ -39,7 +39,7 @@ Cognito. It is not a full OAuth proxy.
   clients, throttled, with narrow IAM on the user pool.
 - **`GET /authorize`:** a `302` to Cognito's authorize endpoint with `resource` removed.
 - **`POST /token`:** forwards `authorization_code` and `refresh_token` grants to Cognito with
-  `resource` removed, relays the response without `id_token` (it would authenticate against the other APIs), logs nothing and holds no state.
+  `resource` removed, relays the response without `id_token` (defence in depth only, see Deviations), logs nothing and holds no state.
 - **Access tokens:** `/mcp` requires an OAuth scope (`openid`) on the method, so the authorizer
   validates access tokens; an ID token no longer authenticates (breaking).
 - **CIMD** is not supported; DCR covers the target clients.
@@ -49,6 +49,9 @@ Cognito. It is not a full OAuth proxy.
 - Tokens are not audience-bound to the MCP server (Cognito ignores `resource`), so `/mcp` relies on
   signature, issuer and scope, not an audience check. Compensating controls: the pre-sign-up email
   allowlist, and every tool runs as the caller's `sub` under row-level security.
+- An ID token from the pool also authenticates against the other APIs. Stripping `id_token` in
+  `/token` is not a control: a public client can call Cognito's token endpoint directly. Keeping
+  MCP-client tokens away from the other APIs must be enforced there (follow-up issue).
 - `/authorize` and `/token` see codes and tokens in transit. They are small, stateless and
   covered by tests; the alternative (a full proxy with its own callback and token exchange) was
   rejected as the highest-risk code in the system.

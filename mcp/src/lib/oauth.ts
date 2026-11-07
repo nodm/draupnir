@@ -299,8 +299,10 @@ export async function forwardToken(
   };
 }
 
-// MCP clients need the access and refresh tokens only. An ID token from this
-// pool would also authenticate against the other APIs, so it is not handed out.
+// MCP clients need the access and refresh tokens only, so the ID token is not
+// relayed. This is defence in depth, not an access control: a registered
+// public client can still call Cognito's token endpoint directly and get one.
+// The other APIs must refuse tokens issued to `mcp-dcr-` clients themselves.
 function withoutIdToken(text: string): string {
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
