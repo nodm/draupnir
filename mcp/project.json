@@ -11,6 +11,7 @@
       "options": {
         "outputPath": "dist/mcp",
         "main": "mcp/src/handler.ts",
+        "additionalEntryPoints": ["mcp/src/oauth.ts"],
         "tsConfig": "mcp/tsconfig.lib.json",
         "assets": ["mcp/*.md"],
         "platform": "node",
