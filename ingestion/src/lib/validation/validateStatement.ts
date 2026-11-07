@@ -156,7 +156,7 @@ export function validateStatementFile(
     };
   }
 
-  const chain = checkBalanceChain(bank, parsed);
+  const chain = checkBalanceChain(parsed);
   if (chain.reasons.length > 0) {
     return { ok: false, formatVersion: format.version, reasons: chain.reasons };
   }

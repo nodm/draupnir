@@ -6,6 +6,7 @@ import {
   type HashDedupKeyInput,
 } from '../dedupKey';
 import { detectFormat } from '../validation/formats';
+import { isoFromSpaceSeparated, rankByTime } from './order';
 import {
   duplicateHeaders,
   readSimpleTable,
@@ -54,6 +55,11 @@ export const normalizeRows: RowNormalizer = (rows, accountIban) => {
     ),
   }));
   const dedupKeys = computeHashDedupKeys(hashInputs);
+  // The balance changes on completion, not at the start.
+  const occurredAt = entries.map(({ payload }) =>
+    isoFromSpaceSeparated(payload['Completed Date'] as string),
+  );
+  const sourceSeq = rankByTime(occurredAt);
 
   const out = new Map<number, NormalizedRow>();
   entries.forEach(({ rowNumber, payload }, index) => {
@@ -65,6 +71,8 @@ export const normalizeRows: RowNormalizer = (rows, accountIban) => {
       currency: input.currency,
       description: input.normalizedDescription,
       dedupKey: dedupKeys[index] as string,
+      occurredAt: occurredAt[index] as string,
+      sourceSeq: sourceSeq[index] as number,
       feeMinorUnits: toMinorUnits(
         parseFloat(payload['Fee'] as string),
         input.currency,

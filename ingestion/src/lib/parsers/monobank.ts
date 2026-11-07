@@ -10,6 +10,7 @@ import {
   detectFormat,
   monobankCardCurrencyOf,
 } from '../validation/formats';
+import { isoFromDotted, reverseFileOrder } from './order';
 import {
   duplicateHeaders,
   readSimpleTable,
@@ -65,6 +66,7 @@ export const normalizeRows: RowNormalizer = (rows, accountIban) => {
     normalizedDescription: normalizeDescription(cells['Description'] as string),
   }));
   const dedupKeys = computeHashDedupKeys(hashInputs);
+  const sourceSeq = reverseFileOrder(rows.length);
 
   rows.forEach(({ rowNumber }, i) => {
     const cells = cards[i] as Record<string, string>;
@@ -77,6 +79,8 @@ export const normalizeRows: RowNormalizer = (rows, accountIban) => {
       currency: cardCurrency,
       description: input.normalizedDescription,
       dedupKey: dedupKeys[i] as string,
+      occurredAt: isoFromDotted(cells['Date and time'] as string),
+      sourceSeq: sourceSeq[i] as number,
       feeMinorUnits: optionalAmount(
         cells['Commission'] as string,
         cardCurrency,

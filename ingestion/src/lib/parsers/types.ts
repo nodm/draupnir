@@ -5,6 +5,11 @@ export interface NormalizedRow {
   currency: string;
   description: string;
   dedupKey: string;
+  // When the balance changed, ISO 8601 UTC (see parsers/order.ts), and the
+  // row's place in its file's chronological order. Together with the stored
+  // row id they order an account's transactions.
+  occurredAt: string;
+  sourceSeq: number;
   // 0 when the bank reports no fee.
   feeMinorUnits: number;
   // Absent when the bank's format has no per-row balance (SEB).

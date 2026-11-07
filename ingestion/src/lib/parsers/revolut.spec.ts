@@ -27,6 +27,9 @@ describe('Revolut parseStatement', () => {
       description: 'lidl',
       feeMinorUnits: 0,
       balanceAfterMinorUnits: 1162,
+      // Completed Date, read as UTC; the first of the two rows completed together.
+      occurredAt: '2026-08-29T12:23:37Z',
+      sourceSeq: 0,
       dedupKey: computeHashDedupKey(
         {
           iban: uploadAccountIban,
@@ -37,6 +40,35 @@ describe('Revolut parseStatement', () => {
         },
         0,
       ),
+    });
+  });
+
+  describe('order key', () => {
+    const header =
+      'Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance';
+
+    it('orders by completion time, not start, ranking ties in file order', () => {
+      const file = [
+        header,
+        'Card Payment,Current,2026-08-28 19:00:00,2026-08-29 10:00:00,B,-1.00,0.00,EUR,COMPLETED,9.00',
+        'Card Payment,Current,2026-08-29 08:00:00,2026-08-29 09:00:00,A,-1.00,0.00,EUR,COMPLETED,8.00',
+        'Card Payment,Current,2026-08-29 08:30:00,2026-08-29 10:00:00,C,-1.00,0.00,EUR,COMPLETED,7.00',
+      ].join('\n');
+
+      expect(normalized(file).map((r) => [r.description, r.sourceSeq])).toEqual(
+        [
+          ['b', 1],
+          ['a', 0],
+          ['c', 2],
+        ],
+      );
+    });
+
+    it('keeps a row that started one day and completed the next on the completion day', () => {
+      const [row] = normalized(fixture);
+
+      expect(row?.postedDate).toBe('2026-08-28');
+      expect(row?.occurredAt.slice(0, 10)).toBe('2026-08-29');
     });
   });
 
