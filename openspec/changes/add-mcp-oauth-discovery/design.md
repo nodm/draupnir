@@ -147,7 +147,7 @@ silent skip. Verified on prod (task 3.3): Cognito accepts `resource` on
 `302` to Cognito's authorize endpoint with `resource` removed, and a
 form-forwarding `POST /token` that also strips `resource` (so clients may send it
 on both, as the spec requires), forwards `authorization_code` and `refresh_token`
-grants, relays the response, and logs nothing (the body carries codes and tokens).
+grants, relays the response without `id_token` (an ID token from the pool would also authenticate against the other APIs; MCP clients need only the access and refresh tokens), and logs nothing (the body carries codes and tokens).
 The metadata's `authorization_endpoint` and `token_endpoint` name the shim. The forwarder holds no
 state, is throttled, and never sees a client secret (public clients only).
 

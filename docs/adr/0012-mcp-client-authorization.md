@@ -39,7 +39,7 @@ Cognito. It is not a full OAuth proxy.
   clients, throttled, with narrow IAM on the user pool.
 - **`GET /authorize`:** a `302` to Cognito's authorize endpoint with `resource` removed.
 - **`POST /token`:** forwards `authorization_code` and `refresh_token` grants to Cognito with
-  `resource` removed, relays the response, logs nothing and holds no state.
+  `resource` removed, relays the response without `id_token` (it would authenticate against the other APIs), logs nothing and holds no state.
 - **Access tokens:** `/mcp` requires an OAuth scope (`openid`) on the method, so the authorizer
   validates access tokens; an ID token no longer authenticates (breaking).
 - **CIMD** is not supported; DCR covers the target clients.

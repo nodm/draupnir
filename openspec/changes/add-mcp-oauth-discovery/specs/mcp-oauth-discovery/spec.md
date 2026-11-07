@@ -143,8 +143,9 @@ to fail.
 - **WHEN** a client posts a token request with `resource` to the advertised token
   endpoint
 - **THEN** the request reaches the user pool without `resource`, the user pool's
-  response is returned unchanged, and only the authorization code and refresh
-  token grants are forwarded
+  response is returned without its `id_token` (a token that would also
+  authenticate against the other APIs), and only the authorization code and
+  refresh token grants are forwarded
 
 ### Requirement: The audience deviation is stated
 The system SHALL document that tokens are not audience-bound to the MCP server

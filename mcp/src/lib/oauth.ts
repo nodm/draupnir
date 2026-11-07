@@ -291,11 +291,24 @@ export async function forwardToken(
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
   });
+  const text = await res.text();
   return {
     status: res.status,
     contentType: res.headers.get('content-type') ?? 'application/json',
-    body: await res.text(),
+    body: res.status === 200 ? withoutIdToken(text) : text,
   };
+}
+
+// MCP clients need the access and refresh tokens only. An ID token from this
+// pool would also authenticate against the other APIs, so it is not handed out.
+function withoutIdToken(text: string): string {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    delete parsed['id_token'];
+    return JSON.stringify(parsed);
+  } catch {
+    return text;
+  }
 }
 
 // Location of the user pool's authorize endpoint for a client request, with

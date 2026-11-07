@@ -70,7 +70,8 @@ describe('oauth handler routes', () => {
   it('POST /token strips resource and forwards the rest to Cognito', async () => {
     fetchMock.mockResolvedValue({
       status: 200,
-      text: async () => '{"access_token":"a"}',
+      text: async () =>
+        '{"access_token":"a","id_token":"i","refresh_token":"r"}',
       headers: { get: () => 'application/json' },
     });
     const res = await call(
@@ -81,7 +82,10 @@ describe('oauth handler routes', () => {
       ),
     );
     expect(res.statusCode).toBe(200);
-    expect(res.body).toBe('{"access_token":"a"}');
+    expect(JSON.parse(res.body)).toEqual({
+      access_token: 'a',
+      refresh_token: 'r',
+    });
     expect(res.headers['cache-control']).toBe('no-store');
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://auth.example.test/oauth2/token');
