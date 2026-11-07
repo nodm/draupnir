@@ -236,7 +236,9 @@ describe('real shared tools over MCP (pglite, RLS as draupnir_app)', () => {
         config: { resourceArn: 'a', secretArn: 'a', database: 'd' },
       }),
     });
-  });
+    // PGlite startup plus migrations exceeds the 10 s default when the
+    // workspace's other test suites run in parallel.
+  }, 60_000);
   afterAll(async () => {
     await pg.close();
   });
