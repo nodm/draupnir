@@ -37,11 +37,11 @@ MCP is now the higher priority.
 
 ## Options Considered
 
-| Option                                          | Duplication | MCP ships first | Notes                         |
-| ----------------------------------------------- | ----------- | --------------- | ----------------------------- |
-| **Shared tools in `shared`, adapters — chosen** | None        | Yes             | One contract for all surfaces |
-| Tools inside `mcp`, bot re-implements           | High        | Yes             | Two views of the data drift   |
-| Tools inside `bot`, MCP waits                   | None        | No              | Contradicts the priority      |
+| Option                                   | Duplication | MCP ships first | Notes                         |
+| ---------------------------------------- | ----------- | --------------- | ----------------------------- |
+| **Shared tools in `shared`, adapters — chosen** | None | Yes          | One contract for all surfaces |
+| Tools inside `mcp`, bot re-implements    | High        | Yes             | Two views of the data drift   |
+| Tools inside `bot`, MCP waits            | None        | No              | Contradicts the priority      |
 
 ## Consequences
 
