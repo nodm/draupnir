@@ -14,6 +14,7 @@ import {
   type DataToolContext,
   type ListTransactionsResult,
 } from './index';
+import { LIKE_TEXT_CLAUSE, likeContains } from './listTransactions';
 
 const config: DataApiConfig = {
   resourceArn: 'a',
@@ -248,6 +249,12 @@ describe('list_transactions', () => {
       'd1-jan-out',
     ]);
     expect(byText.transactions).toEqual([]);
+  });
+
+  it('escapes LIKE wildcards with a character the Data API parser accepts', () => {
+    expect(likeContains('50%_off!')).toBe('%50!%!_off!!%');
+    // A backslash inside a SQL literal breaks the Data API's parameter parser.
+    expect(LIKE_TEXT_CLAUSE).not.toContain('\\');
   });
 
   it('delivers bank text only inside the untrusted field', async () => {
