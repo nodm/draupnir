@@ -28,12 +28,14 @@ See proposal.md for why. Current state that shapes the approach:
 ## Goals / Non-Goals
 
 **Goals:**
+
 - A stored, bank-checked balance per account and a running balance per
   transaction, always consistent with the stored transactions.
 - A transaction order that is deterministic and reproducible from raw rows.
 - A backfill that keeps existing rows and their ids.
 
 **Non-Goals:**
+
 - Parking a file until its predecessor arrives, a retry command, or sorting a
   batch (the owner chose a plain rejection with a precise message).
 - Comparing every row's running balance with the bank's `balance_after`.
@@ -82,11 +84,11 @@ increment, so a retried or duplicate import cannot drift it.
 `transactions` gains `occurred_at timestamptz` and `source_seq integer`; the
 order is `(occurred_at, source_seq, id)`.
 
-| Bank | `occurred_at` | `source_seq` |
-|---|---|---|
-| Revolut | `Completed Date` (balance changes on completion) | rank in the file's chain order (sort by `Completed Date`, ties keep file order) |
-| monobank | `Date and time` | reverse of file order (the export is newest first) |
-| SEB | `DATA` at midnight | file order (not verified as chronological; see Risks) |
+| Bank     | `occurred_at`                                    | `source_seq`                                                                    |
+| -------- | ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Revolut  | `Completed Date` (balance changes on completion) | rank in the file's chain order (sort by `Completed Date`, ties keep file order) |
+| monobank | `Date and time`                                  | reverse of file order (the export is newest first)                              |
+| SEB      | `DATA` at midnight                               | file order (not verified as chronological; see Risks)                           |
 
 - The normalizers are the single place that knows this (they are what import and
   rebuild both use), so the order is reproducible from raw rows. `NormalizedRow`
@@ -185,10 +187,12 @@ written meanwhile have `NULL`s and are fixed by running the backfill again.
 
 ## Risks / Trade-offs
 
-- **SEB same-day order is unverified** → file order is assumed chronological;
-  confirm against a real export. If wrong, SEB's end-of-day balance is still exact
-  and only the within-day running balances are affected; the spec states the weaker
-  guarantee.
+- **SEB same-day order** → verified 2026-11-07 against five real exports (2022 to 2026-10;
+  non-empty account blocks, dates only checked): every block lists rows oldest first by `DATA`,
+  so file order is chronological across days. Same-day order cannot be proven without a
+  per-row balance, so it stays an assumption; file order is used.
+  If same-day order is wrong, SEB's end-of-day balance is still exact and only the
+  within-day running balances are affected; the spec states the weaker guarantee.
 - **Equal timestamps** (Revolut `Completed Date` ties) → ordered by file position,
   then id; the closing check compares only the last row, so a tie cannot reject a
   good file.
