@@ -205,6 +205,12 @@ written meanwhile have `NULL`s and are fixed by running the backfill again.
 - **Statement time on large accounts** → a whole-account window update; measured on
   prod volumes before relying on it, and the Data API per-statement time limit is
   well above it for thousands of rows.
+- **Legacy rows between deploy and backfill** → `list_transactions` returns an
+  `unavailable` error while any visible row has no order key, rather than misorder
+  rows or hand out a cursor that cannot decode; the backfill runs right after deploy.
+  The check goes away with `0019`.
+- **Empty statement segments** → a file with no period and no balances (only excluded
+  rows) is ignored when judging reconciliation.
 - **Breaking tool output** → `balanceAfter` disappears from `list_transactions` and
   old cursors are rejected; the only consumer is the MCP clients and the cursor
   lifetime is one pagination session.

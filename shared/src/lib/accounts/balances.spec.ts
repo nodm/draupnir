@@ -160,6 +160,30 @@ describe('recomputeAccountBalance', () => {
     expect((await recompute()).reconciled).toBe(true);
   });
 
+  it('ignores a file with no period and no balances when judging reconciliation', async () => {
+    await db.exec(`
+      INSERT INTO statement_files (id, upload_account_id, uploaded_by, bank, sha256, s3_key, status) VALUES
+        ('f1', 'acc', 'u', 'revolut', 'h1', 'k1', 'approved'),
+        ('f2', 'acc', 'u', 'revolut', 'h2', 'k2', 'approved');
+      INSERT INTO statement_file_accounts (file_id, account_id, activity_from, activity_to,
+                                           opening_balance_minor_units, closing_balance_minor_units) VALUES
+        ('f1', 'acc', '2026-01-02', '2026-01-31', 100000, 90000),
+        ('f2', 'acc', NULL, NULL, NULL, NULL);
+    `);
+
+    expect((await recompute()).reconciled).toBe(true);
+  });
+
+  it('is reconciled when the only file held nothing but excluded rows', async () => {
+    await db.exec(`
+      INSERT INTO statement_files (id, upload_account_id, uploaded_by, bank, sha256, s3_key, status)
+        VALUES ('f1', 'acc', 'u', 'revolut', 'h1', 'k1', 'approved');
+      INSERT INTO statement_file_accounts (file_id, account_id) VALUES ('f1', 'acc');
+    `);
+
+    expect((await recompute()).reconciled).toBe(true);
+  });
+
   it('throws for an account the caller cannot see', async () => {
     await expect(
       withCaller(client, config, 'stranger', (tx) =>

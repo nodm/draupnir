@@ -322,6 +322,37 @@ describe('list_transactions', () => {
     await db.exec(`DELETE FROM transactions WHERE id LIKE 'tie-%'`);
   });
 
+  it.each([
+    '2026-02-31 00:00:00',
+    '2026-01-01 25:00:00',
+    '2026-01-01 12:60:00',
+    '2026-13-01 12:00:00',
+  ])('rejects the impossible cursor time %s as malformed', async (at) => {
+    const cursor = Buffer.from(JSON.stringify([at, 0, 'k', 'id'])).toString(
+      'base64url',
+    );
+
+    await expect(
+      listTransactions.run(ctxFor('alice'), { cursor }),
+    ).rejects.toThrow(/cursor is malformed/);
+  });
+
+  it('says the order is not ready, rather than misorder, while legacy rows have no key', async () => {
+    await db.exec(`
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key)
+        VALUES ('legacy-1', 'E1', '2026-01-01', -1, 'EUR', 'legacy', 'legacy-1');
+    `);
+
+    await expect(
+      listTransactions.run(ctxFor('erin'), {}),
+    ).rejects.toMatchObject({ name: 'DataToolError', code: 'unavailable' });
+    // Only accounts with unordered rows are affected.
+    await expect(
+      listTransactions.run(ctxFor('alice'), { accountId: 'A1' }),
+    ).resolves.toMatchObject({ transactions: expect.any(Array) });
+    await db.exec(`DELETE FROM transactions WHERE id = 'legacy-1'`);
+  });
+
   it('rejects a cursor issued before the order key existed', async () => {
     const oldCursor = Buffer.from(
       JSON.stringify(['2026-01-05', 'a1-001']),

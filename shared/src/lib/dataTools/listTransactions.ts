@@ -41,7 +41,15 @@ interface TransactionRow {
 const isoDate = z.iso.date();
 
 // `YYYY-MM-DD HH:MM:SS[.ffffff]`, UTC: how `occurred_at` is read back as text.
-const OCCURRED_AT_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/;
+const OCCURRED_AT_TEXT =
+  /^(\d{4}-\d{2}-\d{2}) ([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?$/;
+
+// The shape plus a real calendar date and time of day, so an impossible value
+// is a malformed cursor here and not a database error later.
+function isOccurredAtText(value: string): boolean {
+  const match = OCCURRED_AT_TEXT.exec(value);
+  return match !== null && isoDate.safeParse(match[1]).success;
+}
 
 // Opaque to callers: the order key (occurred_at, source_seq, dedup_key, id) of
 // the last row of the previous page. A cursor from before the order changed has
@@ -71,7 +79,7 @@ export function decodeCursor(cursor: string): {
       Array.isArray(value) &&
       value.length === 4 &&
       typeof value[0] === 'string' &&
-      OCCURRED_AT_TEXT.test(value[0]) &&
+      isOccurredAtText(value[0]) &&
       Number.isInteger(value[1]) &&
       typeof value[2] === 'string' &&
       value[2] !== '' &&
@@ -122,6 +130,22 @@ export const listTransactions = defineDataTool({
     if (input.accountId) {
       where.push('t.account_id = :accountId');
       params['accountId'] = input.accountId;
+    }
+    // Until the balance backfill has run on an account, its legacy rows have no
+    // order key and cannot be ordered, paged or given a cursor. Say so rather
+    // than return them out of order.
+    const { rows: unordered } = await q.query(
+      `SELECT 1 FROM transactions t
+        WHERE ${where.join(' AND ')}
+          AND (t.occurred_at IS NULL OR t.source_seq IS NULL)
+        LIMIT 1`,
+      params,
+    );
+    if (unordered.length > 0) {
+      throw new DataToolError(
+        'unavailable',
+        'Transaction order is still being computed for some accounts; try again shortly',
+      );
     }
     if (input.from) {
       where.push('t.posted_date >= :from::date');

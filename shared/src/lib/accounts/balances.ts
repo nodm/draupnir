@@ -72,7 +72,20 @@ export async function recomputeAccountBalance(
     transactionId,
   );
 
-  const segments = await loadSegments(client, config, accountId, transactionId);
+  // A file that held only excluded rows (e.g. pending Revolut rows) has no
+  // period and no balances; it says nothing about continuity, so it must not
+  // turn the account unreconciled.
+  const segments = (
+    await loadSegments(client, config, accountId, transactionId)
+  ).filter(
+    (s) =>
+      s.declaredFrom !== null ||
+      s.declaredTo !== null ||
+      s.activityFrom !== null ||
+      s.activityTo !== null ||
+      s.openingBalanceMinorUnits !== null ||
+      s.closingBalanceMinorUnits !== null,
+  );
   const coverage = computeCoverage(
     {
       currency: account.currency,
