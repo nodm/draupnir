@@ -58,7 +58,7 @@ describe('recomputeAccountBalance', () => {
 
   async function runningBalances() {
     const { rows } = await db.query<{ id: string; b: string | null }>(
-      `SELECT id, running_balance_minor_units::text AS b FROM transactions ORDER BY occurred_at, source_seq, id`,
+      `SELECT id, running_balance_minor_units::text AS b FROM transactions ORDER BY occurred_at, source_seq, dedup_key, id`,
     );
     return rows.map((r) => [r.id, r.b]);
   }
@@ -97,6 +97,24 @@ describe('recomputeAccountBalance', () => {
     expect(await runningBalances()).toEqual([
       ['a', '99800'],
       ['b', '100300'],
+    ]);
+  });
+
+  it('breaks a tie on timestamp and source_seq by dedup_key, not by id', async () => {
+    // Rows of different files tie on both keys (source_seq restarts per file).
+    // The ids are in the opposite order to the dedup keys, as after a rebuild.
+    await db.query(
+      `INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description,
+                                 dedup_key, occurred_at, source_seq)
+       VALUES ('z-id', 'acc', '2026-02-02', -200, 'EUR', 'd', 'a-key', '2026-02-02T09:00:00Z', 0),
+              ('a-id', 'acc', '2026-02-02', 500, 'EUR', 'd', 'b-key', '2026-02-02T09:00:00Z', 0)`,
+    );
+
+    await recompute();
+
+    expect(await runningBalances()).toEqual([
+      ['z-id', '99800'],
+      ['a-id', '100300'],
     ]);
   });
 

@@ -64,7 +64,9 @@ describe('0018-account-balances', () => {
       `SELECT indexdef FROM pg_indexes WHERE tablename = 'transactions'`,
     );
     expect(indexes.map((i) => i.indexdef)).toContainEqual(
-      expect.stringContaining('(account_id, occurred_at, source_seq, id)'),
+      expect.stringContaining(
+        '(account_id, occurred_at, source_seq, dedup_key, id)',
+      ),
     );
   });
 

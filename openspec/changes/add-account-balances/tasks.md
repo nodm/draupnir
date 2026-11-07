@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add migration `0018` with nullable `accounts.balance_minor_units`, `balance_as_of`,
       `balance_reconciled` and `transactions.occurred_at`, `source_seq`,
-      `running_balance_minor_units`, plus an index on `(account_id, occurred_at, source_seq, id)`;
+      `running_balance_minor_units`, plus an index on `(account_id, occurred_at, source_seq, dedup_key, id)`;
       nothing is dropped. Verify the migration spec applies it on PGlite and the index exists.
 - [x] 1.2 Check that an account owner can `UPDATE` the new `accounts` and `transactions` columns
       under the existing row-level policies as `draupnir_app`, and add a policy migration if not;
@@ -55,7 +55,7 @@
       telling the model to state the date and flag unreconciled balances; verify with owner and
       viewer tests.
 - [x] 5.2 Return the running balance (`runningBalanceMinorUnits`) in `list_transactions` instead
-      of the bank's balance-after, and order and page by `(occurred_at, source_seq, id)`;
+      of the bank's balance-after, and order and page by `(occurred_at, source_seq, dedup_key, id)`;
       verify pagination over same-day rows has no gaps or duplicates, a pre-change cursor is
       rejected as malformed, and each row's balance equals the next-older row's plus its amount
       minus its fee.

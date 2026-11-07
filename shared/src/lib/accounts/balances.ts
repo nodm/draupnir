@@ -24,6 +24,11 @@ export class BalanceAccountNotFoundError extends Error {
 // it. The caller holds the account's `FOR UPDATE` lock (imports, rebuild and
 // the backfill all take it), which serializes this with every other writer.
 //
+// Order: (occurred_at, source_seq, dedup_key, id). `source_seq` restarts per file,
+// so rows of different files can tie on the first two; `dedup_key` is derived
+// from the raw data and unique per account, so the tie breaks the same way
+// after a rebuild regenerates ids (id only keeps the order total across accounts).
+//
 // No backslashes in the SQL: the Data API's parameter parser breaks on them.
 export async function recomputeAccountBalance(
   client: RDSDataClient,
@@ -57,7 +62,7 @@ export async function recomputeAccountBalance(
        FROM (SELECT x.id,
                     a.opening_balance_minor_units
                       + SUM(x.amount_minor_units - x.fee_minor_units)
-                          OVER (ORDER BY x.occurred_at, x.source_seq, x.id) AS balance
+                          OVER (ORDER BY x.occurred_at, x.source_seq, x.dedup_key, x.id) AS balance
                FROM transactions x
                JOIN accounts a ON a.id = x.account_id
               WHERE x.account_id = :accountId) r

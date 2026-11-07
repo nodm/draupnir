@@ -47,6 +47,6 @@ END $$`,
   ADD COLUMN source_seq integer,
   ADD COLUMN running_balance_minor_units bigint`,
     `CREATE INDEX transactions_account_order_idx
-  ON transactions (account_id, occurred_at, source_seq, id)`,
+  ON transactions (account_id, occurred_at, source_seq, dedup_key, id)`,
   ],
 };

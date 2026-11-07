@@ -303,6 +303,25 @@ describe('list_transactions', () => {
     await db.exec(`DELETE FROM transactions WHERE id LIKE 'same-%'`);
   });
 
+  it('pages rows that tie on time and sequence in dedup_key order, matching the balances', async () => {
+    await db.exec(`
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description,
+                                dedup_key, occurred_at, source_seq)
+        VALUES ('tie-z', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-a', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0),
+               ('tie-m', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-b', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0),
+               ('tie-a', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-c', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0);
+    `);
+
+    const pages = await allPages('erin', { limit: 1, text: 'tie row' });
+
+    expect(pages.flatMap((p) => p.transactions.map((t) => t.id))).toEqual([
+      'tie-a',
+      'tie-m',
+      'tie-z',
+    ]);
+    await db.exec(`DELETE FROM transactions WHERE id LIKE 'tie-%'`);
+  });
+
   it('rejects a cursor issued before the order key existed', async () => {
     const oldCursor = Buffer.from(
       JSON.stringify(['2026-01-05', 'a1-001']),

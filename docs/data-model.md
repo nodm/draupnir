@@ -169,7 +169,7 @@ The common, derived, rebuildable layer: what queries and the assistant use.
 | `source_seq`                  | integer     | yes  | Position in the source file's chronological order; second order key.              |
 | `running_balance_minor_units` | bigint      | yes  | Account balance right after this row, for every bank (not the bank's own figure). |
 
-- Order is `(occurred_at, source_seq, id)`; indexed with `account_id` first.
+- Order is `(occurred_at, source_seq, dedup_key, id)` (`dedup_key` breaks ties between files, stable across rebuilds); indexed with `account_id` first.
 - Unique `(account_id, dedup_key)` (what makes re-imports safe) and `(id, account_id)`.
 - Two check constraints keep the foreign-currency and fx-fee pairs both set or both null.
 - Access: members read; owners write. Written by `ingestion` (derive) and `rebuildAccount`.

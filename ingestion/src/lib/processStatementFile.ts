@@ -928,7 +928,7 @@ export async function processStatementFile(
                JOIN transaction_sources s ON s.transaction_id = t.id AND s.account_id = t.account_id
                JOIN raw_rows r ON r.id = s.raw_row_id AND r.file_id = :fileId
               WHERE t.account_id = :accountId
-              ORDER BY t.occurred_at DESC, t.source_seq DESC, t.id DESC
+              ORDER BY t.occurred_at DESC, t.source_seq DESC, t.dedup_key DESC, t.id DESC
               LIMIT 1`,
             { fileId, accountId: id },
             transactionId,

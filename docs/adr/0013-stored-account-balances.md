@@ -27,10 +27,10 @@ to add up every transaction itself. Continuity between statements was only a war
   when never) and `balance_reconciled` (history continuous from the opening balance).
 - **Running balance.** Every transaction keeps `running_balance_minor_units`, computed for every
   bank and stored apart from the bank's own `balance_after_minor_units`, which is unchanged.
-- **Order key.** Transactions are ordered by `(occurred_at, source_seq, id)`. `occurred_at` is when
+- **Order key.** Transactions are ordered by `(occurred_at, source_seq, dedup_key, id)`. `occurred_at` is when
   the balance changed (Revolut: completion time; monobank: its timestamp; SEB: the date at
   midnight), read as UTC because the exports state no zone. `source_seq` is the row's place in its
-  file's chronological order. The normalizers produce both (`parsers/order.ts`), so import, rebuild
+  file's chronological order (it restarts per file, so `dedup_key` breaks ties between files the same way after a rebuild regenerates ids). The normalizers produce both (`parsers/order.ts`), so import, rebuild
   and the backfill agree and the order is reproducible from raw rows.
 - **Recompute, never increment.** Imports and rebuilds recompute the whole account in the
   transaction that stores the rows, under the `FOR UPDATE` account lock they already take (locks in

@@ -34,6 +34,7 @@ interface TransactionRow {
   running_balance_minor_units: number | null;
   occurred_at: string;
   source_seq: number;
+  dedup_key: string;
   description: string;
 }
 
@@ -42,22 +43,24 @@ const isoDate = z.iso.date();
 // `YYYY-MM-DD HH:MM:SS[.ffffff]`, UTC: how `occurred_at` is read back as text.
 const OCCURRED_AT_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/;
 
-// Opaque to callers: the order key (occurred_at, source_seq, id) of the last row
-// of the previous page. A cursor from before the order changed has two parts,
-// so it fails to decode.
+// Opaque to callers: the order key (occurred_at, source_seq, dedup_key, id) of
+// the last row of the previous page. A cursor from before the order changed has
+// fewer parts, so it fails to decode.
 export function encodeCursor(
   occurredAt: string,
   sourceSeq: number,
+  dedupKey: string,
   id: string,
 ): string {
-  return Buffer.from(JSON.stringify([occurredAt, sourceSeq, id])).toString(
-    'base64url',
-  );
+  return Buffer.from(
+    JSON.stringify([occurredAt, sourceSeq, dedupKey, id]),
+  ).toString('base64url');
 }
 
 export function decodeCursor(cursor: string): {
   occurredAt: string;
   sourceSeq: number;
+  dedupKey: string;
   id: string;
 } {
   try {
@@ -66,17 +69,20 @@ export function decodeCursor(cursor: string): {
     );
     if (
       Array.isArray(value) &&
-      value.length === 3 &&
+      value.length === 4 &&
       typeof value[0] === 'string' &&
       OCCURRED_AT_TEXT.test(value[0]) &&
       Number.isInteger(value[1]) &&
       typeof value[2] === 'string' &&
-      value[2] !== ''
+      value[2] !== '' &&
+      typeof value[3] === 'string' &&
+      value[3] !== ''
     ) {
       return {
         occurredAt: value[0],
         sourceSeq: value[1] as number,
-        id: value[2],
+        dedupKey: value[2],
+        id: value[3],
       };
     }
   } catch {
@@ -132,12 +138,13 @@ export const listTransactions = defineDataTool({
     if (input.cursor) {
       const c = decodeCursor(input.cursor);
       // The cursor carries the key as UTC text; read it back as timestamptz so
-      // the comparison can use the (account_id, occurred_at, source_seq, id) index.
+      // the comparison can use the (account_id, occurred_at, source_seq, dedup_key, id) index.
       where.push(
-        `(t.occurred_at, t.source_seq, t.id) < (CAST(CAST(:cursorAt AS timestamp) AT TIME ZONE 'UTC' AS timestamptz), CAST(:cursorSeq AS integer), :cursorId)`,
+        `(t.occurred_at, t.source_seq, t.dedup_key, t.id) < (CAST(CAST(:cursorAt AS timestamp) AT TIME ZONE 'UTC' AS timestamptz), CAST(:cursorSeq AS integer), :cursorDedupKey, :cursorId)`,
       );
       params['cursorAt'] = c.occurredAt;
       params['cursorSeq'] = c.sourceSeq;
+      params['cursorDedupKey'] = c.dedupKey;
       params['cursorId'] = c.id;
     }
     // One extra row tells whether another page exists. The Data API sends
@@ -148,10 +155,10 @@ export const listTransactions = defineDataTool({
       `SELECT t.id, t.account_id, t.posted_date, t.amount_minor_units,
               t.currency, t.fee_minor_units, t.running_balance_minor_units,
               CAST(t.occurred_at AT TIME ZONE 'UTC' AS text) AS occurred_at,
-              t.source_seq, t.description
+              t.source_seq, t.dedup_key, t.description
          FROM transactions t
         WHERE ${where.join(' AND ')}
-        ORDER BY t.occurred_at DESC, t.source_seq DESC, t.id DESC
+        ORDER BY t.occurred_at DESC, t.source_seq DESC, t.dedup_key DESC, t.id DESC
         LIMIT :fetch::bigint`,
       params,
     );
@@ -174,6 +181,7 @@ export const listTransactions = defineDataTool({
             nextCursor: encodeCursor(
               last.occurred_at,
               last.source_seq,
+              last.dedup_key,
               last.id,
             ),
           }
