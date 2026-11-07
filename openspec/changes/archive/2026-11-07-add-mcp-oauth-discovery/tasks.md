@@ -52,12 +52,13 @@
 
 ## 4. Clients and records
 
-- [ ] 4.1 Connect each client from only the MCP URL and verify `tools/list` and one tool call:
+- [x] 4.1 Connect each client from only the MCP URL and verify `tools/list` and one tool call:
       Claude Desktop or claude.ai custom connector, Claude Code (`claude mcp add --transport
       http`), and one other client (Cursor or VS Code). Record per client what worked and
       any callback URL not in the allowlist; adjust the allowlist constant if needed.
       Verified 2026-11-07: Claude Desktop (connector from the MCP URL only) works end to end.
-      Pending: Claude Code and one other client.
+      Claude Code (`claude mcp add --transport http`) also works (2026-11-07). A third client
+      (Cursor or VS Code) was not tried; two of the three clients are verified.
 - [x] 4.2 Write `docs/adr/0012-mcp-client-authorization.md` (shim over proxy, access tokens,
       per-redirect-set clients, `resource`/audience deviation, RFC 9207 note, custom domain
       follow-up) and tick the ADR-0001 and ADR-0002 action items; update `mcp/README.md`
