@@ -119,8 +119,12 @@ checks stops working (**BREAKING**, recorded in the proposal and spec).
   (`invalid_redirect_uri` or `invalid_client_metadata`).
 - Cap: if the count of `mcp-dcr-` clients is at least 25 and the set is new,
   respond `429`/`temporarily_unavailable` instead of creating.
-- IAM: `cognito-idp:CreateUserPoolClient` and `cognito-idp:ListUserPoolClients`
-  on the user pool ARN only. The code is the gate for an unauthenticated caller,
+- A new app client is unusable in Managed Login until a branding style is attached
+  (`infra/lib/cognito.ts` notes this), so `/register` also calls
+  `CreateManagedLoginBranding` (Cognito-provided values) for the new client, and
+  deletes the client if that fails so no half-working client takes a cap slot.
+- IAM: `cognito-idp:CreateUserPoolClient`, `ListUserPoolClients`,
+  `CreateManagedLoginBranding` and `DeleteUserPoolClient` on the user pool ARN only. The code is the gate for an unauthenticated caller,
   so the allowlist and cap are tested as security requirements.
 - Alternative, one static app client with every callback pre-registered: cannot
   cover loopback ports a client picks at random.
@@ -136,10 +140,16 @@ controls: signature, issuer, scope (decision 4); sign-up to the pool is
 restricted by the pre-sign-up email allowlist (ADR-0002), and every tool runs as
 the caller's `sub` under row-level security, so a token can only ever read what
 its own user may see. This is a recorded deviation (ADR), not a
-silent skip. Whether Cognito merely ignores or rejects an unknown `resource`
-parameter on `/oauth2/authorize` and `/oauth2/token` is unverified; if it
-rejects, a thin redirect (`/authorize`) and a form-forwarding `/token` strip it
-(task 3.3). The metadata then points at those routes instead of Cognito's.
+silent skip. Verified on prod (task 3.3): Cognito accepts `resource` on
+`/oauth2/authorize` but then issues a code that `/oauth2/token` cannot redeem
+(`invalid_grant`, with or without `resource` on the token request). With no
+`resource` on authorize the flow works. So the shim adds `GET /authorize`, a
+`302` to Cognito's authorize endpoint with `resource` removed, and a
+form-forwarding `POST /token` that also strips `resource` (so clients may send it
+on both, as the spec requires), forwards `authorization_code` and `refresh_token`
+grants, relays the response without `id_token` (defence in depth only; a client can still call Cognito directly, and an ID token from the pool would also authenticate against the other APIs; MCP clients need only the access and refresh tokens), and logs nothing (the body carries codes and tokens).
+The metadata's `authorization_endpoint` and `token_endpoint` name the shim. The forwarder holds no
+state, is throttled, and never sees a client secret (public clients only).
 
 ### 7. Throttling
 

@@ -375,6 +375,9 @@ importers:
 
   mcp:
     dependencies:
+      '@aws-sdk/client-cognito-identity-provider':
+        specifier: 3.1121.0
+        version: 3.1121.0
       '@aws-sdk/client-rds-data':
         specifier: 3.1121.0
         version: 3.1121.0

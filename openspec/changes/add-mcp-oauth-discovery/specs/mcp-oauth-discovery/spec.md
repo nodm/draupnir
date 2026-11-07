@@ -54,8 +54,9 @@ metadata below.
 ### Requirement: Authorization server metadata supports a standard client flow
 The server SHALL serve, without authentication, OpenID Connect discovery
 metadata for the advertised issuer. The document's `issuer` SHALL equal the
-advertised issuer, and it SHALL give the authorize, token and JWKS endpoints of
-the user pool, `S256` as a supported PKCE method, the authorization code grant,
+advertised issuer, and it SHALL give an authorize endpoint and a token endpoint
+on the MCP origin that hand over to the user pool, the user pool's JWKS
+endpoint, `S256` as a supported PKCE method, the authorization code grant,
 public clients (no client authentication), and a `registration_endpoint`.
 
 #### Scenario: Metadata is fetched without credentials
@@ -132,6 +133,19 @@ to fail.
 - **WHEN** a client includes the MCP endpoint URL as `resource` on the authorize
   and token requests
 - **THEN** the flow completes normally
+
+#### Scenario: Authorize requests are redirected without `resource`
+- **WHEN** a client opens the advertised authorize endpoint with `resource`
+- **THEN** it is redirected to the user pool's authorize endpoint with the same
+  parameters except `resource`
+
+#### Scenario: Token requests are forwarded without `resource`
+- **WHEN** a client posts a token request with `resource` to the advertised token
+  endpoint
+- **THEN** the request reaches the user pool without `resource`, the user pool's
+  response is returned without its `id_token` (a token that would also
+  authenticate against the other APIs), and only the authorization code and
+  refresh token grants are forwarded
 
 ### Requirement: The audience deviation is stated
 The system SHALL document that tokens are not audience-bound to the MCP server

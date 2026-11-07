@@ -164,7 +164,7 @@ ID, no GET stream, no resumability, per spec), authenticated by a native
 - [ ] Revisit this ADR if/when a tool needs server-initiated push via
       `subscriptions/listen` — evaluate turning on REST API response streaming for
       that route before reconsidering Fargate.
-- [ ] Separate ADR: OAuth/client-registration flow for Claude Desktop↔Cognito.
+- [x] Separate ADR: OAuth/client-registration flow (done: [ADR-0012](./0012-mcp-client-authorization.md)) for Claude Desktop↔Cognito.
       2026-07-28 deprecates Dynamic Client Registration in favor of Client ID
       Metadata Documents and adds RFC 9207 issuer validation — check how this maps
       onto Cognito's (typically static app-client) OAuth model before assuming the

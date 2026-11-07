@@ -26,6 +26,9 @@ export interface LambdaRouteConfig {
   codePath: string;
   environment?: Record<string, pulumi.Input<string>>;
   policyStatements?: pulumi.Input<Record<string, unknown>>[];
+  // OAuth scopes the access token must carry. With scopes the Cognito
+  // authorizer expects an access token; without, an ID token.
+  authorizationScopes?: string[];
   timeoutSeconds?: number;
   // Resources that must finish first, e.g. database migrations.
   dependsOn?: pulumi.Resource[];
@@ -109,6 +112,7 @@ export function createLambdaRoute(
       httpMethod: config.httpMethod,
       authorization: 'COGNITO_USER_POOLS',
       authorizerId: authorizer.id,
+      authorizationScopes: config.authorizationScopes,
     },
     withProvider,
   );

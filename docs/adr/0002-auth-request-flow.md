@@ -227,7 +227,7 @@ No permissions object is precomputed or cached per request or per session.
 
 ## Action Items
 
-- [ ] Separate ADR (supersedes the vague pointer in ADR-0001): MCP client
+- [x] Separate ADR (supersedes the vague pointer in ADR-0001; done: [ADR-0012](./0012-mcp-client-authorization.md)): MCP client
       auth flow for Claude Desktop↔Cognito, given Cognito doesn't honor RFC 8707
       `resource` — decide OAuth-proxy-in-front-of-Cognito vs. documented
       non-compliance, plus CIMD-vs-DCR and RFC 9207 issuer validation per the

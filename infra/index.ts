@@ -38,12 +38,7 @@ const ingestionApi = createIngestionApi(
   ingestionPipeline.uploadsBucket,
   afterMigrations,
 );
-const mcpApi = createMcpApi(
-  authPool.userPool,
-  provider,
-  appDbConfig,
-  afterMigrations,
-);
+const mcpApi = createMcpApi(authPool, provider, appDbConfig, afterMigrations);
 const bot = createBot(provider, {
   authPool,
   dbConfig: appDbConfig,
@@ -65,6 +60,7 @@ export const rebuildAccountFunctionName =
   ingestionPipeline.rebuildFunction.name;
 export const mcpApiId = mcpApi.restApi.id;
 export const mcpInvokeUrl = mcpApi.invokeUrl;
+export const mcpUrl = mcpApi.mcpUrl;
 export const botWebhookUrl = bot.webhookUrl;
 export const botCallbackUrl = bot.callbackUrl;
 export const botTokenSecretArn = bot.botTokenSecret.arn;
