@@ -7,6 +7,7 @@ import {
 import { rebuildAccount, type RebuildResult } from './lib/rebuildAccount';
 
 const dataApiClient = new RDSDataClient({});
+const MODES: readonly unknown[] = ['rebuild', 'backfill'];
 
 // Internal maintenance operation, invoked by hand:
 //   aws lambda invoke --function-name <rebuild-account> \
@@ -24,6 +25,13 @@ export const handler = async (event: {
 }): Promise<RebuildResult | BackfillResult> => {
   if (!event.accountId || !event.sub) {
     throw new Error('Missing sub or accountId in the event payload');
+  }
+  // Rebuild deletes and re-inserts transactions, so a mistyped mode must fail,
+  // never fall through to it.
+  if (event.mode !== undefined && !MODES.includes(event.mode)) {
+    throw new Error(
+      `Unknown mode ${JSON.stringify(event.mode)}; expected "rebuild" or "backfill"`,
+    );
   }
   if (event.mode === 'backfill') {
     return backfillAccountBalances(
