@@ -16,6 +16,8 @@ export default [
           ignoredDependencies: [
             '@types/aws-lambda',
             '@modelcontextprotocol/client',
+            // test-only (pglite-backed specs); never bundled into the Lambda
+            '@electric-sql/pglite',
           ],
         },
       ],

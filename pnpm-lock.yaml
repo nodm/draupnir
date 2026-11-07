@@ -375,9 +375,19 @@ importers:
 
   mcp:
     dependencies:
+      '@aws-sdk/client-rds-data':
+        specifier: 3.1121.0
+        version: 3.1121.0
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
+      shared:
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.8
+        version: 0.5.8
 
   shared:
     dependencies:

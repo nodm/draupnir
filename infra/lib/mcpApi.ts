@@ -1,6 +1,11 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import { createLambdaRoute } from './lambdaRoute';
+
+// API Gateway's REST integration timeout ceiling, as for ingestion's DB-backed
+// routes: covers an Aurora resume-from-pause plus withCaller's Data API calls.
+const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 
 export interface McpApi {
   restApi: aws.apigateway.RestApi;
@@ -10,6 +15,8 @@ export interface McpApi {
 export function createMcpApi(
   userPool: aws.cognito.UserPool,
   provider: aws.Provider,
+  // The draupnir_app credential: row-level security applies to the tools.
+  dbConfig: DbConfig,
   dependsOn: pulumi.Resource[] = [],
 ): McpApi {
   const withProvider = { provider };
@@ -48,6 +55,14 @@ export function createMcpApi(
       httpMethod: 'POST',
       handler: 'handler.handler',
       codePath: '../dist/mcp',
+      timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
+      environment: {
+        DB_CLUSTER_ARN: dbConfig.clusterArn,
+        DB_SECRET_ARN: dbConfig.secretArn,
+        DB_NAME: dbConfig.name,
+      },
+      // Read-only tools: no BatchExecuteStatement.
+      policyStatements: dataApiPolicyStatements(dbConfig, { batch: false }),
       dependsOn,
     },
     restApi,
@@ -70,6 +85,7 @@ export function createMcpApi(
           mcpRoute.integration.type,
           mcpRoute.integration.integrationHttpMethod,
           mcpRoute.integration.uri,
+          mcpRoute.integration.timeoutMilliseconds,
           authorizer.providerArns,
         ]),
       },
