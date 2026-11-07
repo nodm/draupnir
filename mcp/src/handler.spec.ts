@@ -47,6 +47,34 @@ describe('mcp handler', () => {
     authInfoFromClaims.mockClear();
   });
 
+  it('logs the request shape (rpc method) but never the token or params', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { handler } = await import('./handler');
+
+    await handler(
+      cognitoEvent({
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'list_transactions', arguments: { text: 'secret' } },
+        }),
+      }),
+      {} as never,
+      () => undefined,
+    );
+
+    const line = log.mock.calls.map((c) => String(c[0])).join('\n');
+    log.mockRestore();
+    expect(JSON.parse(line)).toMatchObject({
+      event: 'mcp-request',
+      httpMethod: 'POST',
+      rpc: 'tools/call',
+    });
+    expect(line).not.toContain('test-token');
+    expect(line).not.toContain('secret');
+  });
+
   it('forwards the API Gateway event as an equivalent Request and returns the fetch response as a proxy result', async () => {
     const { handler } = await import('./handler');
 

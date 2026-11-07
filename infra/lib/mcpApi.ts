@@ -12,6 +12,10 @@ import {
 // routes: covers an Aurora resume-from-pause plus withCaller's Data API calls.
 const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 
+// The 128 MB default ran at 114-119 MB with Runtime.ExitError crashes of
+// unknown cause on client connects; more headroom rules memory out.
+const MCP_FUNCTION_MEMORY_MB = 256;
+
 // Registration is rare; a low rate limits what an unauthenticated caller can
 // create in the user pool.
 const REGISTER_RATE_LIMIT = 1;
@@ -75,6 +79,7 @@ export function createMcpApi(
       handler: 'handler.handler',
       codePath: '../dist/mcp',
       timeoutSeconds: DB_BACKED_ROUTE_TIMEOUT_SECONDS,
+      memorySizeMb: MCP_FUNCTION_MEMORY_MB,
       // MCP clients send the access token; the `openid` scope is on every one
       // issued through the app clients.
       authorizationScopes: ['openid'],

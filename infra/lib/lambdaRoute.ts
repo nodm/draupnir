@@ -30,6 +30,7 @@ export interface LambdaRouteConfig {
   // authorizer expects an access token; without, an ID token.
   authorizationScopes?: string[];
   timeoutSeconds?: number;
+  memorySizeMb?: number;
   // Resources that must finish first, e.g. database migrations.
   dependsOn?: pulumi.Resource[];
 }
@@ -86,6 +87,7 @@ export function createLambdaRoute(
       runtime: aws.lambda.Runtime.NodeJS24dX,
       handler: config.handler,
       timeout: config.timeoutSeconds,
+      memorySize: config.memorySizeMb,
       code: new pulumi.asset.FileArchive(config.codePath),
       environment: config.environment
         ? { variables: config.environment }
