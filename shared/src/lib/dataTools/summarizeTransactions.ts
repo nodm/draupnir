@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { dateParameter, type SqlParameterValue } from '../dataApi';
 import { memberPredicate } from '../membership';
 import { defineDataTool } from './dataTool';
-import { likeContains } from './listTransactions';
+import { LIKE_TEXT_CLAUSE, likeContains } from './listTransactions';
 
 const GROUP_BY = ['month', 'account', 'description'] as const;
 type GroupBy = (typeof GROUP_BY)[number];
@@ -82,7 +82,7 @@ export const summarizeTransactions = defineDataTool({
       params['accountId'] = input.accountId;
     }
     if (input.text) {
-      where.push(`t.description ILIKE :text ESCAPE '\\'`);
+      where.push(LIKE_TEXT_CLAUSE);
       params['text'] = likeContains(input.text);
     }
     const key = GROUP_KEY_SQL[input.groupBy];

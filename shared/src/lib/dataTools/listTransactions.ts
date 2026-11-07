@@ -63,9 +63,14 @@ export function decodeCursor(cursor: string): {
   throw new DataToolError('invalid_input', 'cursor is malformed');
 }
 
+// The LIKE escape character is `!`, not a backslash: the RDS Data API's
+// parameter parser reads `'\'` as an escaped quote, leaves the literal open, and
+// then fails with a syntax error at the next `:param`.
+export const LIKE_TEXT_CLAUSE = `t.description ILIKE :text ESCAPE '!'`;
+
 // Escapes LIKE wildcards so `text` is a literal substring.
 export const likeContains = (text: string): string =>
-  `%${text.replace(/[\\%_]/g, '\\$&')}%`;
+  `%${text.replace(/[!%_]/g, '!$&')}%`;
 
 export const listTransactions = defineDataTool({
   name: 'list_transactions',
@@ -99,7 +104,7 @@ export const listTransactions = defineDataTool({
       params['to'] = dateParameter(input.to);
     }
     if (input.text) {
-      where.push(`t.description ILIKE :text ESCAPE '\\'`);
+      where.push(LIKE_TEXT_CLAUSE);
       params['text'] = likeContains(input.text);
     }
     if (input.cursor) {
