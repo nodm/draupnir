@@ -30,9 +30,10 @@
 
 ## 4. End-to-end
 
-- [x] 4.1 With a real Cognito JWT for a user who owns one account and views another, call each
+- [x] 4.1 With a real Cognito JWT for a user who owns accounts, call each
+      data tool against the deployed endpoint; verify `list_transactions` pagination
+      round-trips with no duplicate row and an `accountId` the user can't see returns
+      an empty list. (Run 2026-11-06 against prod with an owner-only user.)
+- [ ] 4.2 With a real Cognito JWT for a user who owns one account and views another, call each
       data tool against the deployed endpoint; verify only that user's visible rows are
-      returned, `list_transactions` pagination round-trips with no duplicate or missing row,
-      and an `accountId` the user can't see returns an empty list.
-      (Run 2026-11-06 against prod with an owner-only user; the viewer case is covered
-      by the shared tool and mcp unit tests, not end to end.)
+      returned. (Viewer scoping is covered by shared and mcp pglite tests, not yet end to end.)
