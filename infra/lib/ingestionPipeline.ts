@@ -74,7 +74,12 @@ export interface IngestionPipeline {
 // Re-deriving one account's transactions holds its account lock and rewrites
 // every one of its rows; generous headroom for a large history plus an Aurora
 // resume from pause.
-const REBUILD_FUNCTION_TIMEOUT_SECONDS = 300;
+// Rebuild and the balance backfill load every raw row of an account (about a
+// kilobyte each) into memory. The 128 MB default ran out on a multi-year SEB
+// account and timed out holding the account lock; this is a manual
+// maintenance Lambda, so generous limits cost nothing between runs.
+const REBUILD_FUNCTION_TIMEOUT_SECONDS = 900;
+const REBUILD_FUNCTION_MEMORY_MB = 1024;
 
 export function createIngestionPipeline(
   provider: aws.Provider,
@@ -233,6 +238,7 @@ export function createIngestionPipeline(
       runtime: aws.lambda.Runtime.NodeJS24dX,
       handler: 'rebuildAccount.handler',
       timeout: REBUILD_FUNCTION_TIMEOUT_SECONDS,
+      memorySize: REBUILD_FUNCTION_MEMORY_MB,
       code: new pulumi.asset.FileArchive('../dist/ingestion'),
       environment: {
         variables: {
