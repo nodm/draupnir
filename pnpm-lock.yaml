@@ -384,6 +384,10 @@ importers:
       shared:
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.8
+        version: 0.5.8
 
   shared:
     dependencies:

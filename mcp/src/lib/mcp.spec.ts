@@ -2,6 +2,8 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import { PGlite } from '@electric-sql/pglite';
+import { applyMigrationsForTest, createPgliteDataApiClient } from 'shared';
 import { DATA_TOOLS, DataToolError, type DataTool } from 'shared/dataTools';
 import {
   authInfoFromClaims,
@@ -202,5 +204,106 @@ describe('data tools over MCP', () => {
     expect(result.isError).toBe(true);
     expect(run).not.toHaveBeenCalled();
     expect(getDb).not.toHaveBeenCalled();
+  });
+});
+
+describe('real shared tools over MCP (pglite, RLS as draupnir_app)', () => {
+  let pg: PGlite;
+  let handler: ReturnType<typeof createHandler>;
+
+  beforeAll(async () => {
+    pg = new PGlite();
+    await applyMigrationsForTest(pg);
+    await pg.exec(`
+      INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units) VALUES
+        ('A1', 'seb', 'LT000000000000001111', 'EUR', 'Alice main', '2026-01-01', 0),
+        ('A2', 'seb', 'LT000000000000002222', 'EUR', 'Carol shared', '2026-01-01', 0),
+        ('A3', 'seb', 'LT000000000000003333', 'EUR', 'Carol private', '2026-01-01', 0);
+      INSERT INTO account_members (account_id, user_id, role) VALUES
+        ('A1', 'alice', 'owner'), ('A2', 'carol', 'owner'),
+        ('A2', 'alice', 'viewer'), ('A3', 'carol', 'owner');
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key) VALUES
+        ('a1-1', 'A1', '2026-01-01', -1, 'EUR', 'mine', 'a1-1'),
+        ('a2-1', 'A2', '2026-01-02', -2, 'EUR', 'shared', 'a2-1'),
+        ('a2-2', 'A2', '2026-01-03', -3, 'EUR', 'shared 2', 'a2-2'),
+        ('a3-1', 'A3', '2026-01-04', -4, 'EUR', 'carol private', 'a3-1');
+    `);
+    const { client } = createPgliteDataApiClient(pg, { role: 'draupnir_app' });
+    handler = createHandler({
+      tools: DATA_TOOLS,
+      getDb: () => ({
+        client,
+        config: { resourceArn: 'a', secretArn: 'a', database: 'd' },
+      }),
+    });
+  });
+  afterAll(async () => {
+    await pg.close();
+  });
+
+  async function call(
+    sub: string,
+    name: string,
+    args: Record<string, unknown> = {},
+  ) {
+    const { client, connect } = connectAsSub(sub, handler);
+    await connect();
+    return client.callTool({ name, arguments: args });
+  }
+
+  it('list_accounts returns the array result, with the viewer role and nothing else', async () => {
+    const result = await call('alice', 'list_accounts');
+
+    const accounts = JSON.parse((result.content as { text: string }[])[0].text);
+    expect(
+      accounts.map((a: { id: string; role: string }) => [a.id, a.role]).sort(),
+    ).toEqual([
+      ['A1', 'owner'],
+      ['A2', 'viewer'],
+    ]);
+  });
+
+  it('list_transactions shows the viewer only visible rows, and nothing for an unseen account', async () => {
+    const all = await call('alice', 'list_transactions', { limit: 200 });
+    const ids = (
+      all.structuredContent as { transactions: { id: string }[] }
+    ).transactions.map((t) => t.id);
+    expect(ids.sort()).toEqual(['a1-1', 'a2-1', 'a2-2']);
+
+    const hidden = await call('alice', 'list_transactions', {
+      accountId: 'A3',
+    });
+    expect(
+      (hidden.structuredContent as { transactions: unknown[] }).transactions,
+    ).toEqual([]);
+  });
+
+  it('list_transactions pages round-trip through MCP without duplicates', async () => {
+    const first = await call('alice', 'list_transactions', { limit: 2 });
+    const p1 = first.structuredContent as {
+      transactions: { id: string }[];
+      nextCursor?: string;
+    };
+    expect(p1.nextCursor).toBeDefined();
+    const second = await call('alice', 'list_transactions', {
+      limit: 2,
+      cursor: p1.nextCursor,
+    });
+    const p2 = second.structuredContent as {
+      transactions: { id: string }[];
+      nextCursor?: string;
+    };
+
+    expect(
+      [...p1.transactions, ...p2.transactions].map((t) => t.id).sort(),
+    ).toEqual(['a1-1', 'a2-1', 'a2-2']);
+    expect(p2.nextCursor).toBeUndefined();
+  });
+
+  it('returns the shared validation error as a tool error', async () => {
+    const result = await call('alice', 'list_transactions', { limit: 100000 });
+
+    expect(result.isError).toBe(true);
+    expect((result.content as { text: string }[])[0].text).toMatch(/limit/);
   });
 });

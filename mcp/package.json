@@ -9,5 +9,8 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@aws-sdk/client-rds-data": "3.1121.0",
     "shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }
