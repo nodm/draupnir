@@ -134,10 +134,10 @@ export async function writeDerivation(
     `INSERT INTO transactions
        (id, account_id, posted_date, amount_minor_units, currency, description, fee_minor_units,
         balance_after_minor_units, dedup_key, original_currency, original_amount_minor_units,
-        fx_fee_minor_units, fx_fee_percent)
+        fx_fee_minor_units, fx_fee_percent, occurred_at, source_seq)
      VALUES (:id, :accountId, :postedDate, :amountMinorUnits, :currency, :description, :feeMinorUnits,
              :balanceAfterMinorUnits, :dedupKey, :originalCurrency, :originalAmountMinorUnits,
-             :fxFeeMinorUnits, :fxFeePercent)
+             :fxFeeMinorUnits, :fxFeePercent, CAST(:occurredAt AS timestamptz), :sourceSeq)
      ON CONFLICT (account_id, dedup_key) DO NOTHING`,
     derivation.transactions.map(({ id, accountId, row }) => ({
       id,
@@ -153,6 +153,8 @@ export async function writeDerivation(
       originalAmountMinorUnits: row.originalAmountMinorUnits ?? null,
       fxFeeMinorUnits: row.fxFeeMinorUnits ?? null,
       fxFeePercent: row.fxFeePercent ?? null,
+      occurredAt: row.occurredAt,
+      sourceSeq: row.sourceSeq,
     })),
   );
 
