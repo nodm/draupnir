@@ -222,11 +222,14 @@ describe('real shared tools over MCP (pglite, RLS as draupnir_app)', () => {
       INSERT INTO account_members (account_id, user_id, role) VALUES
         ('A1', 'alice', 'owner'), ('A2', 'carol', 'owner'),
         ('A2', 'alice', 'viewer'), ('A3', 'carol', 'owner');
-      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key) VALUES
-        ('a1-1', 'A1', '2026-01-01', -1, 'EUR', 'mine', 'a1-1'),
-        ('a2-1', 'A2', '2026-01-02', -2, 'EUR', 'shared', 'a2-1'),
-        ('a2-2', 'A2', '2026-01-03', -3, 'EUR', 'shared 2', 'a2-2'),
-        ('a3-1', 'A3', '2026-01-04', -4, 'EUR', 'carol private', 'a3-1');
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key,
+                                occurred_at, source_seq, running_balance_minor_units) VALUES
+        ('a1-1', 'A1', '2026-01-01', -1, 'EUR', 'mine', 'a1-1', '2026-01-01T00:00:00Z', 0, -1),
+        ('a2-1', 'A2', '2026-01-02', -2, 'EUR', 'shared', 'a2-1', '2026-01-02T00:00:00Z', 0, -2),
+        ('a2-2', 'A2', '2026-01-03', -3, 'EUR', 'shared 2', 'a2-2', '2026-01-03T00:00:00Z', 0, -5),
+        ('a3-1', 'A3', '2026-01-04', -4, 'EUR', 'carol private', 'a3-1', '2026-01-04T00:00:00Z', 0, -4);
+      UPDATE accounts SET balance_minor_units = -1, balance_as_of = '2026-01-01', balance_reconciled = true WHERE id = 'A1';
+      UPDATE accounts SET balance_minor_units = -5, balance_as_of = '2026-01-03', balance_reconciled = true WHERE id = 'A2';
     `);
     const { client } = createPgliteDataApiClient(pg, { role: 'draupnir_app' });
     handler = createHandler({
@@ -263,6 +266,11 @@ describe('real shared tools over MCP (pglite, RLS as draupnir_app)', () => {
       ['A1', 'owner'],
       ['A2', 'viewer'],
     ]);
+    expect(accounts.find((a: { id: string }) => a.id === 'A2')).toMatchObject({
+      balanceMinorUnits: -5,
+      balanceAsOf: '2026-01-03',
+      balanceReconciled: true,
+    });
   });
 
   it('list_transactions shows the viewer only visible rows, and nothing for an unseen account', async () => {
@@ -300,6 +308,12 @@ describe('real shared tools over MCP (pglite, RLS as draupnir_app)', () => {
       [...p1.transactions, ...p2.transactions].map((t) => t.id).sort(),
     ).toEqual(['a1-1', 'a2-1', 'a2-2']);
     expect(p2.nextCursor).toBeUndefined();
+    expect(
+      [...p1.transactions, ...p2.transactions].map(
+        (t) =>
+          (t as { runningBalanceMinorUnits?: number }).runningBalanceMinorUnits,
+      ),
+    ).toEqual([-5, -2, -1]);
   });
 
   it('returns the shared validation error as a tool error', async () => {
