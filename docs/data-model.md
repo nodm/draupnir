@@ -40,18 +40,22 @@ How the bot uses its tables: [telegram-bot.md](./telegram-bot.md) and
 One bank account. Created through `draupnir.create_account` (there is no insert policy), so
 the creator becomes an owner in the same step. Written by `createAccount` in `shared`.
 
-| Column                        | Type        | Null | Notes                                                     |
-| ----------------------------- | ----------- | ---- | --------------------------------------------------------- |
-| `id`                          | text        | no   | Primary key.                                              |
-| `bank`                        | text        | no   | `seb`, `revolut` or `monobank` (check constraint).        |
-| `iban`                        | text        | no   | Unique across all accounts, canonical form (no spaces).   |
-| `currency`                    | text        | no   | Account currency, ISO 4217 code.                          |
-| `display_name`                | text        | no   | The name the owner gave it, up to 60 characters in chat.  |
-| `opened_on`                   | date        | no   | The date `opening_balance_minor_units` is the balance on. |
-| `opening_balance_minor_units` | bigint      | no   | Starting point statements are reconciled against.         |
-| `created_at`                  | timestamptz | no   | Default `now()`.                                          |
+| Column                        | Type        | Null | Notes                                                      |
+| ----------------------------- | ----------- | ---- | ---------------------------------------------------------- |
+| `id`                          | text        | no   | Primary key.                                               |
+| `bank`                        | text        | no   | `seb`, `revolut` or `monobank` (check constraint).         |
+| `iban`                        | text        | no   | Unique across all accounts, canonical form (no spaces).    |
+| `currency`                    | text        | no   | Account currency, ISO 4217 code.                           |
+| `display_name`                | text        | no   | The name the owner gave it, up to 60 characters in chat.   |
+| `opened_on`                   | date        | no   | The date `opening_balance_minor_units` is the balance on.  |
+| `opening_balance_minor_units` | bigint      | no   | Starting point statements are reconciled against.          |
+| `created_at`                  | timestamptz | no   | Default `now()`.                                           |
+| `balance_minor_units`         | bigint      | no   | Opening balance plus every transaction's amount minus fee. |
+| `balance_as_of`               | date        | no   | The day the balance last changed (`opened_on` if never).   |
+| `balance_reconciled`          | boolean     | no   | History continuous from the opening balance.               |
 
 - Access: select for any member; update and delete for owners.
+- The three balance columns are recomputed by every import and rebuild, never incremented. A trigger starts a new account at its opening balance, as of `opened_on`, reconciled.
 
 ### `account_members`
 
@@ -161,7 +165,11 @@ The common, derived, rebuildable layer: what queries and the assistant use.
 | `fx_fee_minor_units`          | bigint      | yes  | Set together with `fx_fee_percent`.                                               |
 | `fx_fee_percent`              | numeric     | yes  |                                                                                   |
 | `created_at`                  | timestamptz | no   | Default `now()`.                                                                  |
+| `occurred_at`                 | timestamptz | yes  | When the balance changed (Revolut completion time); order key, read as UTC.       |
+| `source_seq`                  | integer     | yes  | Position in the source file's chronological order; second order key.              |
+| `running_balance_minor_units` | bigint      | yes  | Account balance right after this row, for every bank (not the bank's own figure). |
 
+- Order is `(occurred_at, source_seq, dedup_key, id)` (`dedup_key` breaks ties between files, stable across rebuilds); indexed with `account_id` first.
 - Unique `(account_id, dedup_key)` (what makes re-imports safe) and `(id, account_id)`.
 - Two check constraints keep the foreign-currency and fx-fee pairs both set or both null.
 - Access: members read; owners write. Written by `ingestion` (derive) and `rebuildAccount`.
@@ -315,35 +323,36 @@ may update only that column. A test compares this table with the database's gran
 
 Every `SECURITY DEFINER` function pins `search_path = pg_catalog, pg_temp`, schema-qualifies
 what it touches, and has `EXECUTE` revoked from `PUBLIC`. All of them are granted to
-`draupnir_app` except `keep_last_owner`, a trigger function that only its trigger calls and
-nobody may call directly. `current_sub` is not `SECURITY DEFINER`; it only reads the caller.
+`draupnir_app` except `keep_last_owner` and `init_account_balance`, trigger functions that only
+their triggers call and nobody may call directly. `current_sub` is not `SECURITY DEFINER`; it only reads the caller.
 A guard test enforces the rest. `current_sub` and `is_member` are the building blocks of the
 policies; the others let a job act where a policy would (rightly) refuse it.
 
-| Function                   | Purpose                                                                                      |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `current_sub`              | The caller (`app.sub`), or null. Not `SECURITY DEFINER`.                                     |
-| `is_member`                | True when the caller is a member of an account with at least a role.                         |
-| `is_file_member`           | True when the caller is a member of any account an approved file resolved to.                |
-| `can_link_file`            | True when the caller owns the file's upload account (required to link the file to accounts). |
-| `keep_last_owner`          | Trigger function behind `account_members_keep_last_owner`.                                   |
-| `create_account`           | Creates an account and makes the caller its owner, atomically.                               |
-| `sub_for_telegram_user`    | Telegram user id to Cognito `sub`, for an incoming update.                                   |
-| `create_link_request`      | Starts a sign-in; replaces an earlier one for the same Telegram user.                        |
-| `consume_link_state`       | Marks a sign-in `state` as used, once.                                                       |
-| `set_pending_link`         | Stores who signed in and the code hash. Links nothing.                                       |
-| `redeem_link_code`         | Checks the code from the same Telegram account and creates the link.                         |
-| `has_pending_link`         | True when a Telegram user has an unfinished sign-in.                                         |
-| `telegram_chat_of_member`  | An owner's lookup of a member's chat, for share and unshare notices.                         |
-| `enqueue_outcome`          | Writes the outbox row inside the uploader's import transaction.                              |
-| `due_outcomes`             | Outbox rows not published a minute after commit.                                             |
-| `mark_outcome_published`   | Sets `published_at`.                                                                         |
-| `unreported_outcomes`      | Published outcomes whose upload was never reported (the queue gave up), for republishing.    |
-| `recorded_outcome`         | Lets the pipeline recover the outcome it already committed for an S3 key.                    |
-| `claim_outcome_report`     | Atomically claims the right to report an outcome (2-minute lease); returns the chat.         |
-| `mark_outcome_reported`    | Marks the upload reported.                                                                   |
-| `record_bot_message`       | Records a sent message under the owner of that private chat.                                 |
-| `claim_due_bot_messages`   | Claims messages older than 24 hours for the retention run (15-minute lease).                 |
-| `due_bot_messages`         | Older read-only list of the same; superseded by `claim_due_bot_messages`.                    |
-| `mark_bot_message_deleted` | Sets `deleted_at`.                                                                           |
-| `mark_bot_message_failed`  | Sets `failed_at`.                                                                            |
+| Function                   | Purpose                                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| `current_sub`              | The caller (`app.sub`), or null. Not `SECURITY DEFINER`.                                      |
+| `is_member`                | True when the caller is a member of an account with at least a role.                          |
+| `is_file_member`           | True when the caller is a member of any account an approved file resolved to.                 |
+| `can_link_file`            | True when the caller owns the file's upload account (required to link the file to accounts).  |
+| `keep_last_owner`          | Trigger function behind `account_members_keep_last_owner`.                                    |
+| `init_account_balance`     | Trigger function behind `accounts_init_balance`: a new account starts at its opening balance. |
+| `create_account`           | Creates an account and makes the caller its owner, atomically.                                |
+| `sub_for_telegram_user`    | Telegram user id to Cognito `sub`, for an incoming update.                                    |
+| `create_link_request`      | Starts a sign-in; replaces an earlier one for the same Telegram user.                         |
+| `consume_link_state`       | Marks a sign-in `state` as used, once.                                                        |
+| `set_pending_link`         | Stores who signed in and the code hash. Links nothing.                                        |
+| `redeem_link_code`         | Checks the code from the same Telegram account and creates the link.                          |
+| `has_pending_link`         | True when a Telegram user has an unfinished sign-in.                                          |
+| `telegram_chat_of_member`  | An owner's lookup of a member's chat, for share and unshare notices.                          |
+| `enqueue_outcome`          | Writes the outbox row inside the uploader's import transaction.                               |
+| `due_outcomes`             | Outbox rows not published a minute after commit.                                              |
+| `mark_outcome_published`   | Sets `published_at`.                                                                          |
+| `unreported_outcomes`      | Published outcomes whose upload was never reported (the queue gave up), for republishing.     |
+| `recorded_outcome`         | Lets the pipeline recover the outcome it already committed for an S3 key.                     |
+| `claim_outcome_report`     | Atomically claims the right to report an outcome (2-minute lease); returns the chat.          |
+| `mark_outcome_reported`    | Marks the upload reported.                                                                    |
+| `record_bot_message`       | Records a sent message under the owner of that private chat.                                  |
+| `claim_due_bot_messages`   | Claims messages older than 24 hours for the retention run (15-minute lease).                  |
+| `due_bot_messages`         | Older read-only list of the same; superseded by `claim_due_bot_messages`.                     |
+| `mark_bot_message_deleted` | Sets `deleted_at`.                                                                            |
+| `mark_bot_message_failed`  | Sets `failed_at`.                                                                             |

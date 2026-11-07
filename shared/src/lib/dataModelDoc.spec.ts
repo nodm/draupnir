@@ -9,6 +9,9 @@ import { applyMigrationsForTest } from './migrations/applyMigrationsForTest';
 // migration that adds, drops or retypes something fails here until the page is
 // updated in the same change.
 
+// Trigger functions only their trigger calls: not granted to the app role.
+const TRIGGER_ONLY = ['keep_last_owner', 'init_account_balance'];
+
 const DOC = resolve(__dirname, '../../../docs/data-model.md');
 
 const TYPE_NAMES: Record<string, string> = {
@@ -178,7 +181,7 @@ describe('docs/data-model.md matches the migrations', () => {
       expect(f.pinned, `${f.proname} pins search_path`).toBe(true);
       expect(f.public_exec, `${f.proname} closed to PUBLIC`).toBe(false);
       expect(f.app, `${f.proname} open to draupnir_app`).toBe(
-        f.proname !== 'keep_last_owner',
+        !TRIGGER_ONLY.includes(f.proname),
       );
     }
     // The only function that is not SECURITY DEFINER is the one the page says.

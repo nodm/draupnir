@@ -60,7 +60,8 @@ balance-after, which is kept unchanged.
 
 ### Requirement: Transactions have a stable order
 Transactions of an account SHALL be ordered by the time the balance changed,
-then by their position in their source file's chronological order, then by id.
+then by their position in their source file's chronological order, then by
+their dedup key (stable across a rebuild, unlike ids), then by id.
 The time is the bank's own timestamp where its export has one (for Revolut,
 the completion time, because the balance changes on completion) and otherwise
 the posted date at midnight. The order SHALL be reproducible when the account is

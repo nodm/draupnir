@@ -26,6 +26,8 @@ function row(
     currency: 'EUR',
     description: 'lidl',
     dedupKey: key,
+    occurredAt: '2026-08-29T00:00:00Z',
+    sourceSeq: rowNumber,
     feeMinorUnits: 0,
     ...overrides,
   };

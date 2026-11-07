@@ -30,7 +30,11 @@ export interface DataToolQuery {
   ): Promise<ExecuteResult>;
 }
 
-export type DataToolErrorCode = 'unauthenticated' | 'invalid_input';
+// `unavailable`: the data is not ready yet (a backfill is still running).
+export type DataToolErrorCode =
+  | 'unauthenticated'
+  | 'invalid_input'
+  | 'unavailable';
 
 // Expected, caller-fixable failures. Adapters show the message to the model or
 // client; anything else is an unexpected fault.

@@ -67,6 +67,12 @@ caller can't see SHALL yield an empty list, not an error.
 - **THEN** each transaction carries its running balance, even though the bank
   reports none
 
+#### Scenario: Legacy rows without an order key are not served out of order
+- **WHEN** a caller lists transactions of an account whose rows have not yet
+  been given an order key by the backfill
+- **THEN** the tool returns an `unavailable` error saying the order is still
+  being computed, instead of returning those rows unordered
+
 #### Scenario: Same-day rows are in balance-change order
 - **WHEN** several transactions share a posted date
 - **THEN** they are returned newest first in the order the balance changed, and

@@ -11,6 +11,7 @@ import {
   isOutcomeMessage,
   loadSegments,
   memberPredicate,
+  recomputeAccountBalance,
   withCaller,
   type Bank,
   type CoverageAccount,
@@ -20,7 +21,8 @@ import {
 } from 'shared';
 import { deriveTransactions, type DerivationFile } from './derive';
 import type { ParsedRow, ParsedStatement } from './parsers/types';
-import { continuityWarnings } from './validation/coverage';
+import { formatMinorUnits } from './dedupKey';
+import { continuityReasons } from './validation/coverage';
 import {
   findInFileKeyConflicts,
   findOverlapConflicts,
@@ -49,6 +51,15 @@ export class OversizedStatementFileError extends Error {
       `Statement file is ${sizeBytes} bytes, exceeding the ${MAX_UPLOAD_SIZE_BYTES}-byte limit`,
     );
     this.name = 'OversizedStatementFileError';
+  }
+}
+
+// Thrown from inside the write transaction so that every write and balance of
+// the file rolls back; the file is then recorded as rejected.
+class ClosingBalanceMismatchError extends Error {
+  constructor(readonly reason: ValidationReason) {
+    super(reason.message);
+    this.name = 'ClosingBalanceMismatchError';
   }
 }
 
@@ -775,11 +786,21 @@ export async function processStatementFile(
             openedOn: String(locked.opened_on),
             openingBalanceMinorUnits: locked.opening_balance_minor_units,
           };
-          warningsByAccount[id] = continuityWarnings(
-            coverageAccount,
-            await loadSegments(dataApiClient, dataApiConfig, id, transactionId),
-            segment,
+          // A gap against stored history rejects the file: the stored balance
+          // is only meaningful while history is continuous.
+          reasons.push(
+            ...continuityReasons(
+              coverageAccount,
+              await loadSegments(
+                dataApiClient,
+                dataApiConfig,
+                id,
+                transactionId,
+              ),
+              segment,
+            ),
           );
+          warningsByAccount[id] = [];
         }
 
         if (reasons.length > 0) {
@@ -888,6 +909,47 @@ export async function processStatementFile(
           );
         }
 
+        // The balance is recomputed from everything now stored, then checked
+        // against the bank's own closing balance where the format has one.
+        // Segments are written above, so the reconciled flag sees this file.
+        for (const [id, segment] of segmentByAccount) {
+          await recomputeAccountBalance(
+            dataApiClient,
+            dataApiConfig,
+            transactionId,
+            id,
+          );
+          if (segment.closingBalanceMinorUnits === null) continue;
+          const { rows: lastRows } = await executeStatement(
+            dataApiClient,
+            dataApiConfig,
+            `SELECT t.running_balance_minor_units
+               FROM transactions t
+               JOIN transaction_sources s ON s.transaction_id = t.id AND s.account_id = t.account_id
+               JOIN raw_rows r ON r.id = s.raw_row_id AND r.file_id = :fileId
+              WHERE t.account_id = :accountId
+              ORDER BY t.occurred_at DESC, t.source_seq DESC, t.dedup_key DESC, t.id DESC
+              LIMIT 1`,
+            { fileId, accountId: id },
+            transactionId,
+          );
+          const computed = (
+            lastRows[0] as { running_balance_minor_units: number } | undefined
+          )?.running_balance_minor_units;
+          if (
+            computed !== undefined &&
+            computed !== segment.closingBalanceMinorUnits
+          ) {
+            const currency = (lockedById.get(id) as AccountRecord).currency;
+            const money = (v: number) =>
+              `${formatMinorUnits(v, currency)} ${currency}`;
+            throw new ClosingBalanceMismatchError({
+              code: 'closing-balance-mismatch',
+              message: `The file's closing balance is ${money(segment.closingBalanceMinorUnits)}, but the account's balance after the file's last transaction is ${money(computed)} (opening balance plus the stored history plus this file)`,
+            });
+          }
+        }
+
         const report = boundOutcomeMessage({
           fileId,
           s3Key: key,
@@ -926,6 +988,10 @@ export async function processStatementFile(
       },
     );
   } catch (error) {
+    // Everything the file wrote was rolled back with the transaction.
+    if (error instanceof ClosingBalanceMismatchError) {
+      return recordRejection(ctx, facts, [error.reason]);
+    }
     // Safety net: the partial unique index closes the race where the same file
     // is approved twice; the loser is a duplicate rejection, not an error.
     if (

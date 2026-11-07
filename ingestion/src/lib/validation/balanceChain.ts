@@ -1,4 +1,3 @@
-import type { Bank } from 'shared';
 import { formatMinorUnits } from '../dedupKey';
 import type {
   NormalizedRow,
@@ -30,35 +29,20 @@ function hasBalance(row: ParsedRow): row is ParsedRow & {
 }
 
 // Rows in the order the balance actually changed. Only rows that entered
-// `transactions` (i.e. that affect the balance) are present; the bank's own
-// order differs per format.
-function chronologicalChainRows(bank: Bank, rows: ParsedRow[]): ChainRow[] {
-  const chain = rows
+// `transactions` (i.e. that affect the balance) are present. Each normalizer
+// already numbered its rows in that order (`sourceSeq`, see parsers/order.ts),
+// which differs per format: monobank lists newest first, Revolut changes the
+// balance on completion rather than at `Started Date`.
+function chronologicalChainRows(rows: ParsedRow[]): ChainRow[] {
+  return rows
     .filter(hasBalance)
-    .map((row) => ({ ...row, normalized: row.normalized }));
-
-  if (bank === 'monobank') {
-    // newest first in the export
-    return chain.reverse();
-  }
-  if (bank === 'revolut') {
-    // The balance changes on completion, while `Started Date` is only the
-    // posting/dedup basis. Array.sort is stable, so ties keep file order.
-    return [...chain].sort((a, b) =>
-      (a.payload['Completed Date'] as string).localeCompare(
-        b.payload['Completed Date'] as string,
-      ),
-    );
-  }
-  return chain;
+    .map((row) => ({ ...row, normalized: row.normalized }))
+    .sort((a, b) => a.normalized.sourceSeq - b.normalized.sourceSeq);
 }
 
 // Each row's balance must equal the previous row's balance + its amount − its
 // fee. SEB has no per-row balance, so it yields no chain rows and passes.
-export function checkBalanceChain(
-  bank: Bank,
-  parsed: ParsedStatement,
-): BalanceChainResult {
+export function checkBalanceChain(parsed: ParsedStatement): BalanceChainResult {
   const reasons: ValidationReason[] = [];
   const balancesByIban = new Map<string, AccountBalances>();
 
@@ -68,7 +52,7 @@ export function checkBalanceChain(
   }
 
   for (const [iban, rows] of byIban) {
-    const chain = chronologicalChainRows(bank, rows);
+    const chain = chronologicalChainRows(rows);
     const first = chain[0];
     const last = chain[chain.length - 1];
     if (!first || !last) continue;

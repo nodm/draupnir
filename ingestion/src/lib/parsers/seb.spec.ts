@@ -33,6 +33,8 @@ describe('SEB parseStatement', () => {
         '28/08/2026 19:17 kortelė...000000 lidl/60175 lidl zalgir/vilnius/ltu #869452, dok. nr. clr10000001, operacijos nr. ro1000000003l01',
       dedupKey: 'seb:RO1000000003L01',
       feeMinorUnits: 0,
+      occurredAt: '2026-08-29T00:00:00Z',
+      sourceSeq: 2,
     });
     expect(lidl?.balanceAfterMinorUnits).toBeUndefined();
   });
@@ -147,6 +149,25 @@ describe('SEB parseStatement', () => {
     const malformed = [TITLE_LINE, HEADER_LINE, dataRow('D', '')].join('\n');
 
     expect(() => parseStatement(malformed)).toThrow(/empty TRANSAKCIJOS KODAS/);
+  });
+
+  it('orders same-day rows by file position', () => {
+    const file = [
+      TITLE_LINE,
+      HEADER_LINE,
+      dataRow('D', 'RO1'),
+      dataRow('C', 'RO2'),
+      dataRow('D', 'RO3'),
+    ].join('\n');
+
+    expect(normalizedRows(file).map((r) => [r.dedupKey, r.sourceSeq])).toEqual([
+      ['seb:RO1', 0],
+      ['seb:RO2', 1],
+      ['seb:RO3', 2],
+    ]);
+    expect(new Set(normalizedRows(file).map((r) => r.occurredAt))).toEqual(
+      new Set(['2026-08-29T00:00:00Z']),
+    );
   });
 
   it('produces the same dedup_key for the same provider transaction id', () => {

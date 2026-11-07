@@ -28,12 +28,14 @@ See proposal.md for why. Current state that shapes the approach:
 ## Goals / Non-Goals
 
 **Goals:**
+
 - A stored, bank-checked balance per account and a running balance per
   transaction, always consistent with the stored transactions.
 - A transaction order that is deterministic and reproducible from raw rows.
 - A backfill that keeps existing rows and their ids.
 
 **Non-Goals:**
+
 - Parking a file until its predecessor arrives, a retry command, or sorting a
   batch (the owner chose a plain rejection with a precise message).
 - Comparing every row's running balance with the bank's `balance_after`.
@@ -54,7 +56,7 @@ UPDATE transactions t
   FROM (SELECT id,
                CAST(:opening AS bigint)
                  + SUM(amount_minor_units - fee_minor_units)
-                     OVER (ORDER BY occurred_at, source_seq, id) AS balance
+                     OVER (ORDER BY occurred_at, source_seq, dedup_key, id) AS balance
           FROM transactions WHERE account_id = :accountId) r
  WHERE t.id = r.id AND t.account_id = :accountId
 ```
@@ -80,13 +82,13 @@ increment, so a retried or duplicate import cannot drift it.
 ### 2. Order key: `occurred_at` and `source_seq`
 
 `transactions` gains `occurred_at timestamptz` and `source_seq integer`; the
-order is `(occurred_at, source_seq, id)`.
+order is `(occurred_at, source_seq, dedup_key, id)`; `source_seq` restarts per file, so rows of different files can tie, and `dedup_key` (unique per account, from the raw data) breaks the tie the same way after a rebuild regenerates ids.
 
-| Bank | `occurred_at` | `source_seq` |
-|---|---|---|
-| Revolut | `Completed Date` (balance changes on completion) | rank in the file's chain order (sort by `Completed Date`, ties keep file order) |
-| monobank | `Date and time` | reverse of file order (the export is newest first) |
-| SEB | `DATA` at midnight | file order (not verified as chronological; see Risks) |
+| Bank     | `occurred_at`                                    | `source_seq`                                                                    |
+| -------- | ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Revolut  | `Completed Date` (balance changes on completion) | rank in the file's chain order (sort by `Completed Date`, ties keep file order) |
+| monobank | `Date and time`                                  | reverse of file order (the export is newest first)                              |
+| SEB      | `DATA` at midnight                               | file order (not verified as chronological; see Risks)                           |
 
 - The normalizers are the single place that knows this (they are what import and
   rebuild both use), so the order is reproducible from raw rows. `NormalizedRow`
@@ -100,7 +102,7 @@ order is `(occurred_at, source_seq, id)`.
 - **Alternatives:** an integer `txn_order` per account renumbers later rows on a
   backfill; ordering by `(posted_date, import_seq, row_number)` needs joins and
   breaks when files overlap. The timestamp is also meaningful to users.
-- A new index on `(account_id, occurred_at, source_seq, id)` serves the keyset
+- A new index on `(account_id, occurred_at, source_seq, dedup_key, id)` serves the keyset
   pagination.
 
 ### 3. `balance_as_of` is the day the balance last changed
@@ -134,7 +136,7 @@ unchanged. The user sees the reason through the bot's existing rejection message
 
 For a format with a closing balance (balances already computed in validation), the
 check runs after the recompute: the running balance of the file's last
-transaction (greatest `(occurred_at, source_seq, id)` among rows sourced from this
+transaction (greatest `(occurred_at, source_seq, dedup_key, id)` among rows sourced from this
 file) must equal the file's closing balance. A mismatch throws a typed error from
 the transaction callback, which rolls back every write and balance, and the file
 is then recorded as rejected through `recordRejection`, which already writes a
@@ -154,8 +156,8 @@ a per-row comparison could reject good files on an unresolvable tie.
 - `list_transactions` replaces the bank's balance-after in its output with
   `runningBalanceMinorUnits` (one balance per row avoids two similar fields
   confusing a model; the bank's value stays in the table). It orders and pages by
-  `(occurred_at, source_seq, id)`: the keyset predicate becomes
-  `(t.occurred_at, t.source_seq, t.id) < (:cursorAt, :cursorSeq, :cursorId)`, and the
+  `(occurred_at, source_seq, dedup_key, id)`: the keyset predicate becomes
+  `(t.occurred_at, t.source_seq, t.dedup_key, t.id) < (:cursorAt, :cursorSeq, :cursorDedupKey, :cursorId)`, and the
   cursor encodes those. Old cursors fail to decode and are rejected as malformed.
   The `from` and `to` filters stay on `posted_date`.
 - The MCP adapter exposes the shared tools unchanged, so `mcp-data-tools` needs no
@@ -185,10 +187,12 @@ written meanwhile have `NULL`s and are fixed by running the backfill again.
 
 ## Risks / Trade-offs
 
-- **SEB same-day order is unverified** → file order is assumed chronological;
-  confirm against a real export. If wrong, SEB's end-of-day balance is still exact
-  and only the within-day running balances are affected; the spec states the weaker
-  guarantee.
+- **SEB same-day order** → verified 2026-11-07 against five real exports (2022 to 2026-10;
+  non-empty account blocks, dates only checked): every block lists rows oldest first by `DATA`,
+  so file order is chronological across days. Same-day order cannot be proven without a
+  per-row balance, so it stays an assumption; file order is used.
+  If same-day order is wrong, SEB's end-of-day balance is still exact and only the
+  within-day running balances are affected; the spec states the weaker guarantee.
 - **Equal timestamps** (Revolut `Completed Date` ties) → ordered by file position,
   then id; the closing check compares only the last row, so a tie cannot reject a
   good file.
@@ -201,6 +205,12 @@ written meanwhile have `NULL`s and are fixed by running the backfill again.
 - **Statement time on large accounts** → a whole-account window update; measured on
   prod volumes before relying on it, and the Data API per-statement time limit is
   well above it for thousands of rows.
+- **Legacy rows between deploy and backfill** → `list_transactions` returns an
+  `unavailable` error while any visible row has no order key, rather than misorder
+  rows or hand out a cursor that cannot decode; the backfill runs right after deploy.
+  The check goes away with `0019`.
+- **Empty statement segments** → a file with no period and no balances (only excluded
+  rows) is ignored when judging reconciliation.
 - **Breaking tool output** → `balanceAfter` disappears from `list_transactions` and
   old cursors are rejected; the only consumer is the MCP clients and the cursor
   lifetime is one pagination session.

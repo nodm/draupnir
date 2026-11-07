@@ -79,7 +79,10 @@ describe('processStatementFile', () => {
         opts.bank ?? 'seb',
         opts.iban,
         opts.currency ?? 'EUR',
-        opts.openedOn ?? '2026-01-01',
+        // The SEB fixture declares 2026-08-29; a first file only connects to an
+        // account opened on or before its declared start.
+        opts.openedOn ??
+          ((opts.bank ?? 'seb') === 'seb' ? '2026-08-29' : '2026-01-01'),
         opts.opening ?? 0,
       ],
     );
@@ -147,8 +150,9 @@ describe('processStatementFile', () => {
     description: string,
     amount: string,
     balance: string,
+    fee = '0.00',
   ) =>
-    `Card Payment,Current,${started},${completed},${description},${amount},0.00,EUR,COMPLETED,${balance}`;
+    `Card Payment,Current,${started},${completed},${description},${amount},${fee},EUR,COMPLETED,${balance}`;
 
   describe('approved files', () => {
     it('writes the file, per-account record, raw rows, transactions and sources', async () => {
@@ -665,89 +669,77 @@ describe('processStatementFile', () => {
     });
   });
 
-  describe('continuity warnings', () => {
-    it('approves an out-of-order file with a gap warning recorded on its account record', async () => {
-      await account({
-        id: 'R',
-        iban: REVOLUT_IBAN,
-        bank: 'revolut',
-        opening: 1000,
+  describe('continuity rejections', () => {
+    const revolutFile = (...rows: string[]) =>
+      [REVOLUT_HEADER, ...rows].join('\n');
+    const day = (
+      date: string,
+      description: string,
+      balance: string,
+      time = '10:00:00',
+    ) =>
+      revolutRow(
+        `${date} ${time}`,
+        `${date} ${time}`,
+        description,
+        '-1.00',
+        balance,
+      );
+    const revolutAccount = () =>
+      account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening: 1000 });
+    const storedCount = async () =>
+      Number(
+        (
+          await db.query<{ n: string }>(
+            'SELECT count(*) AS n FROM transactions',
+          )
+        ).rows[0]?.n,
+      );
+
+    it('rejects an out-of-order file, naming the missing period, and stores nothing', async () => {
+      await revolutAccount();
+      await upload(revolutFile(day('2026-03-02', 'March', '9.00')), {
+        accountId: 'R',
       });
-      const march = [
-        REVOLUT_HEADER,
-        revolutRow(
-          '2026-03-02 10:00:00',
-          '2026-03-02 10:00:00',
-          'March',
-          '-1.00',
-          '16.00',
-        ),
-      ].join('\n');
-      await upload(march, { accountId: 'R' });
-      // opening 10.00 closing 9.00 ≠ March opening 17.00
-      const january = [
-        REVOLUT_HEADER,
-        revolutRow(
-          '2026-01-02 10:00:00',
-          '2026-01-02 10:00:00',
-          'January',
-          '-1.00',
-          '9.00',
-        ),
-      ].join('\n');
+      const before = await storedCount();
+      // March opens at 10.00 (the account's opening); January closes at 9.00
 
-      const outcome = await upload(january, { accountId: 'R' });
+      const outcome = await upload(
+        revolutFile(day('2026-01-02', 'January', '9.00')),
+        { accountId: 'R' },
+      );
 
-      expect(outcome.status).toBe('approved');
-      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual([
-        'gap-after',
-      ]);
-      const stored = (
-        await db.query<{ warnings: { code: string }[] }>(
-          'SELECT warnings FROM statement_file_accounts WHERE file_id = $1',
-          [outcome.fileId],
-        )
-      ).rows[0];
-      expect(stored?.warnings.map((w) => w.code)).toEqual(['gap-after']);
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toContain('gap-after');
+      expect(outcome.reasons[0]?.message).toMatch(
+        /ends 2026-01-02 and stored history starts 2026-03-02.*2026-01-03 to 2026-03-01/,
+      );
+      expect(await storedCount()).toBe(before);
+      const files = await db.query<{ status: string }>(
+        `SELECT status FROM statement_files WHERE id = $1`,
+        [outcome.fileId],
+      );
+      expect(files.rows).toEqual([{ status: 'rejected' }]);
     });
 
-    it('has no warning when the file connects to history and the opening', async () => {
-      await account({
-        id: 'R',
-        iban: REVOLUT_IBAN,
-        bank: 'revolut',
-        opening: 1000,
-      });
-      const jan = [
-        REVOLUT_HEADER,
-        revolutRow(
-          '2026-01-02 10:00:00',
-          '2026-01-02 10:00:00',
-          'Jan',
-          '-1.00',
-          '9.00',
-        ),
-      ].join('\n');
-      const feb = [
-        REVOLUT_HEADER,
-        revolutRow(
-          '2026-02-02 10:00:00',
-          '2026-02-02 10:00:00',
-          'Feb',
-          '-1.00',
-          '8.00',
-        ),
-      ].join('\n');
-      const first = await upload(jan, { accountId: 'R' });
+    it('approves a file that connects to history and the opening', async () => {
+      await revolutAccount();
+      const first = await upload(
+        revolutFile(day('2026-01-02', 'Jan', '9.00')),
+        { accountId: 'R' },
+      );
 
-      const second = await upload(feb, { accountId: 'R' });
+      const second = await upload(
+        revolutFile(day('2026-02-02', 'Feb', '8.00')),
+        { accountId: 'R' },
+      );
 
-      expect(first.warningsByAccount['R']).toEqual([]);
+      expect(first.status).toBe('approved');
       expect(second.status).toBe('approved');
       expect(second.warningsByAccount['R']).toEqual([]);
     });
 
-    it('warns when the first file does not match the account opening balance', async () => {
+    it('rejects a first file that does not match the account opening, naming it', async () => {
       await account({
         id: 'R',
         iban: REVOLUT_IBAN,
@@ -757,10 +749,276 @@ describe('processStatementFile', () => {
 
       const outcome = await upload(REVOLUT, { accountId: 'R' });
 
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toEqual(['gap-opening']);
+      expect(outcome.reasons[0]?.message).toMatch(/0\.05 EUR on 2026-01-01/);
+      expect(await storedCount()).toBe(0);
+    });
+
+    it('rejects February processed before January, then approves it uploaded again after January', async () => {
+      await revolutAccount();
+      const jan = revolutFile(day('2026-01-02', 'Jan', '9.00'));
+      const feb = revolutFile(day('2026-02-02', 'Feb', '8.00'));
+
+      const early = await upload(feb, { accountId: 'R' });
+      const januaryOutcome = await upload(jan, { accountId: 'R' });
+      const retry = await upload(feb, { accountId: 'R' });
+
+      expect(early.status).toBe('rejected');
+      expect(januaryOutcome.status).toBe('approved');
+      expect(retry.status).toBe('approved');
+      const { rows } = await db.query<Record<string, string | boolean>>(
+        `SELECT balance_minor_units::text AS balance, balance_reconciled FROM accounts WHERE id = 'R'`,
+      );
+      expect(rows).toEqual([{ balance: '800', balance_reconciled: true }]);
+    });
+  });
+
+  describe('stored balances', () => {
+    const revolutFile = (...rows: string[]) =>
+      [REVOLUT_HEADER, ...rows].join('\n');
+    const revolutAccount = (opening = 1000) =>
+      account({ id: 'R', iban: REVOLUT_IBAN, bank: 'revolut', opening });
+    const accountRow = async (id = 'R') =>
+      (
+        await db.query<Record<string, unknown>>(
+          `SELECT balance_minor_units::text AS balance, balance_as_of::text AS as_of, balance_reconciled AS reconciled
+             FROM accounts WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+
+    it('sets the account balance, as-of date and per-row running balances', async () => {
+      await revolutAccount();
+
+      const outcome = await upload(
+        revolutFile(
+          // started on the 2nd, completed on the 3rd
+          revolutRow(
+            '2026-01-02 23:50:00',
+            '2026-01-03 00:10:00',
+            'Late',
+            '-1.00',
+            '9.00',
+          ),
+          revolutRow(
+            '2026-01-03 09:00:00',
+            '2026-01-03 09:00:00',
+            'Next',
+            '-1.00',
+            '8.00',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+
       expect(outcome.status).toBe('approved');
-      expect(outcome.warningsByAccount['R']?.map((w) => w.code)).toEqual([
-        'gap-opening',
+      expect(await accountRow()).toEqual({
+        balance: '800',
+        as_of: '2026-01-03',
+        reconciled: true,
+      });
+      const { rows } = await db.query<{ d: string; b: string }>(
+        `SELECT description AS d, running_balance_minor_units::text AS b
+           FROM transactions ORDER BY occurred_at, source_seq, id`,
+      );
+      expect(rows).toEqual([
+        { d: 'late', b: '900' },
+        { d: 'next', b: '800' },
       ]);
+    });
+
+    it('takes the fee off the balance and keeps the bank balance separately', async () => {
+      await revolutAccount();
+
+      await upload(
+        revolutFile(
+          revolutRow(
+            '2026-01-02 10:00:00',
+            '2026-01-02 10:00:00',
+            'Fee',
+            '-1.00',
+            '8.50',
+            '0.50',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+
+      expect((await accountRow())?.['balance']).toBe('850');
+      const { rows } = await db.query<Record<string, string>>(
+        `SELECT balance_after_minor_units::text AS bank, running_balance_minor_units::text AS running FROM transactions`,
+      );
+      expect(rows).toEqual([{ bank: '850', running: '850' }]);
+    });
+
+    it('rejects a file whose closing balance disagrees, naming both amounts, storing nothing', async () => {
+      await revolutAccount();
+      await upload(
+        revolutFile(
+          revolutRow(
+            '2026-01-02 10:00:00',
+            '2026-01-02 10:00:00',
+            'Alpha',
+            '-1.00',
+            '9.00',
+          ),
+          revolutRow(
+            '2026-01-04 10:00:00',
+            '2026-01-04 10:00:00',
+            'Bravo',
+            '-1.00',
+            '8.00',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+      const before = await accountRow();
+      // Overlaps by date (so it is "continuous") but its opening 9.00 ignores
+      // Bravo: computed 7.00 after it, the bank says 8.00.
+      const outcome = await upload(
+        revolutFile(
+          revolutRow(
+            '2026-01-04 11:00:00',
+            '2026-01-04 11:00:00',
+            'Extra',
+            '-1.00',
+            '8.00',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toEqual([
+        'closing-balance-mismatch',
+      ]);
+      expect(outcome.reasons[0]?.message).toMatch(/8\.00 EUR.*7\.00 EUR/);
+      expect(await accountRow()).toEqual(before);
+      expect(
+        Number(
+          (
+            await db.query<{ n: string }>(
+              'SELECT count(*) AS n FROM transactions',
+            )
+          ).rows[0]?.n,
+        ),
+      ).toBe(2);
+      const files = await db.query<{ status: string }>(
+        `SELECT status FROM statement_files ORDER BY import_seq`,
+      );
+      expect(files.rows.map((f) => f.status)).toEqual(['approved', 'rejected']);
+    });
+
+    it('approves an SEB file without comparing to a bank balance', async () => {
+      await account({ id: 'A', iban: IBAN_A, opening: 100000 });
+      await account({ id: 'B', iban: IBAN_B, opening: 500000 });
+
+      const outcome = await upload(SEB, { accountId: 'A' });
+
+      expect(outcome.status).toBe('approved');
+      const { rows } = await db.query<{ id: string; sum: string }>(
+        `SELECT account_id AS id, SUM(amount_minor_units - fee_minor_units)::text AS sum
+           FROM transactions GROUP BY account_id ORDER BY account_id`,
+      );
+      for (const { id, sum } of rows) {
+        const opening = id === 'A' ? 100000 : 500000;
+        expect((await accountRow(id))?.['balance']).toBe(
+          String(opening + Number(sum)),
+        );
+      }
+    });
+
+    it('leaves the old balances when a write fails after the recompute', async () => {
+      await revolutAccount();
+      const before = await accountRow();
+
+      await expect(
+        upload(
+          revolutFile(
+            revolutRow(
+              '2026-01-02 10:00:00',
+              '2026-01-02 10:00:00',
+              'Alpha',
+              '-1.00',
+              '9.00',
+            ),
+          ),
+          {
+            accountId: 'R',
+            hook: (command) => {
+              const sql = command.input['sql'];
+              // The outbox row is written after the balances are recomputed.
+              if (
+                typeof sql === 'string' &&
+                sql.includes('draupnir.enqueue_outcome')
+              ) {
+                throw new Error('simulated write failure');
+              }
+            },
+          },
+        ),
+      ).rejects.toThrow('simulated write failure');
+
+      expect(await accountRow()).toEqual(before);
+      const { rows } = await db.query<{ n: string }>(
+        'SELECT count(*) AS n FROM transactions',
+      );
+      expect(Number(rows[0]?.n)).toBe(0);
+    });
+
+    it('keeps the balance equal to opening plus every stored transaction across successive imports', async () => {
+      await revolutAccount();
+      await upload(
+        revolutFile(
+          revolutRow(
+            '2026-01-02 10:00:00',
+            '2026-01-02 10:00:00',
+            'A',
+            '-1.00',
+            '9.00',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+      await upload(
+        revolutFile(
+          revolutRow(
+            '2026-01-03 10:00:00',
+            '2026-01-03 10:00:00',
+            'B',
+            '-1.00',
+            '8.00',
+          ),
+        ),
+        { accountId: 'R' },
+      );
+
+      const { rows } = await db.query<{ expected: string }>(
+        `SELECT (a.opening_balance_minor_units + SUM(t.amount_minor_units - t.fee_minor_units))::text AS expected
+           FROM accounts a JOIN transactions t ON t.account_id = a.id GROUP BY a.id, a.opening_balance_minor_units`,
+      );
+      expect((await accountRow())?.['balance']).toBe(rows[0]?.expected);
+    });
+
+    it('leaves the balance unchanged for a duplicate file', async () => {
+      await revolutAccount();
+      const file = revolutFile(
+        revolutRow(
+          '2026-01-02 10:00:00',
+          '2026-01-02 10:00:00',
+          'Alpha',
+          '-1.00',
+          '9.00',
+        ),
+      );
+      await upload(file, { accountId: 'R' });
+      const before = await accountRow();
+
+      const again = await upload(file, { accountId: 'R' });
+
+      expect(again.status).toBe('rejected');
+      expect(await accountRow()).toEqual(before);
     });
   });
 

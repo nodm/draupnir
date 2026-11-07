@@ -1,4 +1,4 @@
-import { continuityWarnings } from './coverage';
+import { continuityReasons } from './coverage';
 import type { CoverageAccount, Segment } from 'shared';
 
 const account: CoverageAccount = {
@@ -52,44 +52,49 @@ const bareSegment = (fileId: string, from: string, to: string): Segment => ({
   openingBalanceMinorUnits: null,
   closingBalanceMinorUnits: null,
 });
-describe('continuityWarnings', () => {
+describe('continuityReasons', () => {
   const march = balanceSegment('mar', '2026-03-02', '2026-03-30', 1700, 900);
 
-  it('warns about a January file that does not connect to stored March', () => {
+  it('rejects a January file that does not connect to stored March, naming the missing period', () => {
     const jan = balanceSegment('jan', '2026-01-02', '2026-01-30', 1000, 2000);
 
-    const warnings = continuityWarnings(account, [march], jan);
+    const reasons = continuityReasons(account, [march], jan);
 
-    expect(warnings).toEqual([
+    expect(reasons).toEqual([
       expect.objectContaining({
         code: 'gap-after',
-        message: expect.stringMatching(/20\.00 EUR.*17\.00 EUR/),
+        message: expect.stringMatching(
+          /ends 2026-01-30 and stored history starts 2026-03-02.*20\.00 EUR.*17\.00 EUR.*2026-01-31 to 2026-03-01/,
+        ),
       }),
     ]);
   });
 
-  it('has no warning when the new file connects to history', () => {
+  it('has no reason when the new file connects to history', () => {
     const feb = balanceSegment('feb', '2026-02-03', '2026-02-27', 1000, 1700);
 
-    expect(continuityWarnings(account, [march], feb)).toEqual([]);
+    expect(continuityReasons(account, [march], feb)).toEqual([]);
   });
 
-  it('warns when the earliest file does not match the account opening', () => {
+  it('rejects when the earliest file does not match the account opening, naming it', () => {
     const first = balanceSegment('a', '2026-01-02', '2026-01-30', 500, 900);
 
-    expect(continuityWarnings(account, [], first)).toEqual([
-      expect.objectContaining({ code: 'gap-opening' }),
+    expect(continuityReasons(account, [], first)).toEqual([
+      expect.objectContaining({
+        code: 'gap-opening',
+        message: expect.stringMatching(/10\.00 EUR on 2024-01-01/),
+      }),
     ]);
   });
 
-  it('never warns when continuity is merely unknown', () => {
+  it('never rejects when continuity is merely unknown', () => {
     const a = bareSegment('a', '2026-01-01', '2026-01-31');
     const b = bareSegment('b', '2026-03-01', '2026-03-31');
 
-    expect(continuityWarnings(account, [a], b)).toEqual([]);
+    expect(continuityReasons(account, [a], b)).toEqual([]);
   });
 
-  it('warns about a declared-period gap', () => {
+  it('rejects a declared-period gap naming the history end and file start', () => {
     const jan = declaredSegment(
       'jan',
       '2024-01-01',
@@ -105,8 +110,13 @@ describe('continuityWarnings', () => {
       '2026-03-30',
     );
 
-    expect(continuityWarnings(account, [jan], mar)).toEqual([
-      expect.objectContaining({ code: 'gap-before' }),
+    expect(continuityReasons(account, [jan], mar)).toEqual([
+      expect.objectContaining({
+        code: 'gap-before',
+        message: expect.stringMatching(
+          /ends 2026-01-31 and this file starts 2026-03-01.*2026-02-01 to 2026-02-28/,
+        ),
+      }),
     ]);
   });
 });

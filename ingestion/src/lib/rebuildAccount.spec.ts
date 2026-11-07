@@ -20,6 +20,9 @@ const fixture = (name: string) =>
   readFileSync(join(__dirname, 'parsers/__fixtures__', name), 'utf8');
 const SEB = fixture('seb.csv');
 const REVOLUT = fixture('revolut.csv');
+// The SEB fixture declares 2026-08-29, so its first file only connects to an
+// account opened on or before that day.
+const SEB_OPENED_ON = '2026-08-29';
 const HEADER = REVOLUT.split('\n')[0] as string;
 
 const row = (day: string, description: string, balance: string) =>
@@ -44,11 +47,17 @@ describe('rebuildAccount', () => {
     );
   });
 
-  async function account(id: string, iban: string, bank: string, opening = 0) {
+  async function account(
+    id: string,
+    iban: string,
+    bank: string,
+    opening = 0,
+    openedOn = '2026-01-01',
+  ) {
     await db.query(
       `INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units)
-       VALUES ($1, $2, $3, 'EUR', $1, '2026-01-01', $4)`,
-      [id, bank, iban, opening],
+       VALUES ($1, $2, $3, 'EUR', $1, $5::date, $4)`,
+      [id, bank, iban, opening, openedOn],
     );
     await db.query(
       `INSERT INTO account_members (account_id, user_id, role) VALUES ($1, 'user-1', 'owner')`,
@@ -79,7 +88,8 @@ describe('rebuildAccount', () => {
     transactions: (
       await db.query(
         `SELECT posted_date::text, amount_minor_units::text, description, fee_minor_units::text,
-                balance_after_minor_units::text, dedup_key
+                balance_after_minor_units::text, dedup_key,
+                occurred_at::text, source_seq, running_balance_minor_units::text
            FROM transactions WHERE account_id = $1 ORDER BY dedup_key`,
         [accountId],
       )
@@ -120,6 +130,20 @@ describe('rebuildAccount', () => {
 
     expect(result).toEqual({ accountId: 'R', transactions: 3, sources: 4 });
     expect(await snapshot('R')).toEqual(before);
+    // Order keys and balances are part of the snapshot: set, kept from the
+    // first file for the shared row, and reproduced by the rebuild.
+    expect(
+      (before.transactions as Record<string, unknown>[]).every(
+        (t) =>
+          t['occurred_at'] !== null &&
+          t['source_seq'] !== null &&
+          t['running_balance_minor_units'] !== null,
+      ),
+    ).toBe(true);
+    const { rows } = await db.query<{ balance: string }>(
+      `SELECT balance_minor_units::text AS balance FROM accounts WHERE id = 'R'`,
+    );
+    expect(rows).toEqual([{ balance: '700' }]);
   });
 
   it('applies a fixed derivation without any re-upload', async () => {
@@ -142,8 +166,8 @@ describe('rebuildAccount', () => {
   });
 
   it('rebuilds a non-selected account of a multi-account file and leaves the other untouched', async () => {
-    await account('A', 'LT100000000000000001', 'seb');
-    await account('B', 'LT100000000000000002', 'seb');
+    await account('A', 'LT100000000000000001', 'seb', 0, SEB_OPENED_ON);
+    await account('B', 'LT100000000000000002', 'seb', 0, SEB_OPENED_ON);
     await upload(SEB, 'A');
     const aBefore = await snapshot('A');
     const bBefore = await snapshot('B');
@@ -159,8 +183,8 @@ describe('rebuildAccount', () => {
   });
 
   it('replays imports in commit order (import_seq), not by processed_at', async () => {
-    await account('A', 'LT100000000000000001', 'seb');
-    await account('B', 'LT100000000000000002', 'seb');
+    await account('A', 'LT100000000000000001', 'seb', 0, SEB_OPENED_ON);
+    await account('B', 'LT100000000000000002', 'seb', 0, SEB_OPENED_ON);
     const edited = SEB.replace(
       'Withdraw money from savings deposit',
       'Edited text',

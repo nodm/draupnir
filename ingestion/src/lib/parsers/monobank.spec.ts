@@ -24,6 +24,9 @@ describe('monobank parseStatement', () => {
       description: 'google',
       feeMinorUnits: 0,
       balanceAfterMinorUnits: 253158,
+      occurredAt: '2026-07-26T08:48:06Z',
+      // The export is newest first, so its first row is the last to happen.
+      sourceSeq: normalized(fixture).length - 1,
       dedupKey: computeHashDedupKey(
         {
           iban: uploadAccountIban,
@@ -35,6 +38,23 @@ describe('monobank parseStatement', () => {
         0,
       ),
     });
+  });
+
+  it('numbers rows oldest first although the export lists newest first', () => {
+    const rows = normalized(fixture);
+
+    expect(rows.map((r) => r.sourceSeq)).toEqual(
+      rows.map((_, index) => rows.length - 1 - index),
+    );
+    // The two Lifecell rows share a timestamp; the later balance is the first
+    // in the file, so it gets the higher sequence.
+    const sameSecond = rows.filter(
+      (r) => r.occurredAt === '2026-07-12T12:19:32Z',
+    );
+    expect(sameSecond).toHaveLength(2);
+    expect((sameSecond[0] as { sourceSeq: number }).sourceSeq).toBeGreaterThan(
+      (sameSecond[1] as { sourceSeq: number }).sourceSeq,
+    );
   });
 
   it('keeps the raw payload untouched, including the — placeholder', () => {

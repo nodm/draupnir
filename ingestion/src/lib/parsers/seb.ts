@@ -6,6 +6,7 @@ import {
 } from '../dedupKey';
 import { detectFormat, isRealIsoDatePart } from '../validation/formats';
 import type { ValidationReason } from '../validation/types';
+import { fileOrder, isoFromDateOnly } from './order';
 import {
   duplicateHeaders,
   toPayload,
@@ -202,7 +203,8 @@ export function readSebTable(fileContents: string): SebTable {
 // SEB rows carry their own account IBAN, so `accountIban` is unused.
 export const normalizeRows: RowNormalizer = (rows) => {
   const out = new Map<number, NormalizedRow>();
-  for (const { rowNumber, payload } of rows) {
+  const sourceSeq = fileOrder(rows.length);
+  for (const [index, { rowNumber, payload }] of rows.entries()) {
     const data = payload['DATA'] as string;
     const valiuta = payload['VALIUTA'] as string;
     const suma = payload['SUMA'] as string;
@@ -226,6 +228,8 @@ export const normalizeRows: RowNormalizer = (rows) => {
       currency: valiuta.trim(),
       description: normalizeDescription(paskirtis),
       dedupKey: `seb:${transakcijosKodas.trim()}`,
+      occurredAt: isoFromDateOnly(data),
+      sourceSeq: sourceSeq[index] as number,
       // The SEB export has no fee column; the FX fee lives in the fx_*
       // columns below.
       feeMinorUnits: 0,

@@ -134,6 +134,21 @@ describe('createAccount on a real Postgres instance', () => {
     ]);
   });
 
+  it('starts the balance at the opening balance, as of the opening date, reconciled', async () => {
+    await createAccount(client, config, 'u', {
+      ...validInput,
+      openedOn: '2026-01-01',
+      openingBalanceMinorUnits: 100000,
+    });
+
+    const { rows } = await db.query<Record<string, unknown>>(
+      `SELECT balance_minor_units::text AS balance, balance_as_of::text AS as_of, balance_reconciled FROM accounts`,
+    );
+    expect(rows).toEqual([
+      { balance: '100000', as_of: '2026-01-01', balance_reconciled: true },
+    ]);
+  });
+
   it('takes the owner from the authenticated identity only', async () => {
     await createAccount(client, config, 'real-user', {
       ...validInput,

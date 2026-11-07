@@ -1,11 +1,12 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
 import {
   executeStatement,
+  recomputeAccountBalance,
   withCaller,
-  type Bank,
   type DataApiConfig,
 } from 'shared';
-import { deriveTransactions, type DerivationFile } from './derive';
+import { deriveTransactions } from './derive';
+import { loadStoredRawRows } from './storedRawRows';
 import { batchInsert, writeDerivation } from './statementWrites';
 
 const LOCK_TIMEOUT = '30s';
@@ -14,14 +15,6 @@ export interface RebuildResult {
   accountId: string;
   transactions: number;
   sources: number;
-}
-
-interface StoredRawRow {
-  id: string;
-  file_id: string;
-  row_number: number;
-  bank: Bank;
-  payload: string;
 }
 
 export class RebuildAccountNotFoundError extends Error {
@@ -65,41 +58,13 @@ export async function rebuildAccount(
       throw new RebuildAccountNotFoundError(accountId);
     }
 
-    const { rows } = await executeStatement(
+    const { filesInOrder, fileIndex, fileIdByRawRow } = await loadStoredRawRows(
       client,
       config,
-      `SELECT r.id, r.file_id, r.row_number, r.bank, CAST(r.payload AS text) AS payload
-         FROM raw_rows r
-         JOIN statement_files f ON f.id = r.file_id AND f.status = 'approved'
-         JOIN statement_file_accounts fa ON fa.file_id = r.file_id AND fa.account_id = r.account_id
-        WHERE r.account_id = :accountId
-        ORDER BY f.import_seq, r.row_number`,
-      { accountId },
       transactionId,
+      accountId,
+      account.iban,
     );
-
-    const filesInOrder: DerivationFile[] = [];
-    const fileIdByRawRow = new Map<string, string>();
-    const fileIndex = new Map<string, DerivationFile>();
-    for (const raw of rows as unknown as StoredRawRow[]) {
-      let file = fileIndex.get(raw.file_id);
-      if (!file) {
-        file = {
-          bank: raw.bank,
-          accountId,
-          accountIban: account.iban,
-          rows: [],
-        };
-        fileIndex.set(raw.file_id, file);
-        filesInOrder.push(file);
-      }
-      file.rows.push({
-        rawRowId: raw.id,
-        rowNumber: raw.row_number,
-        payload: JSON.parse(raw.payload) as Record<string, string>,
-      });
-      fileIdByRawRow.set(raw.id, raw.file_id);
-    }
 
     await executeStatement(
       client,
@@ -146,6 +111,9 @@ export async function rebuildAccount(
         count,
       })),
     );
+
+    // New order keys, so new running balances and account balance.
+    await recomputeAccountBalance(client, config, transactionId, accountId);
 
     return {
       accountId,

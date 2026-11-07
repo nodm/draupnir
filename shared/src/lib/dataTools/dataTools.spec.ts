@@ -74,6 +74,27 @@ beforeAll(async () => {
     INSERT INTO statement_file_accounts (file_id, account_id, declared_from, declared_to, activity_from, activity_to) VALUES
       ('ff1', 'F1', '2026-01-01', '2026-01-31', '2026-01-05', '2026-01-27'),
       ('ff2', 'F1', '2026-03-01', '2026-03-31', '2026-03-02', '2026-03-30');
+    -- Order keys, running balances and account balances as an import stores
+    -- them: rows of one posted day are ordered by id.
+    UPDATE transactions t
+       SET occurred_at = CAST(t.posted_date AS timestamp) AT TIME ZONE 'UTC', source_seq = k.seq
+      FROM (SELECT id, CAST(row_number() OVER (PARTITION BY account_id, posted_date ORDER BY id) AS integer) AS seq
+              FROM transactions) k
+     WHERE k.id = t.id;
+    UPDATE transactions t SET running_balance_minor_units = r.b
+      FROM (SELECT x.id, a.opening_balance_minor_units
+                   + SUM(x.amount_minor_units - x.fee_minor_units)
+                       OVER (PARTITION BY x.account_id ORDER BY x.occurred_at, x.source_seq, x.id) AS b
+              FROM transactions x JOIN accounts a ON a.id = x.account_id) r
+     WHERE r.id = t.id;
+    UPDATE accounts a
+       SET balance_minor_units = a.opening_balance_minor_units + COALESCE(s.total, 0),
+           balance_as_of = COALESCE(s.last_day, a.opened_on),
+           balance_reconciled = a.id <> 'F1'
+      FROM (SELECT a2.id, SUM(t.amount_minor_units - t.fee_minor_units) AS total,
+                   CAST(MAX(t.occurred_at) AT TIME ZONE 'UTC' AS date) AS last_day
+              FROM accounts a2 LEFT JOIN transactions t ON t.account_id = a2.id GROUP BY a2.id) s
+     WHERE s.id = a.id;
   `);
   const { client } = createPgliteDataApiClient(db, { role: 'draupnir_app' });
   ctxFor = (sub) => ({ sub, db: { client, config } });
@@ -160,6 +181,40 @@ describe('list_accounts', () => {
     expect(JSON.stringify(accounts)).not.toContain('LT0000000000000011');
   });
 
+  it('returns the stored balance with its as-of date and reconciled flag', async () => {
+    const accounts = (await listAccounts.run(ctxFor('alice'), {})) as {
+      id: string;
+      balanceMinorUnits: number;
+      balanceAsOf: string;
+      balanceReconciled: boolean;
+    }[];
+
+    // A1: 120 x -100 and one -1; latest transaction on 2026-03-01.
+    expect(accounts.find((a) => a.id === 'A1')).toMatchObject({
+      balanceMinorUnits: -12001,
+      balanceAsOf: '2026-03-01',
+      balanceReconciled: true,
+    });
+  });
+
+  it('shows a viewer the same balance, date and flag as the owner', async () => {
+    const pick = async (sub: string) =>
+      ((await listAccounts.run(ctxFor(sub), {})) as Record<string, unknown>[])
+        .filter((a) => a['id'] === 'A1')
+        .map((a) => [
+          a['balanceMinorUnits'],
+          a['balanceAsOf'],
+          a['balanceReconciled'],
+        ]);
+
+    expect(await pick('bob')).toEqual(await pick('alice'));
+  });
+
+  it('tells the caller to state the as-of date and flag unreconciled balances', () => {
+    expect(listAccounts.description).toMatch(/balanceAsOf/);
+    expect(listAccounts.description).toMatch(/not reconciled/);
+  });
+
   it('reports the reconciled-up-to date', async () => {
     await db.exec(`
       UPDATE accounts SET opened_on = '2026-01-01' WHERE id = 'F1';
@@ -187,11 +242,125 @@ describe('list_transactions', () => {
     expect(pages[0]?.nextCursor).toEqual(expect.any(String));
     const ids = pages.flatMap((p) => p.transactions.map((t) => t.id));
     expect(new Set(ids).size).toBe(120);
-    // Newest first by (posted date, id).
+    // Newest first by (posted date, id): the seeded order key.
     const keys = pages.flatMap((p) =>
       p.transactions.map((t) => `${t.postedDate}|${t.id}`),
     );
     expect(keys).toEqual([...keys].sort().reverse());
+  });
+
+  it('returns each row with a running balance equal to the next-older row plus its amount minus fee', async () => {
+    const pages = await allPages('dana', { accountId: 'D1', limit: 200 });
+    const rows = pages.flatMap((p) => p.transactions);
+
+    // 1000, then -300 with a 5 fee, -200, +500: newest first.
+    expect(rows.map((t) => t.runningBalanceMinorUnits)).toEqual([
+      995, 495, 695, 1000,
+    ]);
+    for (let i = 0; i < rows.length - 1; i++) {
+      const row = rows[i] as (typeof rows)[number];
+      const older = rows[i + 1] as (typeof rows)[number];
+      expect(row.runningBalanceMinorUnits).toBe(
+        (older.runningBalanceMinorUnits as number) +
+          row.amountMinorUnits -
+          row.feeMinorUnits,
+      );
+    }
+  });
+
+  it('returns a running balance for a bank that reports none (SEB)', async () => {
+    const result = (await listTransactions.run(ctxFor('carol'), {
+      accountId: 'A2',
+    })) as ListTransactionsResult;
+
+    expect(result.transactions[0]?.runningBalanceMinorUnits).toBe(-5);
+    expect(result.transactions[0]).not.toHaveProperty('balanceAfterMinorUnits');
+  });
+
+  it('pages same-day rows in balance-change order without gaps or duplicates', async () => {
+    await db.exec(`
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description,
+                                dedup_key, occurred_at, source_seq)
+        SELECT 'same-' || i, 'E1', '2027-06-01', -1, 'EUR', 'same day ' || i, 'same-' || i,
+               TIMESTAMPTZ '2027-06-01 12:00:00+00', 10 - i
+          FROM generate_series(1, 7) i;
+    `);
+
+    const pages = await allPages('erin', { limit: 3, text: 'same day' });
+    const ids = pages.flatMap((p) => p.transactions.map((t) => t.id));
+
+    expect(pages.map((p) => p.transactions.length)).toEqual([3, 3, 1]);
+    // Newest first: the highest sequence is the latest balance change.
+    expect(ids).toEqual([
+      'same-1',
+      'same-2',
+      'same-3',
+      'same-4',
+      'same-5',
+      'same-6',
+      'same-7',
+    ]);
+    await db.exec(`DELETE FROM transactions WHERE id LIKE 'same-%'`);
+  });
+
+  it('pages rows that tie on time and sequence in dedup_key order, matching the balances', async () => {
+    await db.exec(`
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description,
+                                dedup_key, occurred_at, source_seq)
+        VALUES ('tie-z', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-a', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0),
+               ('tie-m', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-b', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0),
+               ('tie-a', 'E1', '2027-07-01', -1, 'EUR', 'tie row', 'k-c', TIMESTAMPTZ '2027-07-01 12:00:00+00', 0);
+    `);
+
+    const pages = await allPages('erin', { limit: 1, text: 'tie row' });
+
+    expect(pages.flatMap((p) => p.transactions.map((t) => t.id))).toEqual([
+      'tie-a',
+      'tie-m',
+      'tie-z',
+    ]);
+    await db.exec(`DELETE FROM transactions WHERE id LIKE 'tie-%'`);
+  });
+
+  it.each([
+    '2026-02-31 00:00:00',
+    '2026-01-01 25:00:00',
+    '2026-01-01 12:60:00',
+    '2026-13-01 12:00:00',
+  ])('rejects the impossible cursor time %s as malformed', async (at) => {
+    const cursor = Buffer.from(JSON.stringify([at, 0, 'k', 'id'])).toString(
+      'base64url',
+    );
+
+    await expect(
+      listTransactions.run(ctxFor('alice'), { cursor }),
+    ).rejects.toThrow(/cursor is malformed/);
+  });
+
+  it('says the order is not ready, rather than misorder, while legacy rows have no key', async () => {
+    await db.exec(`
+      INSERT INTO transactions (id, account_id, posted_date, amount_minor_units, currency, description, dedup_key)
+        VALUES ('legacy-1', 'E1', '2026-01-01', -1, 'EUR', 'legacy', 'legacy-1');
+    `);
+
+    await expect(
+      listTransactions.run(ctxFor('erin'), {}),
+    ).rejects.toMatchObject({ name: 'DataToolError', code: 'unavailable' });
+    // Only accounts with unordered rows are affected.
+    await expect(
+      listTransactions.run(ctxFor('alice'), { accountId: 'A1' }),
+    ).resolves.toMatchObject({ transactions: expect.any(Array) });
+    await db.exec(`DELETE FROM transactions WHERE id = 'legacy-1'`);
+  });
+
+  it('rejects a cursor issued before the order key existed', async () => {
+    const oldCursor = Buffer.from(
+      JSON.stringify(['2026-01-05', 'a1-001']),
+    ).toString('base64url');
+
+    await expect(
+      listTransactions.run(ctxFor('alice'), { cursor: oldCursor }),
+    ).rejects.toThrow(/cursor is malformed/);
   });
 
   it('has no cursor when exactly one full page matches', async () => {
