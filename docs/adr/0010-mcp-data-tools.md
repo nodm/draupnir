@@ -37,17 +37,17 @@ MCP is now the higher priority.
 
 ## Options Considered
 
-| Option                                   | Duplication | MCP ships first | Notes                         |
-| ---------------------------------------- | ----------- | --------------- | ----------------------------- |
-| **Shared tools in `shared`, adapters — chosen** | None | Yes          | One contract for all surfaces |
-| Tools inside `mcp`, bot re-implements    | High        | Yes             | Two views of the data drift   |
-| Tools inside `bot`, MCP waits            | None        | No              | Contradicts the priority      |
+| Option                                          | Duplication | MCP ships first | Notes                         |
+| ----------------------------------------------- | ----------- | --------------- | ----------------------------- |
+| **Shared tools in `shared`, adapters — chosen** | None        | Yes             | One contract for all surfaces |
+| Tools inside `mcp`, bot re-implements           | High        | Yes             | Two views of the data drift   |
+| Tools inside `bot`, MCP waits                   | None        | No              | Contradicts the priority      |
 
 ## Consequences
 
 - A tool contract change affects every AI surface; the `data-tools` tests are the guard.
-- MCP clients still need a manually obtained Cognito JWT; OAuth discovery stays the open item of
-  ADR-0001/0002.
+- MCP clients originally needed a manually obtained Cognito JWT; OAuth discovery is now provided by
+  [ADR-0012](./0012-mcp-client-authorization.md).
 - Transaction data is sent to whichever MCP client the user connects. That is the user's own
   client and choice; it is not stored by Draupnir.
 - `mcp` Lambda gains Data API access with the `draupnir_app` credential (RLS applies).

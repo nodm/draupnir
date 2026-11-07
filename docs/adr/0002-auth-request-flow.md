@@ -39,7 +39,7 @@ identities into one profile — the opposite of what we want.
 Despite only two users today, this is a financial app: every row that isn't
 literally global config data is owned by exactly one user, and the two users can
 **opt in to sharing individual accounts or categories** with each other (Google
-Photos-style: grant visibility into *this specific* thing, not "become the same
+Photos-style: grant visibility into _this specific_ thing, not "become the same
 tenant"). The code must check ownership/grant on every read and write, not assume a
 single-tenant shortcut now and retrofit later — retrofitting row-level checks into
 queries that were written assuming one implicit tenant is exactly the kind of
@@ -65,7 +65,7 @@ One Cognito User Pool is the single identity source for the whole system. The
 primary app's REST API and the MCP server each get their own API Gateway REST API
 (different protocols, different Lambda code, different deploy lifecycles — no
 reason to force them into one API Gateway resource), but both attach a
-`COGNITO_USER_POOLS` authorizer pointed at the *same* user pool. A token issued by
+`COGNITO_USER_POOLS` authorizer pointed at the _same_ user pool. A token issued by
 one sign-in is valid against both surfaces. The authorizer's only job is JWT
 validation + claims injection (`sub`, `email`) — it does no business-logic
 resolution, no share-grant lookups, nothing that could go stale.
@@ -74,7 +74,7 @@ resolution, no share-grant lookups, nothing that could go stale.
 `aws-amplify` v6) `signInWithRedirect`. No custom sign-in UI, no
 `amazon-cognito-identity-js`.**
 
-Google is the *only* IdP. There is no username/password screen to build — every
+Google is the _only_ IdP. There is no username/password screen to build — every
 sign-in is an OAuth redirect to Google via Cognito. AWS's current direction is
 **Managed Login**, the successor to the classic Hosted UI, with a no-code
 branding editor and native Amplify integration for social/OIDC/SAML federation.
@@ -97,7 +97,7 @@ allowlisting by email, rejecting anyone else before Cognito creates a profile.**
 Federated sign-up in Cognito is **just-in-time**: the first successful Google OAuth
 callback for an email Cognito hasn't seen creates a new user pool profile
 automatically. `AllowAdminCreateUserOnly` does not stop this — it only blocks
-*native* username/password self-registration, not federated sign-up. Left
+_native_ username/password self-registration, not federated sign-up. Left
 unaddressed, "two independent users" would be an assumption nobody enforces: any
 Google account could complete the OAuth redirect and get a profile in a financial
 app. The trigger fires on every federated sign-up attempt and checks the incoming
@@ -118,8 +118,8 @@ from the request body/path/query string. Two predicate shapes cover everything:
 - **Shared rows**: a `share_grants` table (`grantor_user_id`, `grantee_user_id`,
   `resource_type`, `resource_id`) joined in as
   `WHERE owner_user_id = :sub OR EXISTS (SELECT 1 FROM share_grants sg WHERE
-  sg.grantee_user_id = :sub AND sg.resource_type = 'account' AND
-  sg.resource_id = accounts.id)`.
+sg.grantee_user_id = :sub AND sg.resource_type = 'account' AND
+sg.resource_id = accounts.id)`.
 
 No permissions object is precomputed or cached per request or per session.
 
@@ -127,33 +127,33 @@ No permissions object is precomputed or cached per request or per session.
 
 **Authorizer type**
 
-| Option | Effort | Staleness risk | Fit |
-|---|---|---|---|
-| Native `COGNITO_USER_POOLS` (chosen) | Lowest — zero code | None — validates the live JWT every request | Matches ADR-0001; identical pattern on both surfaces |
-| Lambda authorizer | Higher — custom code + IAM policy generation | **High** — API Gateway caches the authorizer's response for up to 3600s by token, so a revoked share grant baked into a custom-authorizer decision could stay visible for up to an hour | Only worth it for logic the native authorizer can't express — we don't have any |
+| Option                               | Effort                                       | Staleness risk                                                                                                                                                                          | Fit                                                                             |
+| ------------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Native `COGNITO_USER_POOLS` (chosen) | Lowest — zero code                           | None — validates the live JWT every request                                                                                                                                             | Matches ADR-0001; identical pattern on both surfaces                            |
+| Lambda authorizer                    | Higher — custom code + IAM policy generation | **High** — API Gateway caches the authorizer's response for up to 3600s by token, so a revoked share grant baked into a custom-authorizer decision could stay visible for up to an hour | Only worth it for logic the native authorizer can't express — we don't have any |
 
 **Token flow**
 
-| Option | Effort | Protocol fit | Maintenance |
-|---|---|---|---|
-| Managed Login + Amplify Auth `signInWithRedirect` (chosen) | Low — hosted page, SDK handles PKCE/refresh | Correct — OAuth Authorization Code + PKCE, what federation requires | AWS-maintained, current direction |
-| Classic Hosted UI | Low | Correct | Functionally fine, but AWS is steering new customization/branding work to Managed Login, not Hosted UI |
-| Custom sign-in screen via `amazon-cognito-identity-js` | Highest — build + maintain a UI for zero functional gain | **Wrong** — SRP flow, not built for federated OAuth redirect | Package superseded, original repo archived |
+| Option                                                     | Effort                                                   | Protocol fit                                                        | Maintenance                                                                                            |
+| ---------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Managed Login + Amplify Auth `signInWithRedirect` (chosen) | Low — hosted page, SDK handles PKCE/refresh              | Correct — OAuth Authorization Code + PKCE, what federation requires | AWS-maintained, current direction                                                                      |
+| Classic Hosted UI                                          | Low                                                      | Correct                                                             | Functionally fine, but AWS is steering new customization/branding work to Managed Login, not Hosted UI |
+| Custom sign-in screen via `amazon-cognito-identity-js`     | Highest — build + maintain a UI for zero functional gain | **Wrong** — SRP flow, not built for federated OAuth redirect        | Package superseded, original repo archived                                                             |
 
 **Sign-up restriction**
 
-| Option | Enforced by | Blast radius if skipped |
-|---|---|---|
-| Pre Sign-Up Lambda trigger, email allowlist (chosen) | Cognito itself, before profile creation | N/A — this is the baseline |
-| `AllowAdminCreateUserOnly` | Nothing — doesn't apply to federated sign-up at all | Any Google account gets a profile in a financial app |
-| Rely on app-level checks after sign-in | The handler, post-hoc | A stray profile already exists in Cognito; app code has to remember to reject it everywhere, forever |
+| Option                                               | Enforced by                                         | Blast radius if skipped                                                                              |
+| ---------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Pre Sign-Up Lambda trigger, email allowlist (chosen) | Cognito itself, before profile creation             | N/A — this is the baseline                                                                           |
+| `AllowAdminCreateUserOnly`                           | Nothing — doesn't apply to federated sign-up at all | Any Google account gets a profile in a financial app                                                 |
+| Rely on app-level checks after sign-in               | The handler, post-hoc                               | A stray profile already exists in Cognito; app code has to remember to reject it everywhere, forever |
 
 **Identity → DB layer**
 
-| Option | Correctness under revoke | Complexity | Fit at N=2 users |
-|---|---|---|---|
-| Query-time predicate from claims (chosen) | Immediate — a revoked grant disappears from the very next query, no invalidation path to get wrong | Lowest — one `EXISTS` join, no new subsystem | Right-sized |
-| Precomputed/cached permissions object (resolved once, attached to request or cached in a session store) | Requires explicit invalidation on every grant/revoke or the cache silently lies | Higher — a cache + its invalidation is now part of the auth-correctness surface | Premature — grants are single digits in count per user, nothing to amortize |
+| Option                                                                                                  | Correctness under revoke                                                                           | Complexity                                                                      | Fit at N=2 users                                                            |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Query-time predicate from claims (chosen)                                                               | Immediate — a revoked grant disappears from the very next query, no invalidation path to get wrong | Lowest — one `EXISTS` join, no new subsystem                                    | Right-sized                                                                 |
+| Precomputed/cached permissions object (resolved once, attached to request or cached in a session store) | Requires explicit invalidation on every grant/revoke or the cache silently lies                    | Higher — a cache + its invalidation is now part of the auth-correctness surface | Premature — grants are single digits in count per user, nothing to amortize |
 
 ## Trade-off Analysis
 
@@ -163,7 +163,7 @@ No permissions object is precomputed or cached per request or per session.
   authorizer response caching (5 min default, configurable up to 1 hour) means a
   revoked share could remain effectively granted for up to an hour after revoke —
   unacceptable staleness for a financial app where "stop sharing this account with
-  you" needs to mean *now*. Keeping the authorizer dumb (JWT validation only) and
+  you" needs to mean _now_. Keeping the authorizer dumb (JWT validation only) and
   re-checking grants on every query sidesteps the entire cache-invalidation
   question by never introducing the cache.
 - **Why not precompute a permissions object per request either**: same failure
@@ -196,14 +196,14 @@ No permissions object is precomputed or cached per request or per session.
   insert/delete a grant for it (`grantor_user_id` must equal the owner, checked
   the same way as any other write).
 - The Lambda handler must treat `event.requestContext.authorizer.claims.sub` as
-  the *only* legitimate source of "who is making this request" — this was already
+  the _only_ legitimate source of "who is making this request" — this was already
   a constraint from ADR-0001 for MCP, now confirmed as the rule everywhere,
   including the primary app API.
 - This ADR does **not** resolve ADR-0001's still-open action item on the MCP
   client-registration/OAuth flow for Claude Desktop — that's a different question
   (how a non-human MCP client obtains a token from this same user pool), left for
   its own ADR as originally noted. Decision #1's "same authorizer, same pool"
-  covers a token *once a client has one*; it says nothing about how an MCP client
+  covers a token _once a client has one_; it says nothing about how an MCP client
   gets one, and that step is not a rubber stamp. The 2026-07-28 spec tightened
   MCP's OAuth requirements — RFC 9207 issuer validation, Client ID Metadata
   Documents replacing Dynamic Client Registration — but the sharper problem
@@ -227,7 +227,7 @@ No permissions object is precomputed or cached per request or per session.
 
 ## Action Items
 
-- [ ] Separate ADR (supersedes the vague pointer in ADR-0001): MCP client
+- [x] Separate ADR (supersedes the vague pointer in ADR-0001; done: [ADR-0012](./0012-mcp-client-authorization.md)): MCP client
       auth flow for Claude Desktop↔Cognito, given Cognito doesn't honor RFC 8707
       `resource` — decide OAuth-proxy-in-front-of-Cognito vs. documented
       non-compliance, plus CIMD-vs-DCR and RFC 9207 issuer validation per the
