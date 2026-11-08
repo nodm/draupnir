@@ -49,18 +49,19 @@ rows for that file.
 
 ### Requirement: Processing order across files is not required for correctness
 The pipeline SHALL NOT depend on the order in which uploaded files are
-processed: two files processed concurrently SHALL both complete without either
-silently corrupting the other's rows. For SEB, whose `dedup_key` is derived
-from the provider's own per-row transaction id, overlapping exports SHALL
-dedup to exactly one transaction per account regardless of processing order.
-Revolut and monobank's hash-fallback `dedup_key` (see
-`bank-statement-parsers`) assigns `occurrence_index` independently per file,
-so a true duplicate at a re-upload overlap boundary can still slip past dedup
-if the two files' identical-looking rows are ordered differently. This is a
-known, accepted limitation, not covered by this guarantee. Continuity with
-stored history is checked as a warning only (see `statement-validation`), so
-importing files out of chronological order SHALL NOT cause a rejection by
-itself.
+processed for the integrity of stored data: two files processed concurrently
+SHALL both complete without either silently corrupting the other's rows. For
+SEB, whose `dedup_key` is derived from the provider's own per-row transaction
+id, overlapping exports SHALL dedup to exactly one transaction per account
+regardless of processing order. Revolut and monobank's hash-fallback `dedup_key`
+(see `bank-statement-parsers`) assigns `occurrence_index` independently per
+file, so a true duplicate at a re-upload overlap boundary can still slip past
+dedup if the two files' identical-looking rows are ordered differently. This is
+a known, accepted limitation, not covered by this guarantee. Whether a file is
+approved does depend on order: a file that does not connect to the stored
+history is rejected (see `statement-validation`), so a file processed before its
+predecessor is rejected and can be uploaded again after the predecessor is
+stored. A rejection leaves nothing stored.
 
 #### Scenario: Two overlapping SEB files processed concurrently
 - **WHEN** two SEB files covering an overlapping date range for the same account
@@ -79,6 +80,12 @@ itself.
   are processed at the same time
 - **THEN** exactly one copy is `approved` and the other is `rejected` as a
   duplicate
+
+#### Scenario: A file processed before its predecessor is rejected, then accepted on retry
+- **WHEN** February's file is processed before January's and is rejected as not
+  connecting, and January's file is then approved and February's is uploaded
+  again
+- **THEN** February's file is approved and the stored history is continuous
 
 ### Requirement: An unresolvable account in the object key is not silently dropped
 If the `accountId` segment of an uploaded object's key does not resolve to an

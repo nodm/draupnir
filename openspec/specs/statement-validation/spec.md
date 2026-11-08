@@ -97,7 +97,7 @@ approved when they conflict with each other.
 - **THEN** exactly one is approved, and the other is rejected with a conflicting
   overlap reason
 
-### Requirement: Gaps against history are warnings, not rejections
+### Requirement: Gaps against history reject the file
 The system SHALL decide continuity between an account's approved files from
 evidence the exports provide, never from days without transactions:
 - **Balance formats:** two adjacent files are continuous when the earlier
@@ -111,24 +111,29 @@ evidence the exports provide, never from days without transactions:
   its declared start is on or before the account's opening date.
 - **Formats with neither:** continuity is unknown.
 
-A detected gap SHALL be recorded as a warning on the file and SHALL NOT reject
-it. Unknown continuity SHALL be reported as unknown, not as a gap.
+A detected gap, including a first file that does not connect to the account's
+opening, SHALL reject the file, store nothing from it, and name in its reason
+the period that must be imported first (where stored history ends and where the
+file starts, or where the file ends and stored history starts). Unknown
+continuity SHALL NOT reject a file and SHALL be reported as unknown, not as a
+gap.
 
-#### Scenario: Out-of-order import is accepted with a warning
-- **WHEN** an account has March imported and a January file is uploaded whose
-  closing balance differs from March's opening balance
-- **THEN** the January file is approved, and a gap warning is recorded between
-  January and March
+#### Scenario: Out-of-order import is rejected
+- **WHEN** an account has January imported and a March file is uploaded whose
+  opening balance differs from January's closing balance
+- **THEN** the March file is rejected, nothing from it is stored, and the reason
+  names that history ends in January and the file starts in March, so February
+  must be imported first
 
 #### Scenario: Overlapping statements are continuous
 - **WHEN** a balance-format file's period overlaps the previous file's and
   their shared transactions agree, although the later file's opening balance
   differs from the earlier file's closing balance
-- **THEN** no gap warning is recorded between them
+- **THEN** the file is not rejected for continuity
 
 #### Scenario: Connected import has no warning
 - **WHEN** a file's opening balance equals the previous file's closing balance
-- **THEN** the file is approved with no continuity warning
+- **THEN** the file is not rejected for continuity
 
 #### Scenario: Days without activity are not a gap
 - **WHEN** an SEB file declares the period 1–31 January but contains
@@ -138,7 +143,20 @@ it. Unknown continuity SHALL be reported as unknown, not as a gap.
 #### Scenario: No evidence means unknown, not a gap
 - **WHEN** two adjacent files come from a format with neither balances nor a
   declared period
-- **THEN** the continuity between them is reported as unknown
+- **THEN** the continuity between them is reported as unknown and the later file
+  is not rejected for it
+
+#### Scenario: First file must connect to the account's opening
+- **WHEN** the first file imported for an account has an opening balance that
+  differs from the account's opening balance
+- **THEN** the file is rejected naming the account's opening balance and date,
+  and nothing from it is stored
+
+#### Scenario: Earlier statement uploaded after a later one is rejected
+- **WHEN** an account has February stored and a January file whose closing
+  balance differs from February's opening balance is uploaded
+- **THEN** the January file is rejected naming where it ends and where stored
+  history starts
 
 ### Requirement: Account coverage and gaps can be reported
 The system SHALL provide, per account:
