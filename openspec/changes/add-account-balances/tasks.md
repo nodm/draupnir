@@ -77,11 +77,23 @@
       Result 2026-11-07: 12 accounts, no gaps. 10 connect to the opening (continuous). 2 SEB
       savings deposits (`****1886`, `****2927`) have no imported statements, so connectsToOpening
       is `unknown`; they stay reconciled with balance = opening. Owner confirmed: leave them as is.
-- [ ] 6.4 Deploy from `main` (the owner runs `infra:up`), run the backfill for each prod account,
+- [x] 6.4 Deploy from `main` (the owner runs `infra:up`), run the backfill for each prod account,
       then verify no new column is `NULL`, each Revolut and monobank account's balance equals its
       latest statement's closing balance, and `list_accounts` over MCP shows the balances; record
       the results in this file.
-- [ ] 6.5 Open an issue for the follow-up migration `0019` (`NOT NULL` on the new `transactions` columns; the `accounts` ones are `NOT NULL` in `0018`) to
+      Results 2026-11-07: deployed #61 (migration `0018` applied), then backfilled all 12
+      accounts with `{"mode":"backfill"}`; each reports `withoutOrderKey: 0` and
+      `reconciled: true`. Balances (EUR, minor units): Revolut 14233 as of 2026-10-30
+      (588 transactions); SEB main 109955 as of 2026-10-31 (4232); 8 other SEB accounts
+      between 1 and 265 transactions; 2 empty SEB deposits 0 at their opening date. The
+      newest running balance equals the stored balance on the three accounts spot-checked
+      over MCP (Revolut, SEB main, SEB rental), and `list_accounts` and `list_transactions`
+      show the new fields. The owner confirmed the Revolut balance (14233) is right against
+      the bank.
+      Two fixes were needed on the way: #62 (raw rows read in pages, the Data API caps a
+      result at 1 MB) and #63 (rebuild-account Lambda 1024 MB and 900 s; 128 MB ran out on
+      SEB main). Follow-up issue for `0019`: #64.
+- [x] 6.5 Open an issue for the follow-up migration `0019` (`NOT NULL` on the new `transactions` columns; the `accounts` ones are `NOT NULL` in `0018`) to
       ship after 6.4 is verified, and verify the issue exists.
 - [x] 6.6 Verify `pnpm exec nx run-many -t lint test build -p shared ingestion mcp bot infra`
       passes.
