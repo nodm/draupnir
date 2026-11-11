@@ -1,5 +1,10 @@
 import type { APIGatewayProxyEvent } from 'aws-lambda';
-import { handleWebhook, secretMatches, SECRET_HEADER } from './webhook';
+import {
+  handleWebhook,
+  parseAllowedUserIds,
+  secretMatches,
+  SECRET_HEADER,
+} from './webhook';
 
 const SECRET = 'correct-secret';
 
@@ -29,7 +34,10 @@ function event(
 
 function setup() {
   const enqueue = vi.fn().mockResolvedValue(undefined);
-  return { enqueue, deps: { secret: SECRET, enqueue } };
+  return {
+    enqueue,
+    deps: { secret: SECRET, allowedUserIds: new Set([777]), enqueue },
+  };
 }
 
 describe('handleWebhook secret check', () => {
@@ -159,6 +167,7 @@ describe('handleWebhook queuing', () => {
     });
     const result = await handleWebhook(event(privateMessage), {
       secret: SECRET,
+      allowedUserIds: new Set([777]),
       enqueue,
     });
     order.push(`responded:${result.statusCode}`);
@@ -168,7 +177,116 @@ describe('handleWebhook queuing', () => {
   it('surfaces a queue failure so Telegram retries the delivery', async () => {
     const enqueue = vi.fn().mockRejectedValue(new Error('sqs down'));
     await expect(
-      handleWebhook(event(privateMessage), { secret: SECRET, enqueue }),
+      handleWebhook(event(privateMessage), {
+        secret: SECRET,
+        allowedUserIds: new Set([777]),
+        enqueue,
+      }),
     ).rejects.toThrow('sqs down');
+  });
+});
+
+describe('handleWebhook sender allowlist', () => {
+  const { from: _from, ...messageWithoutFrom } = privateMessage.message;
+
+  it('drops an unknown sender with 200 and logs nothing', async () => {
+    const spies = (['log', 'info', 'warn', 'error'] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation(() => undefined),
+    );
+    const { enqueue, deps } = setup();
+    const result = await handleWebhook(
+      event({
+        ...privateMessage,
+        message: {
+          ...privateMessage.message,
+          from: { id: 999, is_bot: false, first_name: 'Eve' },
+        },
+      }),
+      deps,
+    );
+    expect(result.statusCode).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('drops a button press from an unknown sender', async () => {
+    const { enqueue, deps } = setup();
+    const result = await handleWebhook(
+      event({
+        update_id: 50,
+        callback_query: {
+          id: 'q',
+          from: { id: 999, is_bot: false, first_name: 'Eve' },
+          chat_instance: 'c',
+          data: 'confirm',
+          message: {
+            message_id: 2,
+            date: 0,
+            chat: { id: 777, type: 'private' },
+          },
+        },
+      }),
+      deps,
+    );
+    expect(result.statusCode).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('drops an update without a sender', async () => {
+    const { enqueue, deps } = setup();
+    const result = await handleWebhook(
+      event({ update_id: 51, message: messageWithoutFrom }),
+      deps,
+    );
+    expect(result.statusCode).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('drops everything when the allowlist is empty', async () => {
+    const { enqueue } = setup();
+    const result = await handleWebhook(event(privateMessage), {
+      secret: SECRET,
+      allowedUserIds: new Set(),
+      enqueue,
+    });
+    expect(result.statusCode).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('still checks the secret first for an allowlisted sender', async () => {
+    const { enqueue, deps } = setup();
+    const result = await handleWebhook(
+      event(privateMessage, { [SECRET_HEADER]: 'wrong' }),
+      deps,
+    );
+    expect(result.statusCode).toBe(401);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('validates update_id before the allowlist', async () => {
+    const { enqueue, deps } = setup();
+    const result = await handleWebhook(event({ hello: 1 }), deps);
+    expect(result.statusCode).toBe(400);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseAllowedUserIds', () => {
+  it('parses a comma-separated list, ignoring spaces and empty segments', () => {
+    expect(parseAllowedUserIds(' 123, 456 ,')).toEqual(new Set([123, 456]));
+  });
+
+  it('gives an empty set for missing or empty input', () => {
+    expect(parseAllowedUserIds(undefined).size).toBe(0);
+    expect(parseAllowedUserIds('').size).toBe(0);
+    expect(parseAllowedUserIds(' , ').size).toBe(0);
+  });
+
+  it('rejects a non-numeric entry', () => {
+    expect(() => parseAllowedUserIds('123,abc')).toThrow(/numeric/);
+    expect(() => parseAllowedUserIds('12.5')).toThrow(/numeric/);
+    expect(() => parseAllowedUserIds('@ann')).toThrow(/numeric/);
+    expect(() => parseAllowedUserIds('-5')).toThrow(/numeric/);
   });
 });

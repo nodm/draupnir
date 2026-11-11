@@ -1,9 +1,14 @@
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { getSecretString } from './lib/secrets';
-import { handleWebhook } from './lib/webhook';
+import { handleWebhook, parseAllowedUserIds } from './lib/webhook';
 
 const sqs = new SQSClient({});
+
+// Parsed once per cold start; a malformed list fails initialisation.
+const allowedUserIds = parseAllowedUserIds(
+  process.env['ALLOWED_TELEGRAM_USER_IDS'],
+);
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -19,6 +24,7 @@ export const handler = async (
 
   return handleWebhook(event, {
     secret,
+    allowedUserIds,
     enqueue: async ({ groupId, dedupId, body }) => {
       await sqs.send(
         new SendMessageCommand({
