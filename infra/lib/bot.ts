@@ -82,6 +82,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
 
   // The bot's @username (from BotFather), used for the t.me deep links.
   const botUsername = config.require('botUsername');
+  const allowedTelegramUserIds = config.requireSecret('allowedTelegramUserIds');
 
   // --- API Gateway first: its id fixes the callback URL, which the Cognito
   // client needs before the callback Lambda (which needs the client) exists.
@@ -206,8 +207,8 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
       },
     );
 
-  // Public: Telegram calls it. Checks the secret header, enqueues, never
-  // touches the database.
+  // Public: Telegram calls it. Checks the secret header and the sender
+  // allowlist, enqueues, never touches the database.
   const webhook = lambdaRole(
     'bot-webhook',
     [
@@ -230,6 +231,8 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
       environment: {
         WEBHOOK_SECRET_ARN: webhookSecret.arn,
         BOT_UPDATES_QUEUE_URL: queues.updates.url,
+        // Access and cost guardrail: only these Telegram users reach the queue.
+        ALLOWED_TELEGRAM_USER_IDS: allowedTelegramUserIds,
       },
     },
   );

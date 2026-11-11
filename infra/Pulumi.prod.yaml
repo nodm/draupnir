@@ -12,3 +12,5 @@ config:
   draupnir-infra:botUsername: nodmDraupnirBot
   draupnir-infra:mcpHost: mcp.draupnir.nodm.name
   draupnir-infra:mcpHostedZone: nodm.name
+  draupnir-infra:allowedTelegramUserIds:
+    secure: v1:W8fI76PIhB8eCN28:zm1fsEsJvEn90cFgpLNXUOYinkJCNy+85N2LUb44BqVQBEI=
