@@ -244,6 +244,17 @@ describe('linking client', () => {
   });
 });
 
+describe('link-state secret', () => {
+  it('is given only to the worker (signs) and the callback (verifies)', () => {
+    for (const fn of ['bot-callback', 'bot-worker']) {
+      expect(envOf(fn)['LINK_STATE_SECRET_ARN']).toBeTruthy();
+    }
+    for (const fn of ['bot-webhook', 'bot-retention']) {
+      expect(envOf(fn)['LINK_STATE_SECRET_ARN']).toBeUndefined();
+    }
+  });
+});
+
 describe('worker', () => {
   it('consumes both queues one message at a time and reports partial failures', () => {
     const mappings = named('aws:lambda/eventSourceMapping:EventSourceMapping');
@@ -355,11 +366,15 @@ describe('secrets', () => {
     ).not.toContain('bot-token');
   });
 
-  it('stores the webhook secret and the client secret', () => {
+  it('stores the webhook, client and link-state secrets', () => {
     expect(
       named('aws:secretsmanager/secretVersion:SecretVersion')
         .map((v) => v.name)
         .sort(),
-    ).toEqual(['bot-telegram-client-secret', 'bot-webhook-secret']);
+    ).toEqual([
+      'bot-link-state-secret',
+      'bot-telegram-client-secret',
+      'bot-webhook-secret',
+    ]);
   });
 });
