@@ -44,6 +44,7 @@ beforeAll(async () => {
   pulumi.runtime.setAllConfig({
     'aws:region': 'eu-north-1',
     'draupnir-infra:botUsername': 'draupnir_test_bot',
+    'draupnir-infra:allowedTelegramUserIds': '111,222',
   });
 });
 
@@ -53,6 +54,15 @@ const one = (type: string, name: string) => {
   const found = named(type, name);
   expect(found, `${type} ${name}`).toHaveLength(1);
   return (found[0] as Recorded).inputs;
+};
+// A Lambda environment holding a Pulumi secret is recorded wrapped as
+// { <secret marker>: ..., value }; unwrap it to the plain { variables }.
+const envOf = (name: string): Record<string, string> => {
+  const raw = one('aws:lambda/function:Function', name)['environment'] as {
+    value?: { variables: Record<string, string> };
+    variables?: Record<string, string>;
+  };
+  return (raw.value ?? raw).variables ?? {};
 };
 const value = async (v: unknown) => pulumi.output(v).promise();
 const statements = async (role: string) =>
@@ -278,15 +288,20 @@ describe('webhook', () => {
     expect(allows(s, 'sqs:SendMessage')).toBe(true);
     expect(allows(s, 'secretsmanager:GetSecretValue')).toBe(true);
     expect(allows(s, 'rds-data:ExecuteStatement')).toBe(false);
-    const env = (
-      one('aws:lambda/function:Function', 'bot-webhook')['environment'] as {
-        variables: Record<string, string>;
-      }
-    ).variables;
+    const env = envOf('bot-webhook');
     expect(Object.keys(env).sort()).toEqual([
+      'ALLOWED_TELEGRAM_USER_IDS',
       'BOT_UPDATES_QUEUE_URL',
       'WEBHOOK_SECRET_ARN',
     ]);
+    expect(env['ALLOWED_TELEGRAM_USER_IDS']).toBe('111,222');
+  });
+
+  it('is the only function that gets the sender allowlist', () => {
+    const holders = named('aws:lambda/function:Function')
+      .map((f) => f.name)
+      .filter((n) => 'ALLOWED_TELEGRAM_USER_IDS' in envOf(n));
+    expect(holders).toEqual(['bot-webhook']);
   });
 });
 

@@ -48,6 +48,23 @@ cd ..
 Both people who will use the bot must already be in `allowlistedEmails`; otherwise Google
 sign-in is refused when they link.
 
+Also list their Telegram user ids. This is an access and cost guardrail: the webhook only
+queues updates from these users and silently drops everyone else's, so strangers never
+reach the worker or the database. The deploy fails until the config is set.
+
+To find your id, send any message to `@userinfobot` in Telegram; it replies with
+`Id: <number>`. Each person does this on their own account.
+
+```bash
+cd infra
+pulumi config set --secret allowedTelegramUserIds "<id1>,<id2>"
+cd ..
+```
+
+Numeric ids only, comma-separated. A non-numeric entry fails the webhook at startup, and an
+empty list drops every update. Linking (`/start`, the 6-digit code) works for listed users
+who are not linked yet. To add or remove someone, change the value and run `infra:up`.
+
 ### 3. Deploy
 
 ```bash
@@ -201,16 +218,17 @@ Find a function's log group with
 `aws lambda list-functions --query "Functions[?starts_with(FunctionName,'bot-')].FunctionName" --output text`,
 then `aws logs tail /aws/lambda/<name> --since 1h`.
 
-| Symptom                                      | Likely cause and check                                                                                                                                                                      |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bot never answers                            | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one. |
-| `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                              |
-| `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).          |
-| "Already linked"                             | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                    |
-| Upload accepted but no report                | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.        |
-| A message seems stuck for minutes            | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                |
-| First reply is very slow                     | The database was paused; it resumes within about a minute.                                                                                                                                  |
-| Old bot messages are still in the chat       | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                      |
+| Symptom                                      | Likely cause and check                                                                                                                                                                       |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bot never answers                            | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one.  |
+| Bot ignores one person, others are fine      | That person's Telegram user id is missing from `allowedTelegramUserIds` (see step 2). Unlisted users get no reply and no log line by design. Fix the list, then `pnpm exec nx run infra:up`. |
+| `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                               |
+| `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).           |
+| "Already linked"                             | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                     |
+| Upload accepted but no report                | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.         |
+| A message seems stuck for minutes            | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                 |
+| First reply is very slow                     | The database was paused; it resumes within about a minute.                                                                                                                                   |
+| Old bot messages are still in the chat       | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                       |
 
 Inspecting a dead-letter queue shows raw Telegram updates, which contain chat content:
 
