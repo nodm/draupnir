@@ -18,4 +18,4 @@
 
 ## 4. Rollout
 
-- [ ] 4.1 After deploy, send a message from an allowlisted account and verify a reply; check the webhook log group shows no update bodies
+- [x] 4.1 After deploy, send a message from an allowlisted account and verify a reply; check the webhook log group shows no update bodies
