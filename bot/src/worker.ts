@@ -84,6 +84,7 @@ export const handler: SQSHandler = async (event) => {
   const linking = {
     store: createLinkStore(dataApiClient, dataApiConfig),
     config: loadLinkConfigFromEnv(),
+    stateSecret: await getSecretString(requireEnv('LINK_STATE_SECRET_ARN')),
   };
   const upload: UploadDeps = {
     client: dataApiClient,

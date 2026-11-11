@@ -75,6 +75,7 @@ describe('bot worker', () => {
     dispatch.mockReset();
     reportOutcome.mockReset();
     process.env['BOT_TOKEN_SECRET_ARN'] = 'arn:token';
+    process.env['LINK_STATE_SECRET_ARN'] = 'arn:link-state';
     process.env['UPLOADS_BUCKET'] = 'bucket';
     process.env['USER_POOL_ID'] = 'pool';
   });

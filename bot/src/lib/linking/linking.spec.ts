@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { randomBytes } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import type { Update } from '@grammyjs/types';
 import { applyMigrationsForTest, createPgliteDataApiClient } from 'shared';
@@ -7,6 +8,8 @@ import type { TelegramClient } from '../telegram';
 import { handleLinkCallback, type CallbackDeps } from './callback';
 import { createLinkStore } from './linkStore';
 import { createSubResolver } from '../routes';
+import { signState, verifyState } from './state';
+import { LINK_REQUEST_TTL_MS } from './config';
 import { handleUnlinked } from './unlinked';
 
 const dbConfig = { resourceArn: 'a', secretArn: 'b', database: 'c' };
@@ -16,6 +19,8 @@ const linkConfig = {
   callbackUrl: 'https://api.example.com/telegram/callback',
   botUsername: 'DraupnirBot',
 };
+
+const STATE_SECRET = 'test-link-state-secret';
 
 let db: PGlite;
 let store: ReturnType<typeof createLinkStore>;
@@ -74,7 +79,11 @@ function ctxFor(userId: number, extra: Record<string, unknown>, name?: string) {
 // What the user does in the chat: send something, get a sign-in link back.
 async function requestLink(userId: number, text = '/start', name?: string) {
   const { ctx, sendMessage } = ctxFor(userId, { text }, name);
-  await handleUnlinked(ctx, { store, config: linkConfig });
+  await handleUnlinked(ctx, {
+    store,
+    config: linkConfig,
+    stateSecret: STATE_SECRET,
+  });
   const markup = sendMessage.mock.calls[0]?.[2]?.replyMarkup;
   const url = new URL(markup.inline_keyboard[0][0].url as string);
   return { url, state: url.searchParams.get('state') as string, sendMessage };
@@ -91,6 +100,7 @@ function callbackDeps(
   const deps: CallbackDeps = {
     store,
     config: linkConfig,
+    stateSecret: STATE_SECRET,
     exchangeCode: vi.fn().mockResolvedValue('id-token'),
     verifyIdToken: vi.fn().mockResolvedValue({ sub, email: 'ann@example.com' }),
     notify,
@@ -102,7 +112,11 @@ function callbackDeps(
 
 const sendCode = async (userId: number, code: string) => {
   const { ctx, sendMessage } = ctxFor(userId, { text: code });
-  await handleUnlinked(ctx, { store, config: linkConfig });
+  await handleUnlinked(ctx, {
+    store,
+    config: linkConfig,
+    stateSecret: STATE_SECRET,
+  });
   return sendMessage.mock.calls.at(-1)?.[1] as string;
 };
 
@@ -117,7 +131,7 @@ describe('sign-in link', () => {
     expect(url.searchParams.get('redirect_uri')).toBe(linkConfig.callbackUrl);
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('code_challenge')).toMatch(/^[\w-]{43}$/);
-    expect(url.searchParams.get('state')).toMatch(/^[\w-]{43}$/);
+    expect(url.searchParams.get('state')).toMatch(/^[\w-]{30}\.[\w-]{43}$/);
   });
 
   it('is issued for a file, a command, or any text from an unlinked user', async () => {
@@ -127,7 +141,11 @@ describe('sign-in link', () => {
       { text: 'hello' },
     ].entries()) {
       const { ctx, sendMessage } = ctxFor(1010 + i, extra);
-      await handleUnlinked(ctx, { store, config: linkConfig });
+      await handleUnlinked(ctx, {
+        store,
+        config: linkConfig,
+        stateSecret: STATE_SECRET,
+      });
       expect(sendMessage.mock.calls[0]?.[2]?.replyMarkup).toBeDefined();
     }
   });
@@ -231,12 +249,15 @@ describe('expired or reused state', () => {
     await handleUnlinked(ctx, {
       store,
       config: linkConfig,
+      stateSecret: STATE_SECRET,
       now: () => new Date(Date.now() - 11 * 60 * 1000),
     });
+    // (The database still refuses it: its own expiry has the final say.)
     const url = new URL(
       sendMessage.mock.calls[0]?.[2].replyMarkup.inline_keyboard[0][0].url,
     );
-    const { deps } = callbackDeps();
+    const issuedAt = new Date(Date.now() - 11 * 60 * 1000);
+    const { deps } = callbackDeps({ now: () => issuedAt });
 
     const page = await handleLinkCallback(
       { code: 'c', state: url.searchParams.get('state') as string },
@@ -357,7 +378,11 @@ describe('mid-link messages', () => {
     await handleLinkCallback({ code: 'c', state }, callbackDeps().deps);
 
     const { ctx, sendMessage } = ctxFor(8001, { text: 'hello?' });
-    await handleUnlinked(ctx, { store, config: linkConfig });
+    await handleUnlinked(ctx, {
+      store,
+      config: linkConfig,
+      stateSecret: STATE_SECRET,
+    });
     expect(sendMessage.mock.calls[0]?.[1]).toMatch(/6-digit code/);
     expect(sendMessage.mock.calls[0]?.[2]).toBeUndefined();
 
@@ -415,8 +440,135 @@ describe('button press from an unlinked user', () => {
       telegram: t.telegram,
     };
 
-    await handleUnlinked(ctx, { store, config: linkConfig });
+    await handleUnlinked(ctx, {
+      store,
+      config: linkConfig,
+      stateSecret: STATE_SECRET,
+    });
 
     expect(t.sendMessage.mock.calls[0]?.[2]?.replyMarkup).toBeDefined();
+  });
+});
+
+const NOW = new Date('2026-11-12T10:00:00Z');
+// Same bytes, different spelling: toggle an unused low bit of the last char.
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const flip = (part: string) =>
+  part.slice(0, -1) + B64[B64.indexOf(part.slice(-1)) ^ 1];
+
+describe('signed state token', () => {
+  it('verifies a fresh token, is short, and differs per call', () => {
+    const a = signState(STATE_SECRET, NOW, LINK_REQUEST_TTL_MS);
+    const b = signState(STATE_SECRET, NOW, LINK_REQUEST_TTL_MS);
+    expect(verifyState(STATE_SECRET, a, NOW)).toBe(true);
+    expect(a.length).toBeLessThanOrEqual(80);
+    expect(a).not.toBe(b);
+  });
+
+  it('is valid up to its expiry and not after', () => {
+    const token = signState(STATE_SECRET, NOW, LINK_REQUEST_TTL_MS);
+    const at = (ms: number) => new Date(NOW.getTime() + ms);
+    expect(verifyState(STATE_SECRET, token, at(LINK_REQUEST_TTL_MS))).toBe(
+      true,
+    );
+    expect(
+      verifyState(STATE_SECRET, token, at(LINK_REQUEST_TTL_MS + 1000)),
+    ).toBe(false);
+  });
+
+  const token = signState(STATE_SECRET, NOW, LINK_REQUEST_TTL_MS);
+  const [payload, mac] = token.split('.') as [string, string];
+  const rejected: Record<string, string> = {
+    'tampered payload': `${payload.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))}.${mac}`,
+    'tampered signature': `${payload}.${mac.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))}`,
+    'non-canonical payload spelling': `${flip(payload)}.${mac}`,
+    'non-canonical signature spelling': `${payload}.${flip(mac)}`,
+    empty: '',
+    'no dot': payload,
+    'extra dot': `${token}.x`,
+    'not base64url': '!!!.???',
+    oversized: 'a'.repeat(300),
+    'old 43-char token': randomBytes(32).toString('base64url'),
+    'wrong secret': signState('another-secret', NOW, LINK_REQUEST_TTL_MS),
+    expired: signState(
+      STATE_SECRET,
+      new Date(NOW.getTime() - 11 * 60_000),
+      LINK_REQUEST_TTL_MS,
+    ),
+  };
+
+  it('the variant spellings really decode to the same bytes', () => {
+    expect(Buffer.from(flip(payload), 'base64url')).toEqual(
+      Buffer.from(payload, 'base64url'),
+    );
+    expect(Buffer.from(flip(mac), 'base64url')).toEqual(
+      Buffer.from(mac, 'base64url'),
+    );
+  });
+
+  it.each(Object.entries(rejected))('rejects %s', (_name, state) => {
+    expect(verifyState(STATE_SECRET, state, NOW)).toBe(false);
+  });
+});
+
+describe('callback rejects invalid state at the edge', () => {
+  // Mocks that fail the test if anything beyond the check is reached.
+  function strictDeps() {
+    const store = {
+      consumeState: vi.fn(),
+      setPending: vi.fn(),
+    } as unknown as CallbackDeps['store'];
+    const { deps, notify } = callbackDeps({ store, now: () => NOW });
+    return { deps, notify, store };
+  }
+  const valid = signState(STATE_SECRET, NOW, LINK_REQUEST_TTL_MS);
+  const [payload, mac] = valid.split('.') as [string, string];
+  const invalid: Record<string, string> = {
+    'tampered payload': `${payload.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))}.${mac}`,
+    'tampered signature': `${payload}.${mac.replace(/^./, (c) => (c === 'A' ? 'B' : 'A'))}`,
+    'non-canonical spelling': `${payload}.${flip(mac)}`,
+    expired: signState(
+      STATE_SECRET,
+      new Date(NOW.getTime() - 11 * 60_000),
+      LINK_REQUEST_TTL_MS,
+    ),
+    garbage: 'garbage',
+    'wrong secret': signState('another-secret', NOW, LINK_REQUEST_TTL_MS),
+    'old format': randomBytes(32).toString('base64url'),
+  };
+
+  it.each(Object.entries(invalid))(
+    '%s: expired page, no calls',
+    async (_n, state) => {
+      const { deps, notify, store } = strictDeps();
+      const page = await handleLinkCallback({ code: 'c', state }, deps);
+      expect(page.statusCode).toBe(400);
+      expect(page.html).toMatch(/expired or was already used/);
+      expect(store.consumeState).not.toHaveBeenCalled();
+      expect(store.setPending).not.toHaveBeenCalled();
+      expect(deps.exchangeCode).not.toHaveBeenCalled();
+      expect(deps.verifyIdToken).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['error param', { error: 'access_denied', code: 'c', state: valid }],
+    ['no code', { state: valid }],
+    ['no state', { code: 'c' }],
+  ])('%s: failure page, no calls', async (_n, query) => {
+    const { deps, notify, store } = strictDeps();
+    const page = await handleLinkCallback(query, deps);
+    expect(page.statusCode).toBe(400);
+    expect(store.consumeState).not.toHaveBeenCalled();
+    expect(deps.exchangeCode).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('a valid state reaches the store', async () => {
+    const { deps, store } = strictDeps();
+    vi.mocked(store.consumeState).mockResolvedValue(null);
+    await handleLinkCallback({ code: 'c', state: valid }, deps);
+    expect(store.consumeState).toHaveBeenCalledTimes(1);
   });
 });

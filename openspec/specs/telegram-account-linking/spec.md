@@ -12,8 +12,9 @@ and nothing else.
 When an unlinked Telegram user sends `/start` (or any message), the bot SHALL
 reply with a sign-in link to the Cognito hosted login, using the same user
 pool, Google federation, and sign-up allowlist as the rest of Draupnir. The
-link SHALL carry a one-time, unguessable state value bound to that Telegram
-user and SHALL expire 10 minutes after it is issued.
+link SHALL carry a one-time, unguessable, signed state value bound to that
+Telegram user and SHALL expire 10 minutes after it is issued. The state value
+SHALL carry its own expiry and a signature only the bot can produce.
 
 Completing sign-in SHALL NOT link anything by itself. The signed-in browser
 SHALL instead be shown:
@@ -87,3 +88,45 @@ treated as coming from an unlinked user.
 - **WHEN** a linked user sends `/unlink` and then `/accounts`
 - **THEN** the link is removed and the `/accounts` reply is the sign-in link, not
   an account list
+
+### Requirement: Invalid sign-in callbacks are rejected at the edge
+The public sign-in callback SHALL verify the state value's signature and expiry
+before it touches the database, the Cognito token endpoint or Telegram. A state
+value that is malformed, has a bad signature (including one signed with another
+secret), or is past its embedded expiry SHALL get the "expired or already used"
+page, and no database, Cognito or Telegram call SHALL be made. A callback with
+an `error` parameter or a missing `code` or `state` SHALL get the failure page,
+also without any such call. The signature check SHALL be constant-time. A state
+that passes the check SHALL still be single-use.
+
+#### Scenario: Tampered state is rejected without any call
+- **WHEN** the callback receives a state whose payload or signature was altered,
+  including a variant spelling of the same bytes (non-canonical encoding)
+- **THEN** the "expired or already used" page is returned and the database, the
+  Cognito token endpoint and Telegram are not called
+
+#### Scenario: Forged state is rejected without any call
+- **WHEN** the callback receives random text, or a well-formed state signed with
+  a different secret
+- **THEN** the "expired or already used" page is returned and no database,
+  Cognito or Telegram call is made
+
+#### Scenario: Expired state is rejected without any call
+- **WHEN** the callback receives a correctly signed state past its embedded expiry
+- **THEN** the "expired or already used" page is returned and no database,
+  Cognito or Telegram call is made
+
+#### Scenario: Sign-in error or missing parameters
+- **WHEN** the callback receives an `error` parameter, or no `code` or no `state`
+- **THEN** the failure page is returned and no database, Cognito or Telegram
+  call is made
+
+#### Scenario: Valid state is still single-use
+- **WHEN** the callback receives a valid, unexpired state a second time
+- **THEN** the second request gets the "expired or already used" page and
+  creates no link
+
+#### Scenario: State issued before the rollout
+- **WHEN** the callback receives a state in the earlier unsigned format
+- **THEN** it is rejected like any malformed state and the user sends `/start`
+  for a new link

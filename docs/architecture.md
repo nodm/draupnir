@@ -74,7 +74,7 @@ graph TB
   subgraph Bot["Telegram bot (bot.ts, botQueues.ts)"]
     BotApi["API Gateway draupnir-bot<br/>no authorizer, throttled<br/>POST /webhook · GET /telegram/callback"]
     WebhookFn["λ bot-webhook<br/>secret header check, enqueue only"]
-    CallbackFn["λ bot-callback<br/>finishes Google sign-in"]
+    CallbackFn["λ bot-callback<br/>checks signed state, then finishes Google sign-in"]
     UpdatesQ["SQS FIFO: bot-updates<br/>group = chat, dedup = update_id"]
     OutcomesQ["SQS: bot-outcomes"]
     BotDlq["DLQs (updates, outcomes)"]
@@ -84,6 +84,7 @@ graph TB
     BotToken[("Secret: bot token<br/>(value stored by hand)")]
     WebhookSecret[("Secret: webhook<br/>secret header")]
     ClientSecret[("Secret: Cognito<br/>client secret")]
+    LinkStateSecret[("Secret: link-state<br/>HMAC key")]
 
     BotApi --> WebhookFn
     BotApi --> CallbackFn
@@ -107,6 +108,8 @@ graph TB
   WebhookFn -. "read" .-> WebhookSecret
   CallbackFn -. "read" .-> BotToken
   CallbackFn -. "read" .-> ClientSecret
+  CallbackFn -. "verifies state" .-> LinkStateSecret
+  WorkerFn -. "signs state" .-> LinkStateSecret
   WorkerFn -. "read" .-> BotToken
   RetentionFn -. "read" .-> BotToken
   MigrateInvocation -. "dependsOn" .-> CallbackFn

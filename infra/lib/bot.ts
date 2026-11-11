@@ -124,6 +124,26 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
     withProvider,
   );
 
+  // Signs the `state` in sign-in links. The public callback verifies it first,
+  // so forged requests are rejected before any database or Cognito call.
+  const linkStateSecretValue = new random.RandomPassword(
+    'bot-link-state-secret',
+    { length: 48, special: false },
+  );
+  const linkStateSecret = new aws.secretsmanager.Secret(
+    'bot-link-state-secret',
+    { description: 'HMAC key for the Telegram sign-in link state value' },
+    withProvider,
+  );
+  new aws.secretsmanager.SecretVersion(
+    'bot-link-state-secret',
+    {
+      secretId: linkStateSecret.id,
+      secretString: linkStateSecretValue.result,
+    },
+    withProvider,
+  );
+
   // --- Cognito app client for linking ----------------------------------------
   // Its own client (with a secret, so the code exchange happens server side):
   // the linking flow never shares credentials or callbacks with the web app.
@@ -242,7 +262,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
     'bot-callback',
     [
       ...dataApiPolicyStatements(dbConfig),
-      readSecrets(botTokenSecret, clientSecret),
+      readSecrets(botTokenSecret, clientSecret, linkStateSecret),
     ],
     provider,
   );
@@ -258,6 +278,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
         ...dbEnvironment,
         BOT_TOKEN_SECRET_ARN: botTokenSecret.arn,
         TELEGRAM_CLIENT_SECRET_ARN: clientSecret.arn,
+        LINK_STATE_SECRET_ARN: linkStateSecret.arn,
         COGNITO_BASE_URL: cognitoBaseUrl,
         TELEGRAM_CLIENT_ID: telegramClient.id,
         TELEGRAM_CALLBACK_URL: callbackUrl,
@@ -272,7 +293,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
     'bot-worker',
     [
       ...dataApiPolicyStatements(dbConfig),
-      readSecrets(botTokenSecret),
+      readSecrets(botTokenSecret, linkStateSecret),
       {
         Effect: 'Allow',
         Action: 's3:PutObject',
@@ -308,6 +329,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
       environment: {
         ...dbEnvironment,
         BOT_TOKEN_SECRET_ARN: botTokenSecret.arn,
+        LINK_STATE_SECRET_ARN: linkStateSecret.arn,
         UPLOADS_BUCKET: uploadsBucket.bucket,
         COGNITO_BASE_URL: cognitoBaseUrl,
         TELEGRAM_CLIENT_ID: telegramClient.id,

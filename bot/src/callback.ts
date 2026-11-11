@@ -21,11 +21,11 @@ export const handler = async (
   event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult> => {
   const config = loadLinkConfigFromEnv();
-  const telegram = createTelegramClient(
-    await getSecretString(requireEnv('BOT_TOKEN_SECRET_ARN')),
-  );
-  const clientSecret = await getSecretString(
-    requireEnv('TELEGRAM_CLIENT_SECRET_ARN'),
+  // Only the link-state secret is read up front: handleLinkCallback rejects a
+  // forged or expired state before anything else, so the other secrets load
+  // lazily, on first use, after the state has passed.
+  const stateSecret = await getSecretString(
+    requireEnv('LINK_STATE_SECRET_ARN'),
   );
 
   const result = await handleLinkCallback(
@@ -37,13 +37,21 @@ export const handler = async (
     {
       store: createLinkStore(dataApiClient, loadDataApiConfigFromEnv()),
       config,
-      exchangeCode: (input) =>
-        exchangeAuthorizationCode(config, clientSecret, input),
+      stateSecret,
+      exchangeCode: async (input) =>
+        exchangeAuthorizationCode(
+          config,
+          await getSecretString(requireEnv('TELEGRAM_CLIENT_SECRET_ARN')),
+          input,
+        ),
       verifyIdToken: createIdTokenVerifier({
         userPoolId: requireEnv('USER_POOL_ID'),
         clientId: config.clientId,
       }),
       notify: async (chatId, text) => {
+        const telegram = createTelegramClient(
+          await getSecretString(requireEnv('BOT_TOKEN_SECRET_ARN')),
+        );
         await telegram.sendMessage(chatId, text);
       },
     },
