@@ -65,6 +65,10 @@ Numeric ids only, comma-separated. A non-numeric entry fails the webhook at star
 empty list drops every update. Linking (`/start`, the 6-digit code) works for listed users
 who are not linked yet. To add or remove someone, change the value and run `infra:up`.
 
+Leave Telegram's own bot access restriction (BotFather bot settings) off. It blocks other
+accounts inside Telegram, before any update reaches the webhook, and it may only let the bot
+owner be added. `allowedTelegramUserIds` is the only gate.
+
 ### 3. Deploy
 
 ```bash
@@ -221,6 +225,7 @@ then `aws logs tail /aws/lambda/<name> --since 1h`.
 | Symptom                                      | Likely cause and check                                                                                                                                                                       |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bot never answers                            | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one.  |
+| Telegram says the owner restricted access    | Telegram's own bot access restriction is on (BotFather bot settings); turn it off. Nothing reached the webhook, so the allowlist is not involved.                                            |
 | Bot ignores one person, others are fine      | That person's Telegram user id is missing from `allowedTelegramUserIds` (see step 2). Unlisted users get no reply and no log line by design. Fix the list, then `pnpm exec nx run infra:up`. |
 | `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                               |
 | `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).           |
