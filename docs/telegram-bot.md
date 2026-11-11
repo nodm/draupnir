@@ -161,7 +161,10 @@ list of commands.
 
 Never share the code. Signing in alone links nothing: the code has to come back from the
 Telegram account that asked, so a forwarded sign-in link cannot connect someone else's chat
-to your data. `/unlink` disconnects the chat again (you must link again to use the bot).
+to your data. The sign-in link carries a signed, expiring token: the callback checks its signature
+and expiry first and turns away anything forged, altered or expired without touching the database.
+The key is the generated `bot-link-state-secret`; rotating it only invalidates links issued in the
+last 10 minutes. `/unlink` disconnects the chat again (you must link again to use the bot).
 
 ### Accounts
 
@@ -222,18 +225,19 @@ Find a function's log group with
 `aws lambda list-functions --query "Functions[?starts_with(FunctionName,'bot-')].FunctionName" --output text`,
 then `aws logs tail /aws/lambda/<name> --since 1h`.
 
-| Symptom                                      | Likely cause and check                                                                                                                                                                       |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bot never answers                            | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one.  |
-| Telegram says the owner restricted access    | Telegram's own bot access restriction is on (BotFather bot settings); turn it off. Nothing reached the webhook, so the allowlist is not involved.                                            |
-| Bot ignores one person, others are fine      | That person's Telegram user id is missing from `allowedTelegramUserIds` (see step 2). Unlisted users get no reply and no log line by design. Fix the list, then `pnpm exec nx run infra:up`. |
-| `set-webhook` says the token secret is empty | Step 4 was not done, or it was stored in another region/stack.                                                                                                                               |
-| `/start` works, sign-in page errors          | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).           |
-| "Already linked"                             | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                     |
-| Upload accepted but no report                | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.         |
-| A message seems stuck for minutes            | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                 |
-| First reply is very slow                     | The database was paused; it resumes within about a minute.                                                                                                                                   |
-| Old bot messages are still in the chat       | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                       |
+| Symptom                                         | Likely cause and check                                                                                                                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bot never answers                               | Run `pnpm exec nx run bot:set-webhook` again and read `Last error`. A 401/403 means Telegram's secret header does not match the webhook secret; re-running the script sets the current one.  |
+| Telegram says the owner restricted access       | Telegram's own bot access restriction is on (BotFather bot settings); turn it off. Nothing reached the webhook, so the allowlist is not involved.                                            |
+| Bot ignores one person, others are fine         | That person's Telegram user id is missing from `allowedTelegramUserIds` (see step 2). Unlisted users get no reply and no log line by design. Fix the list, then `pnpm exec nx run infra:up`. |
+| `set-webhook` says the token secret is empty    | Step 4 was not done, or it was stored in another region/stack.                                                                                                                               |
+| `/start` works, sign-in page errors             | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).           |
+| Sign-in page says "expired" right after tapping | The link is older than 10 minutes, was already used, or was issued before a deploy or a `bot-link-state-secret` rotation. Send `/start` for a new link.                                      |
+| "Already linked"                                | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                     |
+| Upload accepted but no report                   | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.         |
+| A message seems stuck for minutes               | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                 |
+| First reply is very slow                        | The database was paused; it resumes within about a minute.                                                                                                                                   |
+| Old bot messages are still in the chat          | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                       |
 
 Inspecting a dead-letter queue shows raw Telegram updates, which contain chat content:
 
