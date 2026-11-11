@@ -1,6 +1,7 @@
 import { confirmationCode, sha256Hex } from './crypto';
 import type { LinkConfig } from './config';
 import type { IdTokenVerifier } from './idToken';
+import { verifyState } from './state';
 import type { LinkStore } from './linkStore';
 import {
   ALREADY_LINKED_PAGE,
@@ -18,6 +19,8 @@ export interface CallbackQuery {
 export interface CallbackDeps {
   store: LinkStore;
   config: LinkConfig;
+  stateSecret: string;
+  now?: () => Date;
   exchangeCode(input: { code: string; codeVerifier: string }): Promise<string>;
   verifyIdToken: IdTokenVerifier;
   // Best-effort message to the Telegram chat that asked to link.
@@ -45,6 +48,18 @@ export async function handleLinkCallback(
   // Cognito sends `error` when sign-in is refused (e.g. not on the allowlist).
   if (query.error || !query.code || !query.state) {
     return page(400, FAILED_PAGE);
+  }
+
+  // Reject forged, tampered and expired state here, before any database,
+  // Cognito or Telegram call. The stored single-use hash is the next check.
+  if (
+    !verifyState(
+      deps.stateSecret,
+      query.state,
+      (deps.now ?? (() => new Date()))(),
+    )
+  ) {
+    return page(400, EXPIRED_PAGE);
   }
 
   const stateHash = sha256Hex(query.state);

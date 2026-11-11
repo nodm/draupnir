@@ -2,11 +2,14 @@ import type { InlineKeyboardMarkup } from '@grammyjs/types';
 import type { Context } from '../dispatcher';
 import { LINK_REQUEST_TTL_MS, type LinkConfig } from './config';
 import { pkceChallenge, randomToken, sha256Hex } from './crypto';
+import { signState } from './state';
 import type { LinkStore } from './linkStore';
 
 export interface UnlinkedDeps {
   store: LinkStore;
   config: LinkConfig;
+  // Signs the `state` in the sign-in link; the callback verifies it.
+  stateSecret: string;
   now?: () => Date;
 }
 
@@ -88,9 +91,9 @@ export async function handleUnlinked(
   }
 
   const from = message?.from ?? update.callback_query?.from;
-  const state = randomToken();
   const verifier = randomToken();
   const now = (deps.now ?? (() => new Date()))();
+  const state = signState(deps.stateSecret, now, LINK_REQUEST_TTL_MS);
   await deps.store.createRequest({
     stateHash: sha256Hex(state),
     telegramUserId,
