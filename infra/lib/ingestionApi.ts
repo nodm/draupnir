@@ -19,7 +19,7 @@ const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 // Cost and capacity guardrail for every method (`*/*`), sized for two users:
 // a handful of upload URLs in a row fits the burst. Applies per method and is
 // checked before the Cognito authorizer. See
-// openspec/changes/add-api-throttle-defaults/design.md (decision 4).
+// openspec/changes/archive/2026-11-13-add-api-throttle-defaults/design.md (decision 4).
 const THROTTLE = { rateLimit: 5, burstLimit: 10 };
 
 export interface IngestionApi {

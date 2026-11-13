@@ -127,7 +127,7 @@ for ingestion (3 methods). A request over the limit gets `429 Too Many Requests`
 from API Gateway, before any authorizer or Lambda function runs. The limits are
 shared by all callers of a method, so a flood also throttles the real users
 until it stops. The numbers are explained in
-[the change's design](../openspec/changes/add-api-throttle-defaults/design.md).
+[the change's design](../openspec/changes/archive/2026-11-13-add-api-throttle-defaults/design.md).
 
 The MCP API is served only on `https://mcp.draupnir.nodm.name`: its default
 `execute-api` endpoint is disabled (it answers `403`), and `mcpUrl` is the only

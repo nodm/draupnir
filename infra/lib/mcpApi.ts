@@ -19,7 +19,7 @@ const MCP_FUNCTION_MEMORY_MB = 256;
 // Cost and capacity guardrail for every method without its own limit (`*/*`):
 // about 3x a simultaneous reconnect of every client on POST /mcp, far below
 // the account default. Applies per method, not to the stage as a whole. See
-// openspec/changes/add-api-throttle-defaults/design.md (decisions 2-3).
+// openspec/changes/archive/2026-11-13-add-api-throttle-defaults/design.md (decisions 2-3).
 const DEFAULT_THROTTLE = { rateLimit: 10, burstLimit: 20 };
 // Stricter limits on single methods override the default for that method.
 // A client calls the token endpoint once per sign-in or refresh.
