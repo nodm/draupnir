@@ -16,15 +16,21 @@ const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 // unknown cause on client connects; more headroom rules memory out.
 const MCP_FUNCTION_MEMORY_MB = 256;
 
+// Cost and capacity guardrail for every method without its own limit (`*/*`):
+// about 3x a simultaneous reconnect of every client on POST /mcp, far below
+// the account default. Applies per method, not to the stage as a whole. See
+// openspec/changes/add-api-throttle-defaults/design.md (decisions 2-3).
+const DEFAULT_THROTTLE = { rateLimit: 10, burstLimit: 20 };
+// Stricter limits on single methods override the default for that method.
+// A client calls the token endpoint once per sign-in or refresh.
+const TOKEN_THROTTLE = { rateLimit: 5, burstLimit: 10 };
 // Registration is rare; a low rate limits what an unauthenticated caller can
 // create in the user pool.
-const REGISTER_RATE_LIMIT = 1;
-const REGISTER_BURST_LIMIT = 5;
+const REGISTER_THROTTLE = { rateLimit: 1, burstLimit: 5 };
 const OAUTH_FUNCTION_TIMEOUT_SECONDS = 10;
 
 export interface McpApi {
   restApi: aws.apigateway.RestApi;
-  invokeUrl: pulumi.Output<string>;
   // The MCP endpoint on the custom domain, e.g. https://mcp.example/mcp.
   mcpUrl: pulumi.Output<string>;
 }
@@ -52,6 +58,9 @@ export function createMcpApi(
       // MCP's own ADR-0001 leaves response streaming available at this same
       // REST-API level for later, unused by this base wiring.
       endpointConfiguration: { types: 'REGIONAL' },
+      // Served only on the custom domain below; the execute-api URL answers
+      // 403. Takes effect on the next deployment (see the trigger below).
+      disableExecuteApiEndpoint: true,
     },
     withProvider,
   );
@@ -310,6 +319,8 @@ export function createMcpApi(
             m.integration.uri,
           ]),
           unauthorized.responseParameters,
+          // API Gateway applies a changed endpoint setting only on redeploy.
+          restApi.disableExecuteApiEndpoint,
         ]),
       },
     },
@@ -335,14 +346,28 @@ export function createMcpApi(
   );
 
   new aws.apigateway.MethodSettings(
+    'mcp-default-throttle',
+    {
+      restApi: restApi.id,
+      stageName: stage.stageName,
+      methodPath: '*/*',
+      settings: {
+        throttlingRateLimit: DEFAULT_THROTTLE.rateLimit,
+        throttlingBurstLimit: DEFAULT_THROTTLE.burstLimit,
+      },
+    },
+    withProvider,
+  );
+
+  new aws.apigateway.MethodSettings(
     'mcp-token-throttle',
     {
       restApi: restApi.id,
       stageName: stage.stageName,
       methodPath: 'token/POST',
       settings: {
-        throttlingRateLimit: 5,
-        throttlingBurstLimit: 10,
+        throttlingRateLimit: TOKEN_THROTTLE.rateLimit,
+        throttlingBurstLimit: TOKEN_THROTTLE.burstLimit,
       },
     },
     withProvider,
@@ -355,15 +380,16 @@ export function createMcpApi(
       stageName: stage.stageName,
       methodPath: 'register/POST',
       settings: {
-        throttlingRateLimit: REGISTER_RATE_LIMIT,
-        throttlingBurstLimit: REGISTER_BURST_LIMIT,
+        throttlingRateLimit: REGISTER_THROTTLE.rateLimit,
+        throttlingBurstLimit: REGISTER_THROTTLE.burstLimit,
       },
     },
     withProvider,
   );
 
   // Custom domain: the MCP URL and the OAuth well-known paths live at the
-  // origin root, where clients probe. The execute-api URL keeps working.
+  // origin root, where clients probe. It is the API's only address: the
+  // default execute-api endpoint is disabled on the RestApi above.
   const zone = aws.route53.getZoneOutput(
     { name: mcpHostedZone, privateZone: false },
     { provider },
@@ -431,7 +457,6 @@ export function createMcpApi(
 
   return {
     restApi,
-    invokeUrl: stage.invokeUrl,
     mcpUrl: pulumi.output(`${mcpOrigin}/mcp`),
   };
 }

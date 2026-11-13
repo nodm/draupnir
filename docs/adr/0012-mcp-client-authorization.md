@@ -67,8 +67,10 @@ Cognito. It is not a full OAuth proxy.
     | xargs -n1 aws cognito-idp delete-user-pool-client --user-pool-id <pool> --client-id
   ```
 
-- The `execute-api` URL stays enabled. Moving the other APIs to `draupnir.nodm.name` is a separate
-  change.
+- The `execute-api` URL was left enabled at first. On 2026-11-13 it was disabled
+  ([add-api-throttle-defaults](../../openspec/changes/add-api-throttle-defaults/design.md)), so the
+  MCP API is reachable only on `mcp.draupnir.nodm.name`. Moving the other APIs to
+  `draupnir.nodm.name` is a separate change.
 
 ## Options Considered
 

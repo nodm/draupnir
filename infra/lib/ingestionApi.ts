@@ -16,6 +16,12 @@ import {
 // DB-backed route once before surfacing an error.
 const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 
+// Cost and capacity guardrail for every method (`*/*`), sized for two users:
+// a handful of upload URLs in a row fits the burst. Applies per method and is
+// checked before the Cognito authorizer. See
+// openspec/changes/add-api-throttle-defaults/design.md (decision 4).
+const THROTTLE = { rateLimit: 5, burstLimit: 10 };
+
 export interface IngestionApi {
   restApi: aws.apigateway.RestApi;
   invokeUrl: pulumi.Output<string>;
@@ -235,6 +241,20 @@ export function createIngestionApi(
       restApi: restApi.id,
       deployment: deployment.id,
       stageName: pulumi.getStack(),
+    },
+    withProvider,
+  );
+
+  new aws.apigateway.MethodSettings(
+    'ingestion-default-throttle',
+    {
+      restApi: restApi.id,
+      stageName: stage.stageName,
+      methodPath: '*/*',
+      settings: {
+        throttlingRateLimit: THROTTLE.rateLimit,
+        throttlingBurstLimit: THROTTLE.burstLimit,
+      },
     },
     withProvider,
   );
