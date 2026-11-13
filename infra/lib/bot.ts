@@ -3,6 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as random from '@pulumi/random';
 import type { AuthPool } from './cognito';
 import { BOT_WORKER_TIMEOUT_SECONDS, type BotQueues } from './botQueues';
+import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import {
   LAMBDA_ASSUME_ROLE_POLICY,
@@ -342,7 +343,8 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
 
   // Both queues feed the worker. One message at a time keeps FIFO order simple
   // and each message within its own timeout; `ReportBatchItemFailures` is how
-  // the worker reports the ones it could not finish.
+  // the worker reports the ones it could not finish. Each mapping is capped on
+  // its own, so the worker can run up to twice QUEUE_MAX_CONCURRENCY at once.
   for (const [name, queue] of [
     ['bot-updates', queues.updates],
     ['bot-outcomes', queues.outcomes],
@@ -354,6 +356,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
         functionName: workerFunction.name,
         batchSize: 1,
         functionResponseTypes: ['ReportBatchItemFailures'],
+        scalingConfig: { maximumConcurrency: QUEUE_MAX_CONCURRENCY },
       },
       // The mapping is rejected until the role may already consume the queue.
       { provider, dependsOn: [worker.policy] },
