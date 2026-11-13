@@ -12,7 +12,7 @@ so it cannot silently go stale.
 Why the statement tables look this way: [ADR-0008](./adr/0008-statement-data-model.md). How
 they are reached: [ADR-0003](./adr/0003-aurora-access-pattern.md) (RDS Data API only).
 How the bot uses its tables: [telegram-bot.md](./telegram-bot.md) and
-`openspec/changes/add-telegram-bot/design.md`.
+`openspec/changes/archive/2026-11-07-add-telegram-bot/design.md`.
 
 ## Conventions
 
