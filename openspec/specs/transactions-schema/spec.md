@@ -76,10 +76,10 @@ A `transactions` row MAY record the transaction's original (pre-conversion) curr
 and amount and the conversion fee charged (amount and percent), for cases where a
 bank settles a purchase in a currency other than the one it was made in. These four
 columns (`original_currency`, `original_amount_minor_units`, `fx_fee_minor_units`,
-`fx_fee_percent`) are nullable and exist on the schema regardless of bank; a given
-parser populates them only when its source format exposes this information. Currency
-and amount travel together, as do fee amount and fee percent: one is set only if the
-other is too.
+`fx_fee_percent`) SHALL be nullable and SHALL exist on the schema regardless of bank;
+a given parser populates them only when its source format exposes this information.
+The database SHALL reject a row that sets only one of currency and amount, or only
+one of fee amount and fee percent.
 
 #### Scenario: FX metadata columns default to null
 - **WHEN** a transaction row is inserted without FX metadata
