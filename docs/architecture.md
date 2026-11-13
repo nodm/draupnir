@@ -79,7 +79,7 @@ graph TB
     OutcomesQ["SQS: bot-outcomes"]
     BotDlq["DLQs (updates, outcomes)"]
     WorkerFn["λ bot-worker<br/>no VPC"]
-    RetentionFn["λ bot-retention<br/>every hour, no retries"]
+    RetentionFn["λ bot-retention<br/>every 12 h (config), no retries"]
     TelegramClient["Cognito client<br/>draupnir-telegram"]
     BotToken[("Secret: bot token<br/>(value stored by hand)")]
     WebhookSecret[("Secret: webhook<br/>secret header")]
@@ -93,6 +93,7 @@ graph TB
     OutcomesQ --> WorkerFn
     UpdatesQ & OutcomesQ -. "after 3 / 5 deliveries" .-> BotDlq
     RetentionFn -- "republish missed outcomes" --> OutcomesQ
+    WorkerFn -- "republish missed outcomes<br/>(after user traffic)" --> OutcomesQ
   end
   Telegram(["Telegram Bot API"]) -- "webhook" --> BotApi
   WorkerFn -- "send / delete messages" --> Telegram

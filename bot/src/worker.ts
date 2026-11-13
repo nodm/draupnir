@@ -1,6 +1,7 @@
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { RDSDataClient } from '@aws-sdk/client-rds-data';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SQSClient } from '@aws-sdk/client-sqs';
 import type { SQSHandler } from 'aws-lambda';
 import type { Update } from '@grammyjs/types';
 import { isOutcomeMessage, loadDataApiConfigFromEnv } from 'shared';
@@ -41,6 +42,7 @@ import {
   type UploadDeps,
 } from './lib/upload/handleUpload';
 import { reportOutcome } from './lib/outcomes/reportOutcome';
+import { sweepOutcomes } from './lib/outcomes/sweepOutcomes';
 import { createRoutes, createSubResolver } from './lib/routes';
 import { getSecretString } from './lib/secrets';
 import { createRetention, withRetention } from './lib/retention/retention';
@@ -49,6 +51,13 @@ import { createTelegramClient } from './lib/telegram';
 const dataApiClient = new RDSDataClient({});
 const s3Client = new S3Client({});
 const cognitoClient = new CognitoIdentityProviderClient({});
+const sqsClient = new SQSClient({});
+
+// After handling user traffic, while Aurora is awake anyway, the worker also
+// retries missed outcomes (design.md decision 6), at most this often per warm
+// container so a busy chat does not add the sweep to every update.
+export const OUTCOME_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+let lastOutcomeSweepAt = -Infinity;
 
 // Built on first use, so updates that never touch /share or /unshare do not
 // depend on USER_POOL_ID (or the Cognito permission) being configured.
@@ -139,6 +148,7 @@ export const handler: SQSHandler = async (event) => {
   });
 
   const batchItemFailures: { itemIdentifier: string }[] = [];
+  let handledUpdate = false;
   for (const record of event.Records) {
     if (batchItemFailures.length > 0) {
       batchItemFailures.push({ itemIdentifier: record.messageId });
@@ -157,6 +167,7 @@ export const handler: SQSHandler = async (event) => {
         });
       } else {
         await dispatch(body as Update, telegram, routes);
+        handledUpdate = true;
       }
     } catch (error) {
       console.error(
@@ -167,6 +178,34 @@ export const handler: SQSHandler = async (event) => {
         }),
       );
       batchItemFailures.push({ itemIdentifier: record.messageId });
+    }
+  }
+
+  // Only after a fully handled batch of updates: not after outcomes (no
+  // republishing as a side effect of reporting), not when the chat is failing.
+  // A failing sweep is logged; the batch result stays as it is.
+  const outcomeQueueUrl = process.env['OUTCOME_QUEUE_URL'];
+  if (
+    outcomeQueueUrl &&
+    handledUpdate &&
+    batchItemFailures.length === 0 &&
+    Date.now() - lastOutcomeSweepAt >= OUTCOME_SWEEP_INTERVAL_MS
+  ) {
+    lastOutcomeSweepAt = Date.now();
+    try {
+      await sweepOutcomes(
+        dataApiClient,
+        dataApiConfig,
+        sqsClient,
+        outcomeQueueUrl,
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'outcome-sweep-failed',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   }
   return { batchItemFailures };

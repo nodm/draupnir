@@ -69,6 +69,17 @@ Leave Telegram's own bot access restriction (BotFather bot settings) off. It blo
 accounts inside Telegram, before any update reaches the webhook, and it may only let the bot
 owner be added. `allowedTelegramUserIds` is the only gate.
 
+Optionally, change how often the scheduled retention run happens (default every 12 hours).
+Every run wakes the paused database, so sparser is cheaper. It deletes messages once they are
+20 hours old and must still catch them before 48 hours after one missed run, so the deploy
+refuses anything but `rate(...)` with a period of at most 13 hours:
+
+```bash
+cd infra
+pulumi config set retentionSchedule "rate(6 hours)"
+cd ..
+```
+
 ### 3. Deploy
 
 ```bash
@@ -143,7 +154,7 @@ The first command is a dry run: it prints what exists and changes nothing. Add `
 to the second to take a database snapshot first. A real reset first switches off the bot's
 queue consumers and waits about 100 seconds for work already running, then wipes, then
 switches them back on (also if it fails part way), so nothing recreates data mid-reset. It keeps the schema, `schema_migrations` and `bot_messages`, so
-the hourly run still deletes the bot's old messages from your chat. Afterwards send `/start`
+the scheduled run still deletes the bot's old messages from your chat. Afterwards send `/start`
 and link again. The script is `infra/scripts/reset-data.sh`; tests keep its table list in
 step with the schema.
 
@@ -207,16 +218,16 @@ Telegram keeps chats in its cloud and bots cannot use end-to-end encrypted chats
 bot keeps as little as it can:
 
 - Your **CSV message is deleted** right after the bot reports the result (or refuses it).
-- **Messages the bot sends in your linked chat are deleted about 24 hours later** (within
-  about an hour after that): account lists, coverage, import reports, share notices and
-  its questions. Telegram only allows deleting messages younger than 48 hours.
+- **Messages the bot sends in your linked chat are deleted about 20 to 32 hours later**,
+  always before Telegram's 48-hour limit: account lists, coverage, import reports, share
+  notices and its questions. Telegram only allows deleting messages younger than 48 hours.
 - Not covered: your own messages other than statements, the sign-in link and its replies
   (sent before the chat is linked), and the "Linked to …" confirmation. None of them
   contain account or transaction data.
 - Deleting does not erase Telegram's own copies or backups.
 
 If the immediate deletion of a statement fails, the scheduled run tries once more within
-24 to 48 hours. If that run cannot delete a message (for example it is already older than
+20 to 32 hours. If that run cannot delete a message (for example it is already older than
 48 hours), the failure is logged with the chat and message id and not retried.
 
 ## Troubleshooting
@@ -234,7 +245,7 @@ then `aws logs tail /aws/lambda/<name> --since 1h`.
 | `/start` works, sign-in page errors             | The Google account is not in `allowlistedEmails`, or the Cognito `draupnir-telegram` client's callback URL does not match `botCallbackUrl` (`pulumi stack output botCallbackUrl`).           |
 | Sign-in page says "expired" right after tapping | The link is older than 10 minutes, was already used, or was issued before a deploy or a `bot-link-state-secret` rotation. Send `/start` for a new link.                                      |
 | "Already linked"                                | That Google or Telegram account is already linked. Send `/unlink` from the linked chat, then link again.                                                                                     |
-| Upload accepted but no report                   | Look at the outcomes queue and its dead-letter queue (`botOutcomesQueueUrl`, `botOutcomesDlqUrl` stack outputs). The scheduled run republishes unreported outcomes hourly for a day.         |
+| Upload accepted but no report                   | Check `botOutcomesQueueUrl` and `botOutcomesDlqUrl`. Any message to the bot retries the report; otherwise the 12-hourly run does, for two days (so it can be ~12 h late).                    |
 | A message seems stuck for minutes               | A failing update is delivered 3 times in total (two retries), nine minutes apart, blocking only that chat, then moves to `botUpdatesDlqUrl`.                                                 |
 | First reply is very slow                        | The database was paused; it resumes within about a minute.                                                                                                                                   |
 | Old bot messages are still in the chat          | Look for `retention-delete-failed` in the retention function's log (it names the chat and message id). Messages older than 48 hours cannot be deleted.                                       |

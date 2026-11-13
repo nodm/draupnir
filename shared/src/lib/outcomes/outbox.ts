@@ -9,7 +9,9 @@ import {
 // Transactional outbox for outcome messages (design.md decision 1). The row is
 // written in the same transaction that commits the file's outcome, so a
 // committed outcome is never lost to a failed publish; a sweeper republishes
-// any row still unpublished after a minute. Delivery is at-least-once.
+// any row still unpublished after a minute, at the next ingestion batch, the
+// next bot traffic or the next scheduled run (every 12 hours by default).
+// Delivery is at-least-once.
 
 type Sender = Pick<SQSClient, 'send'>;
 

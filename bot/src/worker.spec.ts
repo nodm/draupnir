@@ -62,6 +62,11 @@ vi.mock('./lib/outcomes/reportOutcome', () => ({
   reportOutcome: (...args: unknown[]) => reportOutcome(...args),
 }));
 vi.mock('@aws-sdk/client-rds-data', () => ({ RDSDataClient: class {} }));
+vi.mock('@aws-sdk/client-sqs', () => ({ SQSClient: class {} }));
+const sweepOutcomes = vi.fn();
+vi.mock('./lib/outcomes/sweepOutcomes', () => ({
+  sweepOutcomes: (...args: unknown[]) => sweepOutcomes(...args),
+}));
 
 const record = (id: string) => ({
   messageId: id,
@@ -188,5 +193,105 @@ describe('bot worker', () => {
 
     expect(reportOutcome).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bot worker outcome sweep', () => {
+  const QUEUE = 'https://sqs.mock/bot-outcomes';
+  const outcomeEvent = {
+    Records: [
+      {
+        messageId: '9',
+        body: JSON.stringify({
+          fileId: 'f1',
+          s3Key: 'uploads/u/a/1.csv',
+          sub: 'u',
+          status: 'approved',
+          reasons: [],
+          warningsByAccount: {},
+          newTransactionCount: 1,
+          period: null,
+        }),
+      },
+    ],
+  } as never;
+  // The throttle lives in the module, so each test starts well past the last
+  // possible sweep.
+  let now = Date.UTC(2026, 10, 13);
+
+  beforeEach(() => {
+    now += 24 * 60 * 60 * 1000;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    dispatch.mockReset();
+    reportOutcome.mockReset();
+    sweepOutcomes.mockReset();
+    process.env['BOT_TOKEN_SECRET_ARN'] = 'arn:token';
+    process.env['LINK_STATE_SECRET_ARN'] = 'arn:link-state';
+    process.env['UPLOADS_BUCKET'] = 'bucket';
+    process.env['OUTCOME_QUEUE_URL'] = QUEUE;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env['OUTCOME_QUEUE_URL'];
+  });
+
+  const run = async (e: SQSEvent | never) => {
+    const { handler } = await import('./worker');
+    return handler(e, {} as never, () => undefined);
+  };
+
+  it('runs after a successfully handled batch of updates', async () => {
+    expect(await run(event('1'))).toEqual({ batchItemFailures: [] });
+    expect(sweepOutcomes).toHaveBeenCalledTimes(1);
+    expect(sweepOutcomes).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      QUEUE,
+    );
+  });
+
+  it('runs after the batch is handled, not before', async () => {
+    const order: string[] = [];
+    dispatch.mockImplementation(async () => order.push('update'));
+    sweepOutcomes.mockImplementation(async () => order.push('sweep'));
+    await run(event('1', '2'));
+    expect(order).toEqual(['update', 'update', 'sweep']);
+  });
+
+  it('is skipped after a batch of outcomes', async () => {
+    await run(outcomeEvent);
+    expect(reportOutcome).toHaveBeenCalledTimes(1);
+    expect(sweepOutcomes).not.toHaveBeenCalled();
+  });
+
+  it('is skipped after a batch with a failure', async () => {
+    dispatch.mockRejectedValueOnce(new Error('boom'));
+    const result = await run(event('1'));
+    expect(result).toEqual({ batchItemFailures: [{ itemIdentifier: '1' }] });
+    expect(sweepOutcomes).not.toHaveBeenCalled();
+  });
+
+  it('runs at most once every 10 minutes per container', async () => {
+    await run(event('1'));
+    vi.setSystemTime(now + 9 * 60 * 1000);
+    await run(event('2'));
+    expect(sweepOutcomes).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(now + 10 * 60 * 1000);
+    await run(event('3'));
+    expect(sweepOutcomes).toHaveBeenCalledTimes(2);
+  });
+
+  it('is skipped without an outcome queue', async () => {
+    delete process.env['OUTCOME_QUEUE_URL'];
+    await run(event('1'));
+    expect(sweepOutcomes).not.toHaveBeenCalled();
+  });
+
+  it('leaves the batch result alone when the sweep rejects', async () => {
+    sweepOutcomes.mockRejectedValueOnce(new Error('db down'));
+    await expect(run(event('1'))).resolves.toEqual({ batchItemFailures: [] });
   });
 });

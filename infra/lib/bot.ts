@@ -9,6 +9,10 @@ import {
   LAMBDA_ASSUME_ROLE_POLICY,
   LAMBDA_BASIC_EXECUTION_POLICY_ARN,
 } from './lambdaRoute';
+import {
+  DEFAULT_RETENTION_SCHEDULE,
+  retentionScheduleExpression,
+} from './retentionSchedule';
 
 const CODE_PATH = '../dist/bot';
 // The webhook only validates and enqueues.
@@ -18,10 +22,6 @@ const WEBHOOK_TIMEOUT_SECONDS = 10;
 const CALLBACK_TIMEOUT_SECONDS = 29;
 // One try per message: up to 2000 deletions per run plus an Aurora resume.
 const RETENTION_TIMEOUT_SECONDS = 600;
-// Every run wakes the paused Aurora cluster, so this is as sparse as the work
-// allows: messages go 24-25 hours after sending (Telegram allows 48), and a
-// missed outcome is republished within the hour.
-const RETENTION_SCHEDULE = 'rate(1 hour)';
 
 // The public endpoints are open to the internet by design (Telegram and the
 // user's browser call them), so cap what a flood can cost.
@@ -84,6 +84,14 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
   // The bot's @username (from BotFather), used for the t.me deep links.
   const botUsername = config.require('botUsername');
   const allowedTelegramUserIds = config.requireSecret('allowedTelegramUserIds');
+  // Every run wakes the paused Aurora cluster, so the default (12 hours) is as
+  // sparse as the work allows: messages go 20-32 hours after sending, under 44
+  // after one missed run (Telegram allows 48), and an unreported outcome is
+  // republished on every run for 48 hours, at least twice even after a missed
+  // run (retentionSchedule.ts). Validated here so a bad value fails the preview.
+  const retentionSchedule = retentionScheduleExpression(
+    config.get('retentionSchedule') ?? DEFAULT_RETENTION_SCHEDULE,
+  );
 
   // --- API Gateway first: its id fixes the callback URL, which the Cognito
   // client needs before the callback Lambda (which needs the client) exists.
@@ -315,6 +323,12 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
         ],
         Resource: [queues.updates.arn, queues.outcomes.arn],
       },
+      {
+        // Retries missed outcomes after user traffic (sweepOutcomes).
+        Effect: 'Allow',
+        Action: 'sqs:SendMessage',
+        Resource: queues.outcomes.arn,
+      },
     ],
     provider,
   );
@@ -337,6 +351,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
         TELEGRAM_CALLBACK_URL: callbackUrl,
         BOT_USERNAME: botUsername,
         USER_POOL_ID: authPool.userPool.id,
+        OUTCOME_QUEUE_URL: queues.outcomes.url,
       },
     },
   );
@@ -429,7 +444,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
   new aws.scheduler.Schedule(
     'bot-retention',
     {
-      scheduleExpression: RETENTION_SCHEDULE,
+      scheduleExpression: retentionSchedule,
       flexibleTimeWindow: { mode: 'OFF' },
       target: {
         arn: retentionFunction.arn,

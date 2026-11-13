@@ -183,8 +183,8 @@ describe('discarding a message now', () => {
 });
 
 describe('the scheduled run', () => {
-  it('deletes a message sent more than 24 hours ago', async () => {
-    await sentAgo(11, 1, 25);
+  it('deletes a message sent more than 20 hours ago', async () => {
+    await sentAgo(11, 1, 21);
     const t = fakeTelegram();
 
     expect(await sweepRetention(t.telegram, client, config)).toEqual({
@@ -195,8 +195,8 @@ describe('the scheduled run', () => {
     expect((await rows())[0]?.deleted_at).not.toBeNull();
   });
 
-  it('leaves a message younger than 24 hours alone', async () => {
-    await sentAgo(11, 1, 23);
+  it('leaves a message younger than 20 hours alone', async () => {
+    await sentAgo(11, 1, 19);
     const t = fakeTelegram();
 
     expect(await sweepRetention(t.telegram, client, config)).toEqual({
@@ -205,6 +205,18 @@ describe('the scheduled run', () => {
     });
     expect(t.deleteMessage).not.toHaveBeenCalled();
     expect((await rows())[0]?.deleted_at).toBeNull();
+  });
+
+  it('still deletes a message the previous 12-hourly run missed (44 hours old)', async () => {
+    await sentAgo(11, 1, 44);
+    const t = fakeTelegram();
+
+    expect(await sweepRetention(t.telegram, client, config)).toEqual({
+      deleted: 1,
+      failed: 0,
+    });
+    expect(t.deleteMessage).toHaveBeenCalledWith(11, 1);
+    expect((await rows())[0]?.deleted_at).not.toBeNull();
   });
 
   it('does not delete a message twice across runs', async () => {

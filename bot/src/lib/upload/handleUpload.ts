@@ -51,7 +51,7 @@ export async function handleDocument(
 
   // The statement stays in the chat only until it has been dealt with. It is
   // recorded first, so even if everything below fails the scheduled run
-  // removes it within 24-48 hours.
+  // removes it 20-32 hours after it arrived.
   await deps.retention.record(chatId, message.message_id);
   // A refusal also takes the file out of the chat, after the reply.
   const refuse = async (text: string) => {
