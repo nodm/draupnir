@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
 
 const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
   Version: '2012-10-17',
@@ -257,6 +258,8 @@ export function createIngestionPipeline(
       eventSourceArn: queue.arn,
       functionName: ingestFunction.name,
       batchSize: 1,
+      // Hard cap on parallel ingestion; a backlog waits in the queue.
+      scalingConfig: { maximumConcurrency: QUEUE_MAX_CONCURRENCY },
     },
     // Without this, Pulumi can create the mapping before the inline
     // RolePolicy granting sqs:ReceiveMessage exists — AWS then rejects the

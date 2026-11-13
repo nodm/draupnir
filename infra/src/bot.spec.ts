@@ -270,6 +270,21 @@ describe('worker', () => {
     }
   });
 
+  it('caps each queue at two concurrent invocations at the mapping, not with reserved concurrency', () => {
+    for (const name of ['bot-updates', 'bot-outcomes']) {
+      expect(
+        one('aws:lambda/eventSourceMapping:EventSourceMapping', name)[
+          'scalingConfig'
+        ],
+      ).toEqual({ maximumConcurrency: 2 });
+    }
+    expect(
+      one('aws:lambda/function:Function', 'bot-worker')[
+        'reservedConcurrentExecutions'
+      ],
+    ).toBeUndefined();
+  });
+
   it('may write uploads, look users up, read its secret and consume the queues, nothing broader', async () => {
     const s = await statements('bot-worker');
     expect(allows(s, 's3:PutObject')).toBe(true);
