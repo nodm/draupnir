@@ -4,7 +4,7 @@ The bot is Draupnir's only interface ([ADR-0009](./adr/0009-telegram-interface.m
 send it a bank-statement CSV, and it imports it, tells you the result, and answers a few
 commands about your accounts. This page has the one-time setup, the user guide, and
 troubleshooting. How it is built is in [architecture.md](./architecture.md) and
-`openspec/changes/add-telegram-bot/design.md`.
+`openspec/changes/archive/2026-11-07-add-telegram-bot/design.md`.
 
 > Status: everything below has been tested offline (unit tests, Pulumi mocks). The live
 > check on real phones is task 8.2; until it is done, treat the setup steps as unverified

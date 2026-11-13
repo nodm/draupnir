@@ -4,6 +4,6 @@
 // leaving the rest for the API and the Cognito pre-sign-up trigger. 2 is also
 // the lowest value SQS accepts. Set on the mapping, not as reserved
 // concurrency, so a message is never received and then throttled. See
-// openspec/changes/cap-lambda-concurrency/design.md (decisions 1–2); the
-// account quota behind it is in docs/architecture.md.
+// openspec/changes/archive/2026-11-13-cap-lambda-concurrency/design.md
+// (decisions 1–2); the account quota behind it is in docs/architecture.md.
 export const QUEUE_MAX_CONCURRENCY = 2;
