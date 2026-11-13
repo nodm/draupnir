@@ -292,10 +292,34 @@ describe('worker', () => {
     expect(allows(s, 'sqs:ReceiveMessage')).toBe(true);
     expect(allows(s, 'rds-data:ExecuteStatement')).toBe(true);
     expect(allows(s, 's3:GetObject')).toBe(false);
-    expect(allows(s, 'sqs:SendMessage')).toBe(false);
     const put = s.find((x) => [x.Action].flat().includes('s3:PutObject'));
     expect(String(put?.Resource)).toMatch(/\/uploads\/\*$/);
     expect(JSON.stringify(s)).not.toContain('"*"');
+  });
+
+  it('may publish to the outcomes queue only, and knows its URL (outcome sweep)', async () => {
+    const s = await statements('bot-worker');
+    const sends = s.filter((x) =>
+      [x.Action].flat().includes('sqs:SendMessage'),
+    );
+    expect(sends.map((x) => String(x.Resource))).toEqual([
+      'arn:aws:mock:::aws:sqs/queue:Queue/bot-outcomes',
+    ]);
+    expect(envOf('bot-worker')['OUTCOME_QUEUE_URL']).toBe(
+      'https://sqs.mock/bot-outcomes',
+    );
+  });
+
+  it('leaves the webhook and the callback unable to publish outcomes', async () => {
+    const webhookSends = (await statements('bot-webhook')).filter((x) =>
+      [x.Action].flat().includes('sqs:SendMessage'),
+    );
+    expect(webhookSends.map((x) => String(x.Resource))).toEqual([
+      'arn:aws:mock:::aws:sqs/queue:Queue/bot-updates',
+    ]);
+    expect(allows(await statements('bot-callback'), 'sqs:SendMessage')).toBe(
+      false,
+    );
   });
 
   it('waits for the report lease: its timeout times six is the queue visibility timeout', async () => {
@@ -332,9 +356,9 @@ describe('webhook', () => {
 });
 
 describe('retention', () => {
-  it('runs every hour and a failed run is not retried', async () => {
+  it('runs every 12 hours by default and a failed run is not retried', async () => {
     const schedule = one('aws:scheduler/schedule:Schedule', 'bot-retention');
-    expect(schedule['scheduleExpression']).toBe('rate(1 hour)');
+    expect(schedule['scheduleExpression']).toBe('rate(12 hours)');
     expect(schedule['flexibleTimeWindow']).toEqual({ mode: 'OFF' });
     expect(
       (schedule['target'] as { retryPolicy: unknown }).retryPolicy,
@@ -391,5 +415,47 @@ describe('secrets', () => {
       'bot-telegram-client-secret',
       'bot-webhook-secret',
     ]);
+  });
+});
+
+describe('retentionScheduleExpression', () => {
+  it.each([
+    'rate(1 hour)',
+    'rate(6 hours)',
+    'rate(13 hours)',
+    'rate(30 minutes)',
+  ])('accepts %s', async (expression) => {
+    const { retentionScheduleExpression } = await import(
+      '../lib/retentionSchedule'
+    );
+    expect(retentionScheduleExpression(expression)).toBe(expression);
+  });
+
+  it.each([
+    'rate(14 hours)',
+    'rate(1 day)',
+    'rate(781 minutes)',
+    'cron(0 */12 * * ? *)',
+    'at(2026-01-01T00:00:00)',
+    'rate(0 hours)',
+    'every 12 hours',
+  ])('refuses %s, naming the config key', async (expression) => {
+    const { retentionScheduleExpression } = await import(
+      '../lib/retentionSchedule'
+    );
+    expect(() => retentionScheduleExpression(expression)).toThrow(
+      'draupnir-infra:retentionSchedule',
+    );
+  });
+
+  it('caps the period so one missed run still deletes before 48 hours', async () => {
+    const { DELETE_AFTER_HOURS, MAX_RETENTION_PERIOD_HOURS } = await import(
+      '../lib/retentionSchedule'
+    );
+    expect(DELETE_AFTER_HOURS).toBe(20);
+    expect(MAX_RETENTION_PERIOD_HOURS).toBe(13);
+    expect(DELETE_AFTER_HOURS + 2 * MAX_RETENTION_PERIOD_HOURS).toBeLessThan(
+      48,
+    );
   });
 });

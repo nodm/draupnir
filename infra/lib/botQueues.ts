@@ -13,8 +13,9 @@ const DLQ_RETENTION_SECONDS = 14 * 24 * 60 * 60;
 // its own chat until it has been tried this often and moved to the DLQ.
 const UPDATES_MAX_RECEIVE_COUNT = 3;
 // An outcome that exhausts these is not lost: the outbox marks it published, but
-// the scheduled run publishes it again while its upload is still unreported
-// (migration 0016), hourly for a day.
+// every scheduled run (12-hourly by default) publishes it again while its upload
+// is still unreported, for 48 hours (migrations 0016, 0019): at least 2 attempts
+// even after a missed run. The worker also does so when the bot gets traffic.
 const OUTCOMES_MAX_RECEIVE_COUNT = 5;
 
 export interface BotQueues {

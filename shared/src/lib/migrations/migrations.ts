@@ -16,6 +16,7 @@ import { m0015 } from './0015-claim-bot-messages';
 import { m0016 } from './0016-unreported-outcomes';
 import { m0017 } from './0017-transactions-indexes';
 import { m0018 } from './0018-account-balances';
+import { m0019 } from './0019-sparse-retention-schedule';
 import type { Migration } from './migration';
 
 // Append-only, ascending by id. Never edit or remove an applied migration.
@@ -38,4 +39,5 @@ export const MIGRATIONS: readonly Migration[] = [
   m0016,
   m0017,
   m0018,
+  m0019,
 ];

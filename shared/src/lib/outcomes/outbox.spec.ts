@@ -290,7 +290,7 @@ describe('republishUnreportedOutcomes (outcomes the queue gave up on)', () => {
     expect(sent).toEqual([message]);
   });
 
-  it('does so once an hour, not on every run', async () => {
+  it('does not publish it again within the hour', async () => {
     await published('pending');
     const { sqs } = sqsThatWorks();
 
@@ -312,11 +312,42 @@ describe('republishUnreportedOutcomes (outcomes the queue gave up on)', () => {
     expect(await republish(sqs)).toBe(0);
   });
 
-  it('gives up after a day', async () => {
+  it('still republishes at 47 hours', async () => {
     const message = await published('pending');
-    await ageOutbox(message.fileId as string, '25 hours');
+    await ageOutbox(message.fileId as string, '47 hours');
+    const { sqs } = sqsThatWorks();
+    expect(await republish(sqs)).toBe(1);
+  });
+
+  it('gives up after 48 hours', async () => {
+    const message = await published('pending');
+    await ageOutbox(message.fileId as string, '49 hours');
     const { sqs } = sqsThatWorks();
     expect(await republish(sqs)).toBe(0);
+  });
+
+  it('gets at least 2 attempts from 12-hourly runs, even when one is missed', async () => {
+    // Worst phase: the run just before the 1-hour guard finds nothing, and the
+    // next one (12.9 hours after commit) is missed.
+    const message = await published('pending', '0 minutes');
+    const elapse = (minutes: number) =>
+      db.exec(`
+        UPDATE statement_outcome_outbox
+           SET created_at = created_at - interval '${minutes} minutes',
+               published_at = published_at - interval '${minutes} minutes'
+         WHERE file_id = '${message.fileId}'`);
+    const { sent, sqs } = sqsThatWorks();
+
+    await elapse(54); // 0.9 h
+    expect(await republish(sqs)).toBe(0);
+    await elapse(12 * 60); // 12.9 h: this run is missed
+    await elapse(12 * 60); // 24.9 h
+    expect(await republish(sqs)).toBe(1);
+    await elapse(12 * 60); // 36.9 h
+    expect(await republish(sqs)).toBe(1);
+    await elapse(12 * 60); // 48.9 h: given up
+    expect(await republish(sqs)).toBe(0);
+    expect(sent).toHaveLength(2);
   });
 
   it('ignores a file that did not come through the bot (no pending upload)', async () => {

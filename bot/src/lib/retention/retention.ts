@@ -108,7 +108,7 @@ export interface SweepResult {
   failed: number;
 }
 
-// Deletes every recorded message older than 24 hours. Messages are claimed
+// Deletes every recorded message older than 20 hours. Messages are claimed
 // (with a lease) as they are fetched, so overlapping runs never work on the
 // same one. One try each: a message
 // that cannot be deleted (typically past Telegram's 48-hour limit) is marked

@@ -347,12 +347,12 @@ policies; the others let a job act where a policy would (rightly) refuse it.
 | `enqueue_outcome`          | Writes the outbox row inside the uploader's import transaction.                               |
 | `due_outcomes`             | Outbox rows not published a minute after commit.                                              |
 | `mark_outcome_published`   | Sets `published_at`.                                                                          |
-| `unreported_outcomes`      | Published outcomes whose upload was never reported (the queue gave up), for republishing.     |
+| `unreported_outcomes`      | Outcomes the queue gave up on (never reported, under 48 hours old), for republishing.         |
 | `recorded_outcome`         | Lets the pipeline recover the outcome it already committed for an S3 key.                     |
 | `claim_outcome_report`     | Atomically claims the right to report an outcome (2-minute lease); returns the chat.          |
 | `mark_outcome_reported`    | Marks the upload reported.                                                                    |
 | `record_bot_message`       | Records a sent message under the owner of that private chat.                                  |
-| `claim_due_bot_messages`   | Claims messages older than 24 hours for the retention run (15-minute lease).                  |
+| `claim_due_bot_messages`   | Claims messages older than 20 hours for the retention run (15-minute lease).                  |
 | `due_bot_messages`         | Older read-only list of the same; superseded by `claim_due_bot_messages`.                     |
 | `mark_bot_message_deleted` | Sets `deleted_at`.                                                                            |
 | `mark_bot_message_failed`  | Sets `failed_at`.                                                                             |

@@ -49,7 +49,7 @@ export async function reportOutcome(
 
   // The statement itself leaves the chat once its outcome has been reported.
   // Best effort: if this fails (or we crash here) the file was recorded when
-  // it arrived, so the scheduled run removes it within 24-48 hours.
+  // it arrived, so the scheduled run removes it 20-32 hours after it was sent.
   await discardUploadedFile(message, claim.chat_id, {
     client,
     config,
