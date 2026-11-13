@@ -1,6 +1,6 @@
 // How often the bot-retention run happens. Every run resumes the paused Aurora
 // cluster (aurora.ts), so the default is as sparse as the 48-hour guarantee
-// allows. See openspec/changes/reduce-retention-schedule/design.md
+// allows. See openspec/changes/archive/2026-11-13-reduce-retention-schedule/design.md
 // (decisions 1-3).
 
 export const RETENTION_SCHEDULE_CONFIG_KEY = 'draupnir-infra:retentionSchedule';
