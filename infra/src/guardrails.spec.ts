@@ -1,9 +1,13 @@
 import * as pulumi from '@pulumi/pulumi';
 
-// The whole program against recorded mocks, as in bot.spec.ts. Pins the account
-// concurrency guardrails (cost-guardrails spec): the three SQS mappings are
-// capped, and no function uses reserved concurrency (the account quota of 10
-// equals AWS's unreserved floor, so none could be set; design decision 1).
+// The whole program against recorded mocks, as in bot.spec.ts. Pins the cost
+// and capacity guardrails:
+// - account concurrency (cost-guardrails spec): the three SQS mappings are
+//   capped, and no function uses reserved concurrency (the account quota of 10
+//   equals AWS's unreserved floor, so none could be set);
+// - API throttles (mcp-server-api, mcp-oauth-discovery, user-authentication):
+//   every REST API stage has a `*/*` default, the MCP token and register
+//   overrides stay, and the MCP API is served only on its custom domain.
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -154,5 +158,65 @@ describe('account concurrency guardrails', () => {
     for (const f of functions) {
       expect(f.inputs['reservedConcurrentExecutions'], f.name).toBeUndefined();
     }
+  });
+});
+
+describe('API guardrails', () => {
+  // The mock gives each resource the id `<name>-id`, so a MethodSettings'
+  // restApi input names the RestApi it belongs to.
+  const throttlesOf = (restApiName: string) =>
+    Object.fromEntries(
+      named('aws:apigateway/methodSettings:MethodSettings')
+        .filter((m) => m.inputs['restApi'] === `${restApiName}-id`)
+        .map((m) => {
+          const settings = m.inputs['settings'] as Record<string, unknown>;
+          return [
+            m.inputs['methodPath'],
+            {
+              rate: settings['throttlingRateLimit'],
+              burst: settings['throttlingBurstLimit'],
+            },
+          ];
+        }),
+    );
+
+  it('throttles the MCP stage by default and keeps the stricter token and register limits', () => {
+    expect(throttlesOf('mcp')).toEqual({
+      '*/*': { rate: 10, burst: 20 },
+      'token/POST': { rate: 5, burst: 10 },
+      'register/POST': { rate: 1, burst: 5 },
+    });
+  });
+
+  it('throttles the ingestion stage for two users', () => {
+    expect(throttlesOf('ingestion')).toEqual({
+      '*/*': { rate: 5, burst: 10 },
+    });
+  });
+
+  it('keeps the bot stage throttle', () => {
+    expect(throttlesOf('bot')).toEqual({ '*/*': { rate: 10, burst: 20 } });
+  });
+
+  it('gives every REST API a stage-wide default', () => {
+    const apis = named('aws:apigateway/restApi:RestApi');
+    expect(apis.map((a) => a.name).sort()).toEqual(['bot', 'ingestion', 'mcp']);
+    for (const api of apis) {
+      expect(throttlesOf(api.name)['*/*'], api.name).toBeDefined();
+    }
+  });
+
+  it('serves the MCP API only on its custom domain and redeploys when that changes', () => {
+    const [mcp] = named('aws:apigateway/restApi:RestApi').filter(
+      (a) => a.name === 'mcp',
+    );
+    expect(mcp?.inputs['disableExecuteApiEndpoint']).toBe(true);
+
+    const [deployment] = named('aws:apigateway/deployment:Deployment').filter(
+      (d) => d.name === 'mcp',
+    );
+    const triggers = deployment?.inputs['triggers'] as Record<string, string>;
+    const hashed = JSON.parse(triggers['redeployment'] as string) as unknown[];
+    expect(hashed.at(-1)).toBe(true);
   });
 });
