@@ -6,6 +6,7 @@ const BANK_NAMES: Record<string, string> = {
   revolut: 'Revolut',
   monobank: 'monobank',
   swedbank: 'Swedbank',
+  privatbank: 'PrivatBank',
 };
 
 // Telegram HTML needs only these three characters escaped. Everything dynamic

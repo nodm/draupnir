@@ -21,8 +21,8 @@ describe('0020-add-swedbank-bank', () => {
     await db.close();
   });
 
-  it('is registered last', () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]).toBe(m0020);
+  it('is registered', () => {
+    expect(MIGRATIONS).toContain(m0020);
   });
 
   it('accepts every supported bank', async () => {

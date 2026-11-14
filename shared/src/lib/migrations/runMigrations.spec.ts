@@ -326,6 +326,7 @@ describe('runMigrations (pglite)', () => {
       '0018-account-balances',
       '0019-sparse-retention-schedule',
       '0020-add-swedbank-bank',
+      '0021-add-privatbank-bank',
     ]);
   });
 });
