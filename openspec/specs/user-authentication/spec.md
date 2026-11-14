@@ -3,10 +3,10 @@
 ## Purpose
 
 Establishes the single identity source for Draupnir — a Cognito User Pool
-federated with Google — and guarantees every request reaching a handler on
-`ingestion`'s authenticated routes carries a verified, non-forgeable
-identity. (`mcp`'s authorizer attachment is deferred to a future change —
-see `design.md`'s Non-Goals.)
+federated with Google — and guarantees that every request reaching an
+authenticated handler (the MCP endpoint) carries a verified, non-forgeable
+identity, and that a token issued to one app client opens no other client's
+API.
 
 ## Requirements
 

@@ -85,11 +85,6 @@ async function build() {
   const userPool = new aws.cognito.UserPool('users', {}, { provider });
   const authPool = {
     userPool,
-    userPoolClient: new aws.cognito.UserPoolClient(
-      'app',
-      { userPoolId: userPool.id },
-      { provider },
-    ),
     domain: new aws.cognito.UserPoolDomain(
       'login',
       { userPoolId: userPool.id, domain: 'auth-prefix' },

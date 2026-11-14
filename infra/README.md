@@ -95,9 +95,6 @@ aws secretsmanager put-secret-value \
 pnpm exec nx run bot:set-webhook      # `bot:delete-webhook` undoes it
 ```
 
-`callbackUrl`/`logoutUrl` are optional (`pulumi config set callbackUrl "..."`)
-and default to `localhost` values meant for local client development.
-
 `logRetentionDays` is optional and defaults to 30; see [Log retention](#log-retention).
 
 `uploadRetentionDays` is optional and defaults to 30; see [Upload retention](#upload-retention).
@@ -128,16 +125,15 @@ allows 10 concurrent executions; see `docs/architecture.md`, Concurrency). Each
 stage has a default throttle on every method (`MethodSettings` with
 `methodPath: '*/*'`); a method-level setting overrides it for that method:
 
-| Stage                | Default (`*/*`), rps / burst | Overrides                                  |
-| -------------------- | ---------------------------- | ------------------------------------------ |
-| `draupnir-mcp`       | 10 / 20                      | `token/POST` 5 / 10, `register/POST` 1 / 5 |
-| `draupnir-ingestion` | 5 / 10                       | none                                       |
-| `draupnir-bot`       | 10 / 20                      | none                                       |
+| Stage          | Default (`*/*`), rps / burst | Overrides                                  |
+| -------------- | ---------------------------- | ------------------------------------------ |
+| `draupnir-mcp` | 10 / 20                      | `token/POST` 5 / 10, `register/POST` 1 / 5 |
+| `draupnir-bot` | 10 / 20                      | none                                       |
 
 The limit applies to **each method separately**, not to the stage as a whole, so
 a stage's total ceiling is the sum over its methods: about 66 rps (burst 135)
-for MCP (6 methods on the default plus the two overrides) and 15 rps (burst 30)
-for ingestion (3 methods). A request over the limit gets `429 Too Many Requests`
+for MCP (6 methods on the default plus the two overrides) and 20 rps (burst 40)
+for the bot (2 methods). A request over the limit gets `429 Too Many Requests`
 from API Gateway, before any authorizer or Lambda function runs. The limits are
 shared by all callers of a method, so a flood also throttles the real users
 until it stops. The numbers are explained in
@@ -145,14 +141,13 @@ until it stops. The numbers are explained in
 
 The MCP API is served only on `https://mcp.draupnir.nodm.name`: its default
 `execute-api` endpoint is disabled (it answers `403`), and `mcpUrl` is the only
-MCP stack output. The ingestion and bot APIs keep their `execute-api` URLs.
+MCP stack output. The bot API keeps its `execute-api` URL, which Telegram and
+the sign-in links call.
 
 After a deploy, check the settings each stage actually has:
 
 ```bash
 aws apigateway get-stage --rest-api-id "$(pulumi stack output mcpApiId)" \
-  --stage-name prod --query methodSettings
-aws apigateway get-stage --rest-api-id "$(pulumi stack output ingestionApiId)" \
   --stage-name prod --query methodSettings
 ```
 

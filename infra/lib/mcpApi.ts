@@ -9,8 +9,8 @@ import {
   LAMBDA_BASIC_EXECUTION_POLICY_ARN,
 } from './lambdaRoute';
 
-// API Gateway's REST integration timeout ceiling, as for ingestion's DB-backed
-// routes: covers an Aurora resume-from-pause plus withCaller's Data API calls.
+// API Gateway's REST integration timeout ceiling without a quota increase:
+// covers an Aurora resume-from-pause plus withCaller's Data API calls.
 const DB_BACKED_ROUTE_TIMEOUT_SECONDS = 29;
 
 // The 128 MB default ran at 114-119 MB with Runtime.ExitError crashes of
@@ -55,9 +55,11 @@ export function createMcpApi(
     'mcp',
     {
       name: 'draupnir-mcp',
-      // See ingestionApi.ts's restApi comment — same regional rationale, and
-      // MCP's own ADR-0001 leaves response streaming available at this same
-      // REST-API level for later, unused by this base wiring.
+      // Regional, not the default edge-optimized: no CloudFront benefit for a
+      // Cognito-authenticated API with no global audience, and only Regional or
+      // private REST APIs can request an integration timeout past 29s if the
+      // Aurora resume latency (aurora.ts) ever needs it. ADR-0001 also leaves
+      // response streaming available at this REST-API level for later.
       endpointConfiguration: { types: 'REGIONAL' },
       // Served only on the custom domain below; the execute-api URL answers
       // 403. Takes effect on the next deployment (see the trigger below).
@@ -66,9 +68,9 @@ export function createMcpApi(
     withProvider,
   );
 
-  // A separate authorizer resource from ingestion's — API Gateway scopes an
-  // Authorizer to one REST API — but bound to the same Cognito user pool, so
-  // one identity source authenticates both APIs (ADR-0001).
+  // The stack's only Cognito authorizer: no other API accepts the user pool's
+  // tokens, so a token issued to a registered MCP client opens nothing else
+  // (guardrails.spec.ts; user-authentication spec).
   const authorizer = new aws.apigateway.Authorizer(
     'mcp-cognito',
     {
@@ -299,8 +301,9 @@ export function createMcpApi(
     'mcp',
     {
       restApi: restApi.id,
-      // See ingestionApi.ts's deployment comment — hash route config, not
-      // resource ids, so a config change actually redeploys the stage.
+      // Hash the route configuration, not resource ids: ids stay the same
+      // across an authorizer or integration change, which would otherwise
+      // leave the stage serving a stale snapshot.
       triggers: {
         redeployment: pulumi.jsonStringify([
           mcpRoute.resource.pathPart,

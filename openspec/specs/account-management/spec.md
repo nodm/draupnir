@@ -3,7 +3,8 @@
 ## Purpose
 
 Lets an authenticated user create the `accounts` row a statement upload resolves
-against — a minimal create-only endpoint, no update/delete/list in this change.
+against — create-only, no update or delete. Users do this through the Telegram
+bot's `/newaccount` (see `telegram-account-commands`).
 
 ## Requirements
 
