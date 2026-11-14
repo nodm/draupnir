@@ -4,6 +4,10 @@ import { createLambdaFunction } from './lambdaFunction';
 import type { AuthPool } from './cognito';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import {
+  authorizationServerMetadata,
+  protectedResourceMetadata,
+} from './mcpOAuthMetadata';
+import {
   createLambdaRoute,
   LAMBDA_ASSUME_ROLE_POLICY,
   LAMBDA_BASIC_EXECUTION_POLICY_ARN,
@@ -28,7 +32,13 @@ const TOKEN_THROTTLE = { rateLimit: 5, burstLimit: 10 };
 // Registration is rare; a low rate limits what an unauthenticated caller can
 // create in the user pool.
 const REGISTER_THROTTLE = { rateLimit: 1, burstLimit: 5 };
+// The discovery documents are fetched once per client connect and /authorize
+// once per sign-in, so 1 request per second with room for a reconnect or two
+// is enough. Each method has its own bucket.
+const RARE_ROUTE_THROTTLE = { rateLimit: 1, burstLimit: 5 };
 const OAUTH_FUNCTION_TIMEOUT_SECONDS = 10;
+// Cached by clients for five minutes; the documents change only on a deploy.
+const DISCOVERY_CACHE_CONTROL = 'public, max-age=300';
 
 export interface McpApi {
   restApi: aws.apigateway.RestApi;
@@ -109,8 +119,10 @@ export function createMcpApi(
     provider,
   );
 
-  // Discovery and registration (mcp-oauth-discovery): unauthenticated, one
-  // Lambda. The challenge header lets a client find the metadata from a 401.
+  // Discovery and registration (mcp-oauth-discovery): unauthenticated. The
+  // discovery documents are answered by API Gateway itself; authorize, token
+  // and registration run one Lambda. The challenge header lets a client find
+  // the metadata from a 401.
   const oauthRole = new aws.iam.Role(
     'mcp-oauth',
     { assumeRolePolicy: LAMBDA_ASSUME_ROLE_POLICY },
@@ -194,15 +206,34 @@ export function createMcpApi(
     wellKnown.id,
     'oauth-protected-resource',
   );
+  // The documents are fixed at deploy time and served by MOCK integrations, so
+  // a discovery request never invokes a function (mcpOAuthMetadata.ts).
+  const metadataConfig = userPool.id.apply((userPoolId) => ({
+    origin: mcpOrigin,
+    userPoolId,
+    region,
+  }));
+  const protectedResourceDocument = metadataConfig.apply((c) =>
+    JSON.stringify(protectedResourceMetadata(c)),
+  );
+  const authorizationServerDocument = metadataConfig.apply((c) =>
+    JSON.stringify(authorizationServerMetadata(c)),
+  );
   const oauthEndpoints: {
     key: string;
     resource: aws.apigateway.Resource;
+    // The resource path without its leading slash, for the method settings.
+    path: string;
     httpMethod: string;
+    // Set for a discovery route: the JSON the MOCK integration answers with.
+    document?: pulumi.Output<string>;
   }[] = [
     {
       key: 'protected-resource',
       resource: protectedResource,
+      path: '.well-known/oauth-protected-resource',
       httpMethod: 'GET',
+      document: protectedResourceDocument,
     },
     {
       key: 'protected-resource-mcp',
@@ -211,7 +242,9 @@ export function createMcpApi(
         protectedResource.id,
         'mcp',
       ),
+      path: '.well-known/oauth-protected-resource/mcp',
       httpMethod: 'GET',
+      document: protectedResourceDocument,
     },
     {
       key: 'authorization-server',
@@ -220,7 +253,9 @@ export function createMcpApi(
         wellKnown.id,
         'oauth-authorization-server',
       ),
+      path: '.well-known/oauth-authorization-server',
       httpMethod: 'GET',
+      document: authorizationServerDocument,
     },
     {
       key: 'openid-configuration',
@@ -229,7 +264,9 @@ export function createMcpApi(
         wellKnown.id,
         'openid-configuration',
       ),
+      path: '.well-known/openid-configuration',
       httpMethod: 'GET',
+      document: authorizationServerDocument,
     },
     {
       key: 'register',
@@ -238,6 +275,7 @@ export function createMcpApi(
         restApi.rootResourceId,
         'register',
       ),
+      path: 'register',
       httpMethod: 'POST',
     },
     {
@@ -247,39 +285,91 @@ export function createMcpApi(
         restApi.rootResourceId,
         'authorize',
       ),
+      path: 'authorize',
       httpMethod: 'GET',
     },
     {
       key: 'token',
       resource: oauthResource('mcp-token', restApi.rootResourceId, 'token'),
+      path: 'token',
       httpMethod: 'POST',
     },
   ];
-  const oauthMethods = oauthEndpoints.map(({ key, resource, httpMethod }) => {
-    const method = new aws.apigateway.Method(
-      `mcp-oauth-${key}`,
-      {
-        restApi: restApi.id,
-        resourceId: resource.id,
-        httpMethod,
-        authorization: 'NONE',
-      },
-      withProvider,
-    );
-    const integration = new aws.apigateway.Integration(
-      `mcp-oauth-${key}`,
-      {
-        restApi: restApi.id,
-        resourceId: resource.id,
-        httpMethod: method.httpMethod,
-        integrationHttpMethod: 'POST',
-        type: 'AWS_PROXY',
-        uri: oauthFunction.invokeArn,
-      },
-      withProvider,
-    );
-    return { resource, method, integration };
-  });
+  const oauthMethods = oauthEndpoints.map(
+    ({ key, resource, httpMethod, document }) => {
+      const method = new aws.apigateway.Method(
+        `mcp-oauth-${key}`,
+        {
+          restApi: restApi.id,
+          resourceId: resource.id,
+          httpMethod,
+          authorization: 'NONE',
+        },
+        withProvider,
+      );
+      if (document === undefined) {
+        const integration = new aws.apigateway.Integration(
+          `mcp-oauth-${key}`,
+          {
+            restApi: restApi.id,
+            resourceId: resource.id,
+            httpMethod: method.httpMethod,
+            integrationHttpMethod: 'POST',
+            type: 'AWS_PROXY',
+            uri: oauthFunction.invokeArn,
+          },
+          withProvider,
+        );
+        return { resource, method, integration, responses: [] };
+      }
+      const integration = new aws.apigateway.Integration(
+        `mcp-oauth-${key}`,
+        {
+          restApi: restApi.id,
+          resourceId: resource.id,
+          httpMethod: method.httpMethod,
+          type: 'MOCK',
+          requestTemplates: { 'application/json': '{"statusCode": 200}' },
+        },
+        withProvider,
+      );
+      const methodResponse = new aws.apigateway.MethodResponse(
+        `mcp-oauth-${key}`,
+        {
+          restApi: restApi.id,
+          resourceId: resource.id,
+          httpMethod: method.httpMethod,
+          statusCode: '200',
+          responseParameters: {
+            'method.response.header.Content-Type': true,
+            'method.response.header.Cache-Control': true,
+          },
+        },
+        { provider, dependsOn: [method] },
+      );
+      const integrationResponse = new aws.apigateway.IntegrationResponse(
+        `mcp-oauth-${key}`,
+        {
+          restApi: restApi.id,
+          resourceId: resource.id,
+          httpMethod: method.httpMethod,
+          statusCode: '200',
+          responseTemplates: { 'application/json': document },
+          responseParameters: {
+            'method.response.header.Content-Type': "'application/json'",
+            'method.response.header.Cache-Control': `'${DISCOVERY_CACHE_CONTROL}'`,
+          },
+        },
+        { provider, dependsOn: [integration, methodResponse] },
+      );
+      return {
+        resource,
+        method,
+        integration,
+        responses: [methodResponse, integrationResponse],
+      };
+    },
+  );
 
   const unauthorized = new aws.apigateway.Response(
     'mcp-unauthorized',
@@ -320,7 +410,13 @@ export function createMcpApi(
           oauthMethods.map((m) => [
             m.resource.pathPart,
             m.method.httpMethod,
+            m.integration.type,
             m.integration.uri,
+            m.integration.requestTemplates,
+            m.responses.map((r) => [
+              r.responseParameters,
+              'responseTemplates' in r ? r.responseTemplates : undefined,
+            ]),
           ]),
           unauthorized.responseParameters,
           // API Gateway applies a changed endpoint setting only on redeploy.
@@ -334,7 +430,11 @@ export function createMcpApi(
         mcpRoute.method,
         mcpRoute.integration,
         unauthorized,
-        ...oauthMethods.flatMap((m) => [m.method, m.integration]),
+        ...oauthMethods.flatMap((m) => [
+          m.method,
+          m.integration,
+          ...m.responses,
+        ]),
       ],
     },
   );
@@ -390,6 +490,29 @@ export function createMcpApi(
     },
     withProvider,
   );
+
+  // The discovery documents and /authorize are rarely called; the Lambda
+  // behind /authorize and the request count on the others stay small even
+  // under an anonymous flood. Method paths are the resource path without its
+  // leading slash, then the HTTP method.
+  for (const { key, path, httpMethod } of oauthEndpoints) {
+    if (key === 'token' || key === 'register') {
+      continue;
+    }
+    new aws.apigateway.MethodSettings(
+      `mcp-${key}-throttle`,
+      {
+        restApi: restApi.id,
+        stageName: stage.stageName,
+        methodPath: `${path}/${httpMethod}`,
+        settings: {
+          throttlingRateLimit: RARE_ROUTE_THROTTLE.rateLimit,
+          throttlingBurstLimit: RARE_ROUTE_THROTTLE.burstLimit,
+        },
+      },
+      withProvider,
+    );
+  }
 
   // Custom domain: the MCP URL and the OAuth well-known paths live at the
   // origin root, where clients probe. It is the API's only address: the

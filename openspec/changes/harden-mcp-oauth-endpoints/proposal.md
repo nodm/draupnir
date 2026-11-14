@@ -2,7 +2,7 @@
 
 The OAuth routes on `mcp.draupnir.nodm.name` are public by design: MCP clients discover sign-in and register themselves without a token. Two properties of how they are served cost more than they need to:
 
-- **Every public request runs the OAuth Lambda**, including the four discovery documents, which never change. With the stage default of 10 requests per second on discovery and `/authorize`, an anonymous caller can keep about 56 Lambda-backed requests per second going, indefinitely.
+- **Every public request runs the OAuth Lambda**, including the four discovery documents, which never change. With the stage default of 10 requests per second on discovery and `/authorize`, an anonymous caller can keep about 56 Lambda-backed requests per second going, indefinitely (configured, as API Gateway enforces limits best effort).
 - **Anyone can use up all the client registrations.** `/register` accepts any `http` loopback callback on any port and creates a new app client for each new set of redirect URIs. It creates at most 25 and never deletes one, so anonymous calls with made-up ports can use up the cap within seconds. After that, no new client can connect.
 
 The only clients in use are claude.ai's connectors. Those connectors also cover Claude Desktop, mobile and Claude Code through the claude.ai account. They need neither loopback callbacks nor a Lambda behind the discovery documents.
@@ -45,4 +45,4 @@ _None._
   - The `mcp` stage is redeployed.
   - Nothing is deleted except the two runtime-created loopback clients, removed by hand.
 - **Clients**: claude.ai and claude.com connectors keep working, and their existing client is reused. Loopback-based local clients stop working.
-- **Cost**: the anonymous ceiling of Lambda-backed requests falls from about 56 to 7 per second (`/authorize` 1, `/token` 5, `/register` 1). The discovery routes still count as API Gateway requests, but at 1 rps each instead of 10.
+- **Cost**: the configured limits on Lambda-backed anonymous requests fall from about 56 to 7 per second (`/authorize` 1, `/token` 5, `/register` 1), and the discovery routes no longer invoke a function at all. The limits are best effort: API Gateway applies them per front-end node, so short bursts exceed them (see the design, Decision 3).

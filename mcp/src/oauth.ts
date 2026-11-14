@@ -5,10 +5,8 @@ import type {
   Handler,
 } from 'aws-lambda';
 import {
-  authorizationServerMetadata,
   authorizeRedirect,
   forwardToken,
-  protectedResourceMetadata,
   registerClient,
   type CognitoLike,
   type FetchLike,
@@ -46,8 +44,6 @@ function json(
   };
 }
 
-const METADATA_CACHE = { 'cache-control': 'public, max-age=300' };
-
 function parseBody(event: APIGatewayProxyEvent): unknown {
   if (!event.body) {
     return undefined;
@@ -68,20 +64,6 @@ export function createOAuthHandler(deps: {
     // or custom-domain base path.
     const route = `${event.httpMethod} ${event.resource}`;
     switch (route) {
-      case 'GET /.well-known/oauth-protected-resource':
-      case 'GET /.well-known/oauth-protected-resource/mcp':
-        return json(
-          200,
-          protectedResourceMetadata(deps.config()),
-          METADATA_CACHE,
-        );
-      case 'GET /.well-known/oauth-authorization-server':
-      case 'GET /.well-known/openid-configuration':
-        return json(
-          200,
-          authorizationServerMetadata(deps.config()),
-          METADATA_CACHE,
-        );
       case 'POST /register': {
         let body: unknown;
         try {

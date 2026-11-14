@@ -72,6 +72,20 @@ Cognito. It is not a full OAuth proxy.
   MCP API is reachable only on `mcp.draupnir.nodm.name`. Moving the other APIs to
   `draupnir.nodm.name` is a separate change.
 
+### Note, 2026-11-14 ([harden-mcp-oauth-endpoints](../../openspec/changes/harden-mcp-oauth-endpoints/design.md))
+
+- **Loopback registration is dropped.** `/register` accepts only the claude.ai and claude.com
+  callbacks. Any `http` loopback callback on any port created a new client, so anonymous callers
+  could use up the cap of 25 and block every new client. Local tools connect through the claude.ai
+  connector instead, so `claude mcp add --transport http` no longer works. The stale-loopback
+  cleanup paragraph above no longer applies. The two loopback clients from the 2026-11-07 test are
+  deleted by hand after the deploy.
+- **The ID-token deviation is resolved.** `remove-ingestion-api` left the MCP API as the only one
+  with a user pool authorizer (pinned by `infra/src/guardrails.spec.ts`), and it accepts access
+  tokens only.
+- **Discovery needs no function.** API Gateway serves the four discovery documents itself, and
+  `/authorize` and the discovery routes are throttled at 1 request per second.
+
 ## Options Considered
 
 | Option                       | Handles `resource` | Risk                      | Notes                        |

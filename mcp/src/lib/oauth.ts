@@ -22,73 +22,23 @@ export interface CognitoLike {
 
 export const CLIENT_NAME_PREFIX = 'mcp-dcr-';
 export const MAX_CLIENTS = 25;
-export const MAX_REDIRECT_URIS = 5;
+export const MAX_REDIRECT_URIS = 2;
+// The scopes advertised in the discovery documents are listed in
+// infra/lib/mcpOAuthMetadata.ts; change both together.
 export const SCOPES = ['openid', 'email', 'profile'];
 
 // claude.ai and claude.com MCP connector callbacks (reports differ on the
 // exact path; confirmed against the real clients in the change's task 4.1).
+// Nothing else is allowed, so registration can create at most three clients
+// (one per possible set of these two) and anonymous callers cannot use up
+// MAX_CLIENTS.
 const CLAUDE_CALLBACKS = [
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
 ];
-const LOOPBACK_HOSTS = ['localhost', '127.0.0.1'];
-
-export function protectedResourceMetadata(c: OAuthConfig) {
-  return {
-    resource: `${c.origin}/mcp`,
-    authorization_servers: [c.origin],
-    scopes_supported: ['openid'],
-    bearer_methods_supported: ['header'],
-  };
-}
-
-// Authorize and token requests go through the shim's `/authorize` redirect and
-// `/token` forwarder, which strip `resource`: Cognito accepts it on authorize
-// but then issues a code that cannot be redeemed (`invalid_grant`).
-export function authorizationServerMetadata(c: OAuthConfig) {
-  const pool = `https://cognito-idp.${c.region}.amazonaws.com/${c.userPoolId}`;
-  return {
-    issuer: c.origin,
-    authorization_endpoint: `${c.origin}/authorize`,
-    token_endpoint: `${c.origin}/token`,
-    jwks_uri: `${pool}/.well-known/jwks.json`,
-    registration_endpoint: `${c.origin}/register`,
-    response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code', 'refresh_token'],
-    code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: ['none'],
-    scopes_supported: SCOPES,
-    subject_types_supported: ['public'],
-    id_token_signing_alg_values_supported: ['RS256'],
-  };
-}
 
 function isAllowedRedirectUri(value: string): boolean {
-  if (CLAUDE_CALLBACKS.includes(value)) {
-    return true;
-  }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  const port = Number(url.port);
-  return (
-    url.protocol === 'http:' &&
-    LOOPBACK_HOSTS.includes(url.hostname) &&
-    url.port !== '' &&
-    Number.isInteger(port) &&
-    port >= 1 &&
-    port <= 65535 &&
-    url.username === '' &&
-    url.password === '' &&
-    url.search === '' &&
-    url.hash === '' &&
-    // Re-serializing must not change what was requested, so Cognito stores
-    // exactly the URI the client will send.
-    url.href === value
-  );
+  return CLAUDE_CALLBACKS.includes(value);
 }
 
 export type Validated =

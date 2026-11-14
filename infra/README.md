@@ -125,19 +125,35 @@ allows 10 concurrent executions; see `docs/architecture.md`, Concurrency). Each
 stage has a default throttle on every method (`MethodSettings` with
 `methodPath: '*/*'`); a method-level setting overrides it for that method:
 
-| Stage          | Default (`*/*`), rps / burst | Overrides                                  |
-| -------------- | ---------------------------- | ------------------------------------------ |
-| `draupnir-mcp` | 10 / 20                      | `token/POST` 5 / 10, `register/POST` 1 / 5 |
-| `draupnir-bot` | 10 / 20                      | none                                       |
+| Stage          | Default (`*/*`), rps / burst | Overrides                                                                                                                 |
+| -------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `draupnir-mcp` | 10 / 20 (only `POST /mcp`)   | `token/POST` 5 / 10; 1 / 5 each for `register/POST`, `authorize/GET` and the four `.well-known/…/GET` discovery documents |
+| `draupnir-bot` | 10 / 20                      | none                                                                                                                      |
 
 The limit applies to **each method separately**, not to the stage as a whole, so
-a stage's total ceiling is the sum over its methods: about 66 rps (burst 135)
-for MCP (6 methods on the default plus the two overrides) and 20 rps (burst 40)
-for the bot (2 methods). A request over the limit gets `429 Too Many Requests`
+a stage's total ceiling is the sum over its methods: about 21 rps (burst 60)
+for MCP (`POST /mcp` at 10, `token` 5, and six methods at 1) and 20 rps
+(burst 40) for the bot (2 methods). Of MCP's unauthenticated routes (11 rps
+together), only `authorize`, `token` and `register` run the OAuth Lambda, so an
+anonymous caller's Lambda-backed limits add up to 7 requests per second (best effort, see below). The
+four discovery documents are API Gateway MOCK integrations with the content
+fixed at deploy time (`lib/mcpOAuthMetadata.ts`), so they invoke nothing. A request over the limit gets `429 Too Many Requests`
 from API Gateway, before any authorizer or Lambda function runs. The limits are
 shared by all callers of a method, so a flood also throttles the real users
 until it stops. The numbers are explained in
 [the change's design](../openspec/changes/archive/2026-11-13-add-api-throttle-defaults/design.md).
+
+The limits are **best effort**. API Gateway applies a method's limit per
+front-end node, so at limits this low a short burst passes well beyond the
+configured rate and burst. Measured on prod on 2026-11-14: 40 parallel requests
+to a discovery route returned 37 to 39 `200`s and 1 to 3 `429`s, and 30 parallel
+requests to `/authorize` returned 23 `302`s, 7 `500`s (the account's Lambda
+concurrency was used up, which API Gateway reports as `500`) and no `429`. What
+the limits do guarantee is that discovery requests invoke nothing and that
+registration cannot use up the client cap; the account concurrency still bounds
+spend. See
+[the change's design](../openspec/changes/archive/2026-11-14-harden-mcp-oauth-endpoints/design.md),
+Decision 3.
 
 The MCP API is served only on `https://mcp.draupnir.nodm.name`: its default
 `execute-api` endpoint is disabled (it answers `403`), and `mcpUrl` is the only
