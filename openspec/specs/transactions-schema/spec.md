@@ -8,11 +8,10 @@ the ingestion pipeline relies on to avoid double-counting.
 
 ## Requirements
 
-
 ### Requirement: Accounts are owned rows scoped to one user
 Every `accounts` row SHALL record:
 - a bank identifier restricted to the supported-bank list (`seb`, `revolut`,
-  `monobank` at the time of writing; adding a bank is a migration plus a
+  `monobank`, `swedbank` at the time of writing; adding a bank is a migration plus a
   parser);
 - an `iban` and a currency;
 - a human-readable display name;
@@ -31,6 +30,15 @@ same IBAN. `accounts` SHALL NOT carry an owner column.
 #### Scenario: Account created for an upload targets a known bank
 - **WHEN** a row is inserted into `accounts` with `bank = 'seb'`
 - **THEN** the insert succeeds and the row's `bank` column reads `seb`
+
+#### Scenario: Swedbank account is accepted
+- **WHEN** a row is inserted into `accounts` with `bank = 'swedbank'`
+- **THEN** the insert succeeds and the row's `bank` column reads `swedbank`
+
+#### Scenario: Existing accounts survive the new bank
+- **WHEN** the migration adding `swedbank` is applied to a database holding
+  `seb`, `revolut` and `monobank` accounts
+- **THEN** all existing accounts and their transactions are unchanged
 
 #### Scenario: Unknown bank value is rejected
 - **WHEN** an insert into `accounts` sets `bank` to a value outside the
