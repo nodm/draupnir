@@ -103,7 +103,7 @@ export function createIngestionPipeline(
   // the only later reader, so the expiry must outlive the DLQ (enforced by
   // uploadRetentionDays). Lifecycle deletions are not ObjectCreated events, so
   // they never reach the ingestion queue. See
-  // openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md (decisions 1-3).
+  // openspec/changes/archive/2026-11-14-expire-uploads-and-enforce-size-at-s3/design.md (decisions 1-3).
   new aws.s3.BucketLifecycleConfiguration(
     'uploads',
     {

@@ -226,7 +226,7 @@ Nothing reads an upload once its outcome is recorded: rebuilds, duplicate
 detection and redeliveries use the database. The one later reader is a redrive
 from the ingestion DLQ, which keeps messages for 14 days, so the value must be a
 whole number greater than 14 or `infra:preview` fails. See
-[the change's design](../openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md).
+[the change's design](../openspec/changes/archive/2026-11-14-expire-uploads-and-enforce-size-at-s3/design.md).
 
 S3 applies the rule to existing objects too: within a day or two of the first
 deploy, every upload older than the retention is deleted, and that cannot be

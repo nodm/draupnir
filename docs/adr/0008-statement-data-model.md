@@ -45,7 +45,7 @@ Three storage layers plus membership-based access:
 > enough to inspect a file and to reprocess it from the ingestion DLQ (14-day retention).
 > Raw rows are the durable, lossless record; only the file's exact bytes and its header
 > column order are lost once the object expires, and nothing reads either. See
-> [expire-uploads-and-enforce-size-at-s3](../../openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md).
+> [expire-uploads-and-enforce-size-at-s3](../../openspec/changes/archive/2026-11-14-expire-uploads-and-enforce-size-at-s3/design.md).
 
 Access is by `account_members` (`owner` | `viewer`), replacing `owner_user_id` columns and
 `share_grants`. Every account-scoped table carries its own `account_id`, so row-level

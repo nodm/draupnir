@@ -68,7 +68,7 @@ export async function createPresignedUpload(
   // storing anything. POST Object has no conditional write, so a replay of this
   // form within its TTL overwrites the object instead of getting a 412; the
   // worker still records one outcome per key. See
-  // openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md (decision 5).
+  // openspec/changes/archive/2026-11-14-expire-uploads-and-enforce-size-at-s3/design.md (decision 5).
   const { url, fields } = await createPresignedPost(s3Client, {
     Bucket: bucketConfig.bucket,
     Key: key,
