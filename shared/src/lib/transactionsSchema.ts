@@ -1,3 +1,3 @@
-export const BANKS = ['seb', 'revolut', 'monobank'] as const;
+export const BANKS = ['seb', 'revolut', 'monobank', 'swedbank'] as const;
 
 export type Bank = (typeof BANKS)[number];
