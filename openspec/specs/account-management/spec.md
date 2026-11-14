@@ -3,8 +3,9 @@
 ## Purpose
 
 Lets an authenticated user create the `accounts` row a statement upload resolves
-against — create-only, no update or delete. Users do this through the Telegram
-bot's `/newaccount` (see `telegram-account-commands`).
+against, and lets an owner rename it — no other update, no delete. Users do this
+through the Telegram bot's `/newaccount` and `/renameaccount` (see
+`telegram-account-commands`).
 
 ## Requirements
 
@@ -62,3 +63,21 @@ created implicitly or the resolvable rows being written.
 - **WHEN** a file contains rows for more than one IBAN, and the uploader is an
   `owner` member of an account for each of them
 - **THEN** each row's transaction is written against its own resolved account
+
+### Requirement: An owner can rename an account
+The system SHALL let an `owner` member of an account change its display name. The new
+name SHALL be non-empty after trimming and at most 60 characters. The caller's identity
+SHALL come only from their authenticated identity. No other account field SHALL change.
+The name is the account's, so every member sees the new name.
+
+#### Scenario: Owner renames an account
+- **WHEN** an owner renames an account to "Salary"
+- **THEN** the account's display name is "Salary" and all other fields are unchanged
+
+#### Scenario: Viewer cannot rename
+- **WHEN** a `viewer` member or non-member tries to rename an account
+- **THEN** the request is rejected and the display name is unchanged
+
+#### Scenario: Invalid name is rejected
+- **WHEN** an owner submits an empty, whitespace-only or over-60-character name
+- **THEN** the request is rejected and the display name is unchanged
