@@ -12,6 +12,7 @@ import {
   isSupportedBank,
   isValidIban,
   isValidIsoDate,
+  MAX_DISPLAY_NAME_LENGTH,
   parseMinorUnits,
   type DataApiConfig,
 } from 'shared';
@@ -204,9 +205,11 @@ function checkAnswer(
         : { error: 'Use a 3-letter currency code such as EUR or USD.' };
     }
     case 'name':
-      return value.length > 0 && value.length <= 60
+      return value.length > 0 && value.length <= MAX_DISPLAY_NAME_LENGTH
         ? { value: { displayName: value } }
-        : { error: 'Give the account a name of up to 60 characters.' };
+        : {
+            error: `Give the account a name of up to ${MAX_DISPLAY_NAME_LENGTH} characters.`,
+          };
     case 'openedOn':
       if (!isValidIsoDate(value)) {
         return { error: 'Use a real date in the form YYYY-MM-DD.' };
