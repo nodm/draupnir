@@ -16,4 +16,4 @@
 ## 4. Verification
 
 - [x] 4.1 Run `pnpm exec nx run-many -t lint test -p bot shared`, `tsc --noEmit` on `bot/tsconfig.lib.json` and `bot/tsconfig.spec.json`, and `pnpm exec openspec validate show-balance-in-accounts-reply --strict`; all pass
-- [ ] 4.2 After deploy, send `/accounts` from a phone and check balance, as-of date and unreconciled marker
+- [x] 4.2 After deploy, send `/accounts` from a phone and check balance, as-of date and unreconciled marker
