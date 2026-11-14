@@ -92,6 +92,8 @@ and default to `localhost` values meant for local client development.
 
 `logRetentionDays` is optional and defaults to 30; see [Log retention](#log-retention).
 
+`uploadRetentionDays` is optional and defaults to 30; see [Upload retention](#upload-retention).
+
 ## Deploying
 
 Use the Nx targets, not bare `pulumi preview`/`pulumi up` — the Pulumi program
@@ -204,3 +206,32 @@ To keep the last month of history instead, run
 `aws logs put-retention-policy --log-group-name "$group" --retention-in-days 30`
 on each, and delete the emptied groups later. The loop prints nothing once the
 cleanup is done.
+
+## Upload retention
+
+The uploads bucket has two lifecycle rules:
+
+- `expire-uploads`: objects under `uploads/` expire after `uploadRetentionDays`
+  (default 30), and noncurrent versions 1 day after they become noncurrent, which
+  matters only if versioning is ever enabled;
+- `abort-incomplete-multipart-uploads`: unfinished multipart uploads anywhere
+  in the bucket are aborted after 1 day.
+
+```bash
+pulumi config set uploadRetentionDays 60
+aws s3api get-bucket-lifecycle-configuration --bucket "$(pulumi stack output uploadsBucketName)"
+```
+
+Nothing reads an upload once its outcome is recorded: rebuilds, duplicate
+detection and redeliveries use the database. The one later reader is a redrive
+from the ingestion DLQ, which keeps messages for 14 days, so the value must be a
+whole number greater than 14 or `infra:preview` fails. See
+[the change's design](../openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md).
+
+S3 applies the rule to existing objects too: within a day or two of the first
+deploy, every upload older than the retention is deleted, and that cannot be
+undone. To keep a copy, back the bucket up first:
+
+```bash
+aws s3 sync "s3://$(pulumi stack output uploadsBucketName)" ./uploads-backup
+```

@@ -8,3 +8,4 @@ export * from './lib/accounts';
 export * from './lib/outcomes';
 export * from './lib/dataTools';
 export * from './lib/money';
+export * from './lib/statementLimits';

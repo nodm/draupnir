@@ -117,7 +117,7 @@ graph TB
   MigrateInvocation -. "dependsOn" .-> WorkerFn
   MigrateInvocation -. "dependsOn" .-> RetentionFn
 
-  UploadFn -. "presigns a PutObject URL for" .-> UploadsBucket
+  UploadFn -. "presigns a POST policy (≤ 10 MiB) for" .-> UploadsBucket
   UploadFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   AccountsFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   IngestFn -- "s3:GetObject" --> UploadsBucket
@@ -146,7 +146,7 @@ Three layers (ADR-0008); access is by account membership (`account_members`, rol
 
 ```mermaid
 graph LR
-  CSV["Original CSV<br/>S3 uploads bucket, unchanged"]
+  CSV["Original CSV<br/>S3 uploads bucket, expires after 30 days"]
   Files["statement_files<br/>one row per import:<br/>approved | rejected + reasons<br/>(approved: members of the upload or a resolved account;<br/>rejected: uploader only)"]
   FileAccts["statement_file_accounts<br/>per resolved account: periods,<br/>balances, new count, warnings<br/>(account members)"]
   Raw["raw_rows<br/>every row as jsonb of strings,<br/>bank + format version + row number"]
