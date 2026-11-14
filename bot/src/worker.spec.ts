@@ -49,6 +49,12 @@ vi.mock('./lib/commands/share', () => ({
   handleSharingCallback: vi.fn(),
   handleSharingText: vi.fn(),
 }));
+vi.mock('./lib/commands/renameAccount', () => ({
+  RENAME_ACCOUNT_PREFIX: 'ra',
+  createRenameHandler: vi.fn(),
+  handleRenameCallback: vi.fn(),
+  handleRenameText: vi.fn(),
+}));
 vi.mock('./lib/commands/unlink', () => ({ createUnlinkHandler: vi.fn() }));
 vi.mock('./lib/linking/config', () => ({ loadLinkConfigFromEnv: () => ({}) }));
 vi.mock('./lib/linking/linkStore', () => ({ createLinkStore: () => ({}) }));

@@ -16,6 +16,7 @@ import { createConversationStore } from '../conversations';
 import type { UserDirectory } from '../directory';
 import type { CommandHandler, LinkedContext } from '../dispatcher';
 import { listMemberAccounts, type MemberAccount } from '../memberAccounts';
+import { notify, whoIs } from '../notify';
 import { listMembers, memberChatId } from '../sharing';
 
 export const SHARE_KIND = 'share';
@@ -61,30 +62,6 @@ async function ownedAccounts(
   return (await listMemberAccounts(deps.client, deps.config, ctx.sub)).filter(
     (a) => a.role === 'owner',
   );
-}
-
-async function whoIs(ctx: LinkedContext, deps: SharingDeps): Promise<string> {
-  return (
-    (await deps.directory.emailOf(ctx.sub).catch(() => null)) ?? 'An owner'
-  );
-}
-
-// Tells a member in their own chat. Never fails the command: the change is
-// already made. Returns a note for the owner when nobody was told.
-async function notify(
-  ctx: LinkedContext,
-  chat: number | null,
-  text: string,
-): Promise<string> {
-  if (chat === null) {
-    return ' They are not linked to Telegram, so nobody was notified.';
-  }
-  try {
-    await ctx.telegram.sendMessage(chat, text);
-    return ' They were notified.';
-  } catch {
-    return ' They could not be notified in Telegram.';
-  }
 }
 
 function accountButtons(
@@ -257,7 +234,7 @@ async function completeShare(
   const note = await notify(
     ctx,
     chat,
-    `${await whoIs(ctx, deps)} shared ${accountLabel(account)} with you as ${role}. Send /accounts to see it.`,
+    `${await whoIs(ctx, deps.directory)} shared ${accountLabel(account)} with you as ${role}. Send /accounts to see it.`,
   );
   await telegram.sendMessage(
     chatId,
@@ -409,7 +386,7 @@ async function completeUnshare(
   const note = await notify(
     ctx,
     chat,
-    `${await whoIs(ctx, deps)} removed your access to ${label}.`,
+    `${await whoIs(ctx, deps.directory)} removed your access to ${label}.`,
   );
   await telegram.sendMessage(
     chatId,

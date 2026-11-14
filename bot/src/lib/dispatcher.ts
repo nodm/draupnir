@@ -46,6 +46,7 @@ export const HELP_TEXT = [
   '/accounts - your accounts',
   '/newaccount - create an account',
   '/coverage - covered periods and gaps',
+  '/renameaccount - rename an account',
   '/share - share an account',
   '/unshare - stop sharing an account',
   '/unlink - disconnect this chat',
