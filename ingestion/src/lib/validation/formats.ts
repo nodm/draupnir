@@ -293,10 +293,76 @@ const monobankV1: FormatVersion = {
   schemaInput: (payload) => canonicalMonobankPayload(payload),
 };
 
+// ---- Swedbank ----
+
+// The 16 named columns of the Lithuanian export, in order. The second column
+// (the row type) has no name; the file's header line also ends with a trailing
+// empty field, which `matchesHeaders` tolerates and the table reader drops.
+export const SWEDBANK_HEADERS = [
+  'Sąskaitos Nr.',
+  '',
+  'Data',
+  'Gavėjas',
+  'Paaiškinimai',
+  'Suma',
+  'Valiuta',
+  'D/K',
+  'Įrašo Nr.',
+  'Kodas',
+  'Įmokos kodas',
+  'Dok. Nr.',
+  'Kliento kodas mokėtojo IS',
+  'Kliento kodas',
+  'Pradinis mokėtojas',
+  'Galutinis gavėjas',
+] as const;
+
+// 10 opening balance, 20 transaction, 82 turnover, 86 closing balance,
+// 900 accrued (not yet posted) interest.
+export const SWEDBANK_ROW_TYPES = ['10', '20', '82', '86', '900'] as const;
+
+const swedbankRow = z.object({
+  'Sąskaitos Nr.': nonEmpty('Sąskaitos Nr.'),
+  '': z.enum(SWEDBANK_ROW_TYPES, {
+    error: 'row type must be one of 10, 20, 82, 86, 900',
+  }),
+  Data: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data must be YYYY-MM-DD')
+    .refine(isRealIsoDatePart, `Data ${NOT_A_DATE}`),
+  Suma: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, 'Suma must be a non-negative decimal like 50.00')
+    .refine(isSafeAmount, 'Suma is out of range'),
+  Valiuta: z.string().regex(/^[A-Z]{3}$/, 'Valiuta must be a currency code'),
+  'D/K': z.enum(['D', 'K'], { error: 'D/K must be D or K' }),
+  'Įrašo Nr.': z.string(),
+});
+
+const swedbankV1: FormatVersion = {
+  bank: 'swedbank',
+  version: 'swedbank-v1',
+  delimiter: ',',
+  matchesHeaders: (headers) => {
+    const named =
+      headers.length === SWEDBANK_HEADERS.length + 1 &&
+      headers[SWEDBANK_HEADERS.length] === ''
+        ? headers.slice(0, -1)
+        : headers;
+    return (
+      named.length === SWEDBANK_HEADERS.length &&
+      SWEDBANK_HEADERS.every((h, i) => named[i] === h)
+    );
+  },
+  rowSchema: swedbankRow,
+  schemaInput: (payload) => payload,
+};
+
 const FORMATS: Record<Bank, readonly FormatVersion[]> = {
   seb: [sebV1],
   revolut: [revolutV1],
   monobank: [monobankV1],
+  swedbank: [swedbankV1],
 };
 
 export function detectFormat(

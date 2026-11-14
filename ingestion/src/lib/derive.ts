@@ -3,12 +3,14 @@ import type { Bank } from 'shared';
 import { normalizeRows as normalizeMonobank } from './parsers/monobank';
 import { normalizeRows as normalizeRevolut } from './parsers/revolut';
 import { normalizeRows as normalizeSeb } from './parsers/seb';
+import { normalizeRows as normalizeSwedbank } from './parsers/swedbank';
 import type { NormalizedRow, RowNormalizer } from './parsers/types';
 
 const NORMALIZERS: Record<Bank, RowNormalizer> = {
   seb: normalizeSeb,
   revolut: normalizeRevolut,
   monobank: normalizeMonobank,
+  swedbank: normalizeSwedbank,
 };
 
 // One account's share of one file's raw rows, in row-number order.

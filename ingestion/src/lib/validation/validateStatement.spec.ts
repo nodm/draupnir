@@ -375,3 +375,101 @@ describe('validateStatementFile — balance chain', () => {
     if (result.ok) expect(result.balances.size).toBe(0);
   });
 });
+
+describe('validateStatementFile — Swedbank', () => {
+  const swedbank = read('swedbank.csv');
+  const savings = read('swedbank-savings.csv');
+  const CURRENT = 'LT100000000000000003';
+  const SAVINGS = 'LT100000000000000004';
+
+  it('approves both fixtures with no duplicate-header reason, balances from the file', () => {
+    const cur = validateStatementFile('swedbank', swedbank, IBAN);
+    const sav = validateStatementFile('swedbank', savings, IBAN);
+
+    expect(cur.ok).toBe(true);
+    expect(sav.ok).toBe(true);
+    if (cur.ok && sav.ok) {
+      expect(cur.parsed.formatVersion).toBe('swedbank-v1');
+      expect(cur.balances.get(CURRENT)).toEqual({
+        openingBalanceMinorUnits: 10000,
+        closingBalanceMinorUnits: 24064,
+      });
+      expect(sav.balances.get(SAVINGS)).toEqual({
+        openingBalanceMinorUnits: 100000,
+        closingBalanceMinorUnits: 100302,
+      });
+    }
+  });
+
+  it('rejects an altered header', () => {
+    const csv = swedbank.replace('"Gavėjas"', '"Payee"');
+    expect(reasons(validateStatementFile('swedbank', csv, IBAN))[0]?.code).toBe(
+      'unrecognized-format',
+    );
+  });
+
+  it("rejects another bank's export", () => {
+    expect(
+      reasons(validateStatementFile('swedbank', seb, IBAN)).map((r) => r.code),
+    ).toContain('unrecognized-format');
+  });
+
+  it('rejects an unknown row type, naming the row', () => {
+    const csv = swedbank.replace('"20","2026-01-13"', '"40","2026-01-13"');
+    const found = reasons(validateStatementFile('swedbank', csv, IBAN));
+    expect(found).toContainEqual(
+      expect.objectContaining({ code: 'invalid-cell', row: 2 }),
+    );
+  });
+
+  it('rejects an unparseable amount', () => {
+    const csv = swedbank.replace('"250.00"', '"12,5x"');
+    expect(reasons(validateStatementFile('swedbank', csv, IBAN))[0]).toEqual(
+      expect.objectContaining({ code: 'invalid-cell', row: 2 }),
+    );
+  });
+
+  it('rejects a bad D/K marker', () => {
+    const csv = swedbank.replace('"250.00","EUR","K"', '"250.00","EUR","X"');
+    expect(
+      reasons(validateStatementFile('swedbank', csv, IBAN))[0]?.message,
+    ).toMatch(/D\/K must be D or K/);
+  });
+
+  it('rejects a file with a dropped transaction, with expected and actual balances', () => {
+    const csv = swedbank
+      .split('\r\n')
+      .filter((l) => !l.includes('2026021100000004'))
+      .join('\r\n');
+    const found = reasons(validateStatementFile('swedbank', csv, IBAN));
+    expect(found).toContainEqual(
+      expect.objectContaining({
+        code: 'balance-mismatch',
+        message: expect.stringContaining('gives 340.64 EUR'),
+      }),
+    );
+  });
+
+  it('rejects turnover that disagrees with the transactions', () => {
+    const csv = swedbank.replace('"308.20"', '"308.21"');
+    const found = reasons(validateStatementFile('swedbank', csv, IBAN));
+    expect(found).toContainEqual(
+      expect.objectContaining({
+        code: 'turnover-mismatch',
+        message: expect.stringMatching(
+          /credit turnover 308.21 EUR.*308.20 EUR/,
+        ),
+      }),
+    );
+  });
+
+  it('rejects a file with no closing balance', () => {
+    const csv = swedbank
+      .split('\r\n')
+      .filter((l) => !l.includes('"86"'))
+      .join('\r\n');
+    expect(reasons(validateStatementFile('swedbank', csv, IBAN))[0]?.code).toBe(
+      'missing-balance-row',
+    );
+  });
+});
