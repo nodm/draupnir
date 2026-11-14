@@ -31,6 +31,96 @@ describe('createTelegramClient', () => {
     });
   });
 
+  describe('sendMessage with HTML formatting', () => {
+    const bodyOf = (fetchImpl: ReturnType<typeof vi.fn>, call: number) =>
+      JSON.parse(
+        (fetchImpl.mock.calls[call] as [string, RequestInit])[1].body as string,
+      );
+    const parseError = () =>
+      jsonResponse(
+        {
+          ok: false,
+          error_code: 400,
+          description:
+            "Bad Request: can't parse entities: Unsupported start tag",
+        },
+        { status: 400 },
+      );
+
+    it('sends parse_mode only when asked', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockImplementation(async () => jsonResponse({ ok: true, result: {} }));
+      const client = createTelegramClient('T', fetchImpl);
+
+      await client.sendMessage(1, '<b>hi</b>', { parseMode: 'HTML' });
+      await client.sendMessage(1, 'a<b');
+
+      expect(bodyOf(fetchImpl, 0).parse_mode).toBe('HTML');
+      expect(bodyOf(fetchImpl, 1)).not.toHaveProperty('parse_mode');
+    });
+
+    it('resends once as plain text when Telegram cannot parse the markup', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(parseError())
+        .mockResolvedValueOnce(
+          jsonResponse({ ok: true, result: { message_id: 3 } }),
+        );
+      const client = createTelegramClient('T', fetchImpl);
+
+      const message = await client.sendMessage(
+        1,
+        '<b>A &lt;b&gt; &amp;amp</b> <code>x</code>',
+        { parseMode: 'HTML' },
+      );
+
+      expect(message).toEqual({ message_id: 3 });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(bodyOf(fetchImpl, 1)).toEqual({
+        chat_id: 1,
+        text: 'A <b> &amp x',
+      });
+    });
+
+    it('does not resend on other errors', async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            ok: false,
+            error_code: 403,
+            description: 'Forbidden: bot was blocked',
+          },
+          { status: 403 },
+        ),
+      );
+      const client = createTelegramClient('T', fetchImpl);
+
+      await expect(
+        client.sendMessage(1, '<b>x</b>', { parseMode: 'HTML' }),
+      ).rejects.toMatchObject({ errorCode: 403 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates a failure of the plain-text resend', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(parseError())
+        .mockResolvedValueOnce(
+          jsonResponse(
+            { ok: false, error_code: 500, description: 'boom' },
+            { status: 500 },
+          ),
+        );
+      const client = createTelegramClient('T', fetchImpl);
+
+      await expect(
+        client.sendMessage(1, '<b>x</b>', { parseMode: 'HTML' }),
+      ).rejects.toMatchObject({ errorCode: 500 });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('throws TelegramApiError with the code and description, never the token', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse(
