@@ -28,6 +28,8 @@ const REVOLUT_STATES = fixture('revolut-states.csv');
 const MONOBANK = fixture('monobank.csv');
 const SWEDBANK = fixture('swedbank.csv');
 const SWEDBANK_SAVINGS = fixture('swedbank-savings.csv');
+const PRIVATBANK_UAH = fixture('privatbank-uah.csv');
+const PRIVATBANK_EUR = fixture('privatbank-eur.csv');
 const REVOLUT_HEADER = REVOLUT.split('\n')[0] as string;
 
 const IBAN_A = 'LT100000000000000001';
@@ -1482,6 +1484,119 @@ describe('processStatementFile', () => {
       expect(await count('transactions')).toBe(2);
       expect(after.rows).toEqual(before.rows);
       expect(await balanceOf()).toEqual({ balance: '4000', reconciled: true });
+    });
+  });
+  describe('PrivatBank', () => {
+    const PRIVAT_IBAN = 'UA100000000000000088';
+    // The fixture's balance chain starts from 60000.00 before its oldest row.
+    const OPENING_MINOR = 6000000;
+    const lines = PRIVATBANK_UAH.trimEnd().split('\r\n');
+    const part = (rows: string[]) =>
+      [lines[0], lines[1], ...rows].join('\r\n') + '\r\n';
+    // Newest first: rows 0-5 are 2024-05..2026, rows 6-15 are older.
+    const newer = part(lines.slice(2, 2 + 6));
+    const older = part(lines.slice(2 + 6));
+    const privatAccount = (opening = OPENING_MINOR) =>
+      account({
+        id: 'P',
+        iban: PRIVAT_IBAN,
+        bank: 'privatbank',
+        currency: 'UAH',
+        opening,
+      });
+    const balanceOf = async () =>
+      (
+        await db.query<{ balance: string }>(
+          `SELECT balance_minor_units::text AS balance FROM accounts WHERE id = 'P'`,
+        )
+      ).rows[0]?.balance;
+
+    it('approves the UAH sample, across the card reissue', async () => {
+      await privatAccount();
+
+      const outcome = await upload(PRIVATBANK_UAH, { accountId: 'P' });
+
+      expect(outcome.status).toBe('approved');
+      expect(await count('transactions')).toBe(16);
+      // Balance of the newest row, 26.10.2026 (57015,18).
+      expect(await balanceOf()).toBe('5701518');
+    });
+
+    it('approves the EUR sample', async () => {
+      await account({
+        id: 'P',
+        iban: PRIVAT_IBAN,
+        bank: 'privatbank',
+        currency: 'EUR',
+        opening: 100000,
+      });
+
+      const outcome = await upload(PRIVATBANK_EUR, { accountId: 'P' });
+
+      expect(outcome.status).toBe('approved');
+      expect(await count('transactions')).toBe(19);
+    });
+
+    it('rejects a UAH file for a EUR account', async () => {
+      await account({
+        id: 'P',
+        iban: PRIVAT_IBAN,
+        bank: 'privatbank',
+        currency: 'EUR',
+      });
+
+      const outcome = await upload(PRIVATBANK_UAH, { accountId: 'P' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(await count('transactions')).toBe(0);
+    });
+
+    it('rejects a file with a dropped row (broken balance chain)', async () => {
+      await privatAccount();
+      const dropped = part(lines.slice(2).filter((_, i) => i !== 4));
+
+      const outcome = await upload(dropped, { accountId: 'P' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toContain(
+        'balance-chain-broken',
+      );
+    });
+
+    it('takes files in date order and rejects skipping ahead', async () => {
+      await privatAccount();
+
+      const early = await upload(newer, { accountId: 'P' });
+      expect(early.status).toBe('rejected');
+      expect(await count('transactions')).toBe(0);
+
+      expect((await upload(older, { accountId: 'P' })).status).toBe('approved');
+      expect((await upload(newer, { accountId: 'P' })).status).toBe('approved');
+      expect(await count('transactions')).toBe(16);
+      expect(await balanceOf()).toBe('5701518');
+    });
+
+    it('rebuilds the same transactions from stored raw rows', async () => {
+      await privatAccount();
+      await upload(PRIVATBANK_UAH, { accountId: 'P' });
+      const snapshot = async () =>
+        (
+          await db.query(
+            `SELECT dedup_key, posted_date::text, amount_minor_units::text, currency, description,
+                    occurred_at::text, source_seq, running_balance_minor_units::text,
+                    original_currency, original_amount_minor_units::text
+               FROM transactions WHERE account_id = 'P' ORDER BY occurred_at, source_seq`,
+          )
+        ).rows;
+      const before = await snapshot();
+      const real = createPgliteDataApiClient(db, {
+        role: 'draupnir_app',
+      }).client;
+
+      await rebuildAccount(real, config, 'user-1', 'P');
+
+      expect(await snapshot()).toEqual(before);
+      expect(await balanceOf()).toBe('5701518');
     });
   });
 });

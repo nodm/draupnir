@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Bank } from 'shared';
 import { normalizeRows as normalizeMonobank } from './parsers/monobank';
+import { normalizeRows as normalizePrivatbank } from './parsers/privatbank';
 import { normalizeRows as normalizeRevolut } from './parsers/revolut';
 import { normalizeRows as normalizeSeb } from './parsers/seb';
 import { normalizeRows as normalizeSwedbank } from './parsers/swedbank';
@@ -11,6 +12,7 @@ const NORMALIZERS: Record<Bank, RowNormalizer> = {
   revolut: normalizeRevolut,
   monobank: normalizeMonobank,
   swedbank: normalizeSwedbank,
+  privatbank: normalizePrivatbank,
 };
 
 // One account's share of one file's raw rows, in row-number order.

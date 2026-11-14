@@ -1,5 +1,9 @@
 import type { Bank } from 'shared';
 import { parseStatement as parseMonobank } from '../parsers/monobank';
+import {
+  parseStatement as parsePrivatbank,
+  readPrivatbankTable,
+} from '../parsers/privatbank';
 import { parseStatement as parseRevolut } from '../parsers/revolut';
 import { parseStatement as parseSeb, readSebTable } from '../parsers/seb';
 import {
@@ -23,6 +27,7 @@ export const PARSERS: Record<Bank, StatementParser> = {
   revolut: parseRevolut,
   monobank: parseMonobank,
   swedbank: parseSwedbank,
+  privatbank: parsePrivatbank,
 };
 
 const DELIMITERS: Record<Bank, string> = {
@@ -30,6 +35,7 @@ const DELIMITERS: Record<Bank, string> = {
   revolut: ',',
   monobank: ',',
   swedbank: ',',
+  privatbank: ';',
 };
 
 export type FileValidation =
@@ -51,6 +57,9 @@ function readTable(
   if (bank === 'swedbank') {
     const swedbankTable = readSwedbankTable(contents);
     return { table: swedbankTable, extra: swedbankTable.malformed };
+  }
+  if (bank === 'privatbank') {
+    return { table: readPrivatbankTable(contents), extra: [] };
   }
   return { table: readSimpleTable(contents, DELIMITERS[bank]), extra: [] };
 }

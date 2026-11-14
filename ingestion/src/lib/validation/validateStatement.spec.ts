@@ -473,3 +473,118 @@ describe('validateStatementFile — Swedbank', () => {
     );
   });
 });
+
+describe('validateStatementFile — PrivatBank', () => {
+  const uah = read('privatbank-uah.csv');
+  const eur = read('privatbank-eur.csv');
+  const lines = uah.trimEnd().split('\r\n');
+  const join = (ls: string[]) => ls.join('\r\n') + '\r\n';
+
+  it('approves both fixtures and detects privatbank-v1', () => {
+    for (const file of [uah, eur]) {
+      const result = validateStatementFile('privatbank', file, IBAN);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.parsed.formatVersion).toBe('privatbank-v1');
+      }
+    }
+  });
+
+  it('rejects a file without the title line', () => {
+    const result = validateStatementFile(
+      'privatbank',
+      join(lines.slice(1)),
+      IBAN,
+    );
+
+    expect(reasons(result)).toEqual([
+      expect.objectContaining({ code: 'unrecognized-format' }),
+    ]);
+  });
+
+  it('rejects an altered header', () => {
+    const csv = join([
+      lines[0] as string,
+      (lines[1] as string).replace('Категорія', 'Категорії'),
+      ...lines.slice(2),
+    ]);
+
+    expect(
+      reasons(validateStatementFile('privatbank', csv, IBAN))[0]?.code,
+    ).toBe('unrecognized-format');
+  });
+
+  it("rejects another bank's export", () => {
+    expect(
+      reasons(validateStatementFile('monobank', uah, IBAN))[0]?.code,
+    ).toBe('unrecognized-format');
+  });
+
+  it('rejects a bad amount, naming the row', () => {
+    const csv = uah.replace(';-2610,93;', ';-12,5x;');
+    const result = reasons(validateStatementFile('privatbank', csv, IBAN));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        code: 'invalid-cell',
+        row: 2,
+        message: expect.stringContaining('Сума в валюті картки'),
+      }),
+    ]);
+  });
+
+  it('rejects a bad timestamp', () => {
+    const csv = uah.replace('26.10.2026 09:04:41', '31.02.2026 09:04:41');
+
+    expect(
+      reasons(validateStatementFile('privatbank', csv, IBAN))[0]?.message,
+    ).toContain('Дата');
+  });
+
+  it('accepts an empty category', () => {
+    expect(uah).toContain(';;4000 **** **** 1111;');
+    expect(validateStatementFile('privatbank', uah, IBAN).ok).toBe(true);
+  });
+
+  it('rejects a balance currency that differs from the card currency', () => {
+    const csv = uah.replace('57015,18;UAH', '57015,18;EUR');
+    const result = reasons(validateStatementFile('privatbank', csv, IBAN));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        row: 1,
+        message: expect.stringContaining('Валюта залишку'),
+      }),
+    ]);
+  });
+
+  it('keeps the balance chain across a card reissue', () => {
+    // Rows 8-9 of the sample sit on either side of the reissue.
+    expect(lines[9]).toContain('**** 3333');
+    expect(lines[10]).toContain('**** 1111');
+    expect(validateStatementFile('privatbank', uah, IBAN).ok).toBe(true);
+  });
+
+  it('rejects a dropped row with the expected and actual balance', () => {
+    const result = reasons(
+      validateStatementFile(
+        'privatbank',
+        join(lines.filter((_, i) => i !== 5)),
+        IBAN,
+      ),
+    );
+
+    expect(result[0]).toMatchObject({ code: 'balance-chain-broken' });
+  });
+
+  it('rejects mixed-order rows that break the chain (same-second pair swapped)', () => {
+    const i = lines.findIndex((l) => l.startsWith('14.11.2021 17:56:23'));
+    const swapped = [...lines];
+    [swapped[i], swapped[i + 1]] = [lines[i + 1] as string, lines[i] as string];
+
+    expect(
+      reasons(validateStatementFile('privatbank', join(swapped), IBAN))[0]
+        ?.code,
+    ).toBe('balance-chain-broken');
+  });
+});

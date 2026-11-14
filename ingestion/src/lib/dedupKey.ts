@@ -34,6 +34,9 @@ export interface HashDedupKeyInput {
   amountMinorUnits: number;
   currency: string;
   normalizedDescription: string;
+  // HH:MM:SS, for banks whose rows carry a time and no id (PrivatBank). Absent
+  // for the others, so their keys are unchanged.
+  timeOfDay?: string;
 }
 
 function groupingKey(input: HashDedupKeyInput): string {
@@ -43,6 +46,7 @@ function groupingKey(input: HashDedupKeyInput): string {
     input.amountMinorUnits,
     input.currency,
     input.normalizedDescription,
+    ...(input.timeOfDay === undefined ? [] : [input.timeOfDay]),
   ].join('|');
 }
 

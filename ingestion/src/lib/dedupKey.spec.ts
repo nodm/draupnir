@@ -97,3 +97,39 @@ describe('computeHashDedupKeys', () => {
     expect(keys[0]).not.toBe(keys[1]);
   });
 });
+
+describe('time of day in the hash', () => {
+  const base = {
+    iban: 'UA1',
+    postedDate: '2026-01-01',
+    amountMinorUnits: -100,
+    currency: 'UAH',
+    normalizedDescription: 'x',
+  };
+
+  it('leaves keys without a time unchanged', () => {
+    expect(computeHashDedupKey({ ...base, timeOfDay: undefined }, 0)).toBe(
+      computeHashDedupKey(base, 0),
+    );
+  });
+
+  it('changes the key when a time is present, and with the time', () => {
+    const at = (timeOfDay: string) =>
+      computeHashDedupKey({ ...base, timeOfDay }, 0);
+    expect(at('10:00:00')).not.toBe(computeHashDedupKey(base, 0));
+    expect(at('10:00:00')).not.toBe(at('10:00:01'));
+  });
+
+  it('does not rank rows at different times against each other', () => {
+    const keys = computeHashDedupKeys([
+      { ...base, timeOfDay: '10:00:00' },
+      { ...base, timeOfDay: '10:00:01' },
+    ]);
+    expect(keys[0]).toBe(
+      computeHashDedupKey({ ...base, timeOfDay: '10:00:00' }, 0),
+    );
+    expect(keys[1]).toBe(
+      computeHashDedupKey({ ...base, timeOfDay: '10:00:01' }, 0),
+    );
+  });
+});
