@@ -83,5 +83,62 @@ export function checkBalanceChain(parsed: ParsedStatement): BalanceChainResult {
     });
   }
 
+  reconcileDeclaredBalances(parsed, reasons, balancesByIban);
+
   return { reasons, balancesByIban };
+}
+
+// Formats that state an opening and closing balance per account (Swedbank)
+// have no per-row balance to chain. Instead the stated opening plus the
+// account's transactions must reach the stated closing, and any stated turnover
+// must equal the transactions' debit and credit sums. The stated balances then
+// stand in for the chain's, so continuity between files works the same way.
+function reconcileDeclaredBalances(
+  parsed: ParsedStatement,
+  reasons: ValidationReason[],
+  balancesByIban: Map<string, AccountBalances>,
+): void {
+  for (const declared of parsed.declaredBalances ?? []) {
+    const own = parsed.rows.flatMap((row) =>
+      row.iban === declared.iban && row.normalized ? [row.normalized] : [],
+    );
+    const currency = own[0]?.currency ?? parsed.rows[0]?.currency ?? '';
+    const money = (v: number) => `${formatMinorUnits(v, currency)} ${currency}`;
+    const net = own.reduce(
+      (sum, t) => sum + t.amountMinorUnits - t.feeMinorUnits,
+      0,
+    );
+    const expectedClosing = declared.openingMinorUnits + net;
+    if (expectedClosing !== declared.closingMinorUnits) {
+      reasons.push({
+        code: 'balance-mismatch',
+        message: `Account ${declared.iban}: opening balance ${money(declared.openingMinorUnits)} plus transactions ${money(net)} gives ${money(expectedClosing)}, but the file states a closing balance of ${money(declared.closingMinorUnits)}`,
+      });
+    }
+    if (declared.turnover) {
+      const debit = own
+        .filter((t) => t.amountMinorUnits < 0)
+        .reduce((sum, t) => sum - t.amountMinorUnits, 0);
+      const credit = own
+        .filter((t) => t.amountMinorUnits > 0)
+        .reduce((sum, t) => sum + t.amountMinorUnits, 0);
+      for (const [direction, expected, actual] of [
+        ['debit', debit, declared.turnover.debitMinorUnits],
+        ['credit', credit, declared.turnover.creditMinorUnits],
+      ] as const) {
+        if (expected !== actual) {
+          reasons.push({
+            code: 'turnover-mismatch',
+            message: `Account ${declared.iban}: ${direction} turnover ${money(actual)} stated by the file differs from the transactions' ${money(expected)}`,
+          });
+        }
+      }
+    }
+    if (!balancesByIban.has(declared.iban)) {
+      balancesByIban.set(declared.iban, {
+        openingBalanceMinorUnits: declared.openingMinorUnits,
+        closingBalanceMinorUnits: declared.closingMinorUnits,
+      });
+    }
+  }
 }

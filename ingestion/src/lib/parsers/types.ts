@@ -57,11 +57,23 @@ export interface DeclaredPeriod {
   to: string;
 }
 
+// Opening and closing balance an export states for an account (Swedbank), in
+// minor units, signed. `turnover` is the debit/credit totals the export states,
+// when it states any; both are positive magnitudes.
+export interface DeclaredBalances {
+  iban: string;
+  openingMinorUnits: number;
+  closingMinorUnits: number;
+  turnover?: { debitMinorUnits: number; creditMinorUnits: number };
+}
+
 export interface ParsedStatement {
   formatVersion: string;
   rows: ParsedRow[];
   // Periods the export itself declares (SEB title lines); empty otherwise.
   declaredPeriods: DeclaredPeriod[];
+  // Balances the export states per account; absent for formats without them.
+  declaredBalances?: DeclaredBalances[];
 }
 
 export type StatementParser = (

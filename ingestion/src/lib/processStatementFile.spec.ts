@@ -8,6 +8,7 @@ import {
   createPgliteDataApiClient,
   type DataApiConfig,
 } from 'shared';
+import { rebuildAccount } from './rebuildAccount';
 import {
   OversizedStatementFileError,
   processStatementFile,
@@ -25,6 +26,8 @@ const SEB = fixture('seb.csv');
 const REVOLUT = fixture('revolut.csv');
 const REVOLUT_STATES = fixture('revolut-states.csv');
 const MONOBANK = fixture('monobank.csv');
+const SWEDBANK = fixture('swedbank.csv');
+const SWEDBANK_SAVINGS = fixture('swedbank-savings.csv');
 const REVOLUT_HEADER = REVOLUT.split('\n')[0] as string;
 
 const IBAN_A = 'LT100000000000000001';
@@ -1286,6 +1289,199 @@ describe('processStatementFile', () => {
       await expect(
         upload('x', { accountId: 'R', size: 11 * 1024 * 1024 }),
       ).rejects.toBeInstanceOf(OversizedStatementFileError);
+    });
+  });
+
+  describe('Swedbank', () => {
+    const SWED_IBAN = 'LT100000000000000003';
+    const SWED_SAVINGS_IBAN = 'LT100000000000000004';
+    const HEADER =
+      '"Sąskaitos Nr.","","Data","Gavėjas","Paaiškinimai","Suma","Valiuta","D/K","Įrašo Nr.","Kodas","Įmokos kodas","Dok. Nr.","Kliento kodas mokėtojo IS","Kliento kodas","Pradinis mokėtojas","Galutinis gavėjas",';
+    const line = (...f: string[]) => f.map((c) => `"${c}"`).join(',') + ',';
+    // One yearly-style file: opening, transactions, closing (no turnover rows).
+    const file = (
+      opening: string,
+      from: string,
+      to: string,
+      closing: string,
+      txs: { date: string; amount: string; dk: 'D' | 'K'; id: string }[],
+    ) =>
+      [
+        HEADER,
+        line(
+          SWED_IBAN,
+          '10',
+          from,
+          '',
+          'Likutis pradžiai',
+          opening,
+          'EUR',
+          'K',
+          '',
+          'AS',
+          '',
+          '',
+        ),
+        ...txs.map((t) =>
+          line(
+            SWED_IBAN,
+            '20',
+            t.date,
+            '',
+            `tx ${t.id}`,
+            t.amount,
+            'EUR',
+            t.dk,
+            t.id,
+            'K',
+            '',
+            '',
+            '',
+          ),
+        ),
+        line(
+          SWED_IBAN,
+          '86',
+          to,
+          '',
+          'Likutis pabaigai',
+          closing,
+          'EUR',
+          'K',
+          '',
+          'LS',
+          '',
+          '',
+        ),
+      ].join('\r\n');
+    const swedAccount = (opening = 0) =>
+      account({ id: 'W', iban: SWED_IBAN, bank: 'swedbank', opening });
+    const balanceOf = async () =>
+      (
+        await db.query<Record<string, unknown>>(
+          `SELECT balance_minor_units::text AS balance, balance_reconciled AS reconciled FROM accounts WHERE id = 'W'`,
+        )
+      ).rows[0];
+
+    const y1 = file('0.00', '2026-01-01', '2026-06-30', '50.00', [
+      { date: '2026-02-01', amount: '50.00', dk: 'K', id: '1001' },
+    ]);
+    const y2 = file('50.00', '2026-07-01', '2026-12-31', '40.00', [
+      { date: '2026-08-01', amount: '10.00', dk: 'D', id: '1002' },
+    ]);
+    const y3 = file('99.00', '2027-01-01', '2027-06-30', '99.00', []);
+
+    it('approves the real-shaped fixtures and stores their balances', async () => {
+      await account({
+        id: 'W',
+        iban: SWED_IBAN,
+        bank: 'swedbank',
+        opening: 10000,
+      });
+      await account({
+        id: 'S',
+        iban: SWED_SAVINGS_IBAN,
+        bank: 'swedbank',
+        opening: 100000,
+      });
+
+      const current = await upload(SWEDBANK, { accountId: 'W' });
+      const savings = await upload(SWEDBANK_SAVINGS, { accountId: 'S' });
+
+      expect(current.status).toBe('approved');
+      expect(savings.status).toBe('approved');
+      expect(await count('transactions')).toBe(9);
+      // Closing balances of the files: 240.64 and 1003.02.
+      const { rows } = await db.query<{ id: string; b: string; r: boolean }>(
+        `SELECT id, balance_minor_units::text AS b, balance_reconciled AS r FROM accounts ORDER BY id`,
+      );
+      expect(rows).toEqual([
+        { id: 'S', b: '100302', r: true },
+        { id: 'W', b: '24064', r: true },
+      ]);
+    });
+
+    it('connects consecutive files by closing and opening balance', async () => {
+      await swedAccount();
+
+      const first = await upload(y1, { accountId: 'W' });
+      const second = await upload(y2, { accountId: 'W' });
+
+      expect(first.status).toBe('approved');
+      expect(second.status).toBe('approved');
+      expect(second.warningsByAccount['W']).toEqual([]);
+      expect(await balanceOf()).toEqual({ balance: '4000', reconciled: true });
+      const { rows } = await db.query<{ b: string }>(
+        `SELECT running_balance_minor_units::text AS b FROM transactions ORDER BY occurred_at, source_seq, id`,
+      );
+      expect(rows.map((r) => r.b)).toEqual(['5000', '4000']);
+    });
+
+    it('rejects a file that skips a period, naming the balance mismatch, and stores nothing', async () => {
+      await swedAccount();
+      await upload(y1, { accountId: 'W' });
+      const before = await count('transactions');
+
+      const outcome = await upload(y3, { accountId: 'W' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toContain('gap-before');
+      expect(outcome.reasons[0]?.message).toMatch(
+        /Opening balance 99\.00 EUR does not match/,
+      );
+      expect(await count('transactions')).toBe(before);
+    });
+
+    it('rejects a first file whose opening differs from the account opening', async () => {
+      await swedAccount(5);
+
+      const outcome = await upload(y1, { accountId: 'W' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toEqual(['gap-opening']);
+    });
+
+    it('rejects a file whose transactions do not reach its closing balance', async () => {
+      await swedAccount();
+      const bad = y1.replace(
+        '"Likutis pabaigai","50.00"',
+        '"Likutis pabaigai","51.00"',
+      );
+
+      const outcome = await upload(bad, { accountId: 'W' });
+
+      expect(outcome.status).toBe('rejected');
+      expect(outcome.reasons.map((r) => r.code)).toEqual(['balance-mismatch']);
+      expect(await count('transactions')).toBe(0);
+    });
+
+    it('does not duplicate rows of an overlapping re-export and rebuilds identically', async () => {
+      await swedAccount();
+      await upload(y1, { accountId: 'W' });
+      // Same transaction (same record number) re-exported in a wider file.
+      const wider = file('0.00', '2026-01-01', '2026-08-31', '40.00', [
+        { date: '2026-02-01', amount: '50.00', dk: 'K', id: '1001' },
+        { date: '2026-08-01', amount: '10.00', dk: 'D', id: '1002' },
+      ]);
+
+      const outcome = await upload(wider, { accountId: 'W' });
+      const before = await db.query(
+        `SELECT dedup_key, running_balance_minor_units::text AS b, occurred_at::text AS o FROM transactions ORDER BY dedup_key`,
+      );
+      await rebuildAccount(
+        createPgliteDataApiClient(db, { role: 'draupnir_app' }).client,
+        config,
+        'user-1',
+        'W',
+      );
+      const after = await db.query(
+        `SELECT dedup_key, running_balance_minor_units::text AS b, occurred_at::text AS o FROM transactions ORDER BY dedup_key`,
+      );
+
+      expect(outcome.status).toBe('approved');
+      expect(await count('transactions')).toBe(2);
+      expect(after.rows).toEqual(before.rows);
+      expect(await balanceOf()).toEqual({ balance: '4000', reconciled: true });
     });
   });
 });

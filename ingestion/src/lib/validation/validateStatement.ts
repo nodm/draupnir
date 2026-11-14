@@ -3,6 +3,10 @@ import { parseStatement as parseMonobank } from '../parsers/monobank';
 import { parseStatement as parseRevolut } from '../parsers/revolut';
 import { parseStatement as parseSeb, readSebTable } from '../parsers/seb';
 import {
+  parseStatement as parseSwedbank,
+  readSwedbankTable,
+} from '../parsers/swedbank';
+import {
   duplicateHeaders,
   readSimpleTable,
   toPayload,
@@ -18,12 +22,14 @@ export const PARSERS: Record<Bank, StatementParser> = {
   seb: parseSeb,
   revolut: parseRevolut,
   monobank: parseMonobank,
+  swedbank: parseSwedbank,
 };
 
 const DELIMITERS: Record<Bank, string> = {
   seb: ';',
   revolut: ',',
   monobank: ',',
+  swedbank: ',',
 };
 
 export type FileValidation =
@@ -41,6 +47,10 @@ function readTable(
   if (bank === 'seb') {
     const sebTable = readSebTable(contents);
     return { table: sebTable, extra: sebTable.malformed };
+  }
+  if (bank === 'swedbank') {
+    const swedbankTable = readSwedbankTable(contents);
+    return { table: swedbankTable, extra: swedbankTable.malformed };
   }
   return { table: readSimpleTable(contents, DELIMITERS[bank]), extra: [] };
 }
