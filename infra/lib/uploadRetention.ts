@@ -17,7 +17,7 @@ export const INGESTION_DLQ_RETENTION_DAYS = 14;
 // dead-lettered message keeps its original enqueue time, so one that waited N
 // days before failing has 14 - N days left in the DLQ; on the normal path N is
 // under an hour, and the DLQ alarm fires on arrival. See
-// openspec/changes/add-spend-alarms/design.md (decision 6).
+// openspec/changes/archive/2026-11-14-add-spend-alarms/design.md (decision 6).
 export const INGESTION_QUEUE_RETENTION_DAYS = 14;
 
 // Returns the retention in days, or throws so that `pulumi preview` fails

@@ -251,7 +251,7 @@ aws s3 sync "s3://$(pulumi stack output uploadsBucketName)" ./uploads-backup
 The guardrails above cap how fast the stack can spend; these alerts say when it
 does, and when something fails quietly. Everything goes to one address,
 `alertEmail` (required, secret). See
-[the change's design](../openspec/changes/add-spend-alarms/design.md).
+[the change's design](../openspec/changes/archive/2026-11-14-add-spend-alarms/design.md).
 
 ### Budget
 

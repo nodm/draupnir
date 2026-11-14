@@ -4,7 +4,7 @@ import * as aws from '@pulumi/aws';
 // Spend and failure alerts: an account-wide monthly budget, a cost anomaly
 // subscription, and alarms on the dead-letter queues and the ingestion backlog.
 // The guardrails cap how fast the stack can spend; these say when it does. See
-// openspec/changes/add-spend-alarms/design.md (decisions 1-7).
+// openspec/changes/archive/2026-11-14-add-spend-alarms/design.md (decisions 1-7).
 
 export const BUDGET_CONFIG_KEY = 'draupnir-infra:budgetMonthlyUsd';
 export const DEFAULT_BUDGET_MONTHLY_USD = 20;
