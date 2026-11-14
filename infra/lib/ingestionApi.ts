@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import {
   createLambdaRoute,
@@ -79,7 +80,7 @@ export function createIngestionApi(
     withProvider,
   );
 
-  const whoamiFunction = new aws.lambda.Function(
+  const whoamiFunction = createLambdaFunction(
     'whoami',
     {
       role: whoamiRole.arn,

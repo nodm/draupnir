@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 
 const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
   Version: '2012-10-17',
@@ -44,7 +45,7 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
     withProvider,
   );
 
-  const preSignUpFunction = new aws.lambda.Function(
+  const preSignUpFunction = createLambdaFunction(
     'pre-sign-up-trigger',
     {
       role: preSignUpRole.arn,

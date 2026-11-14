@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 
 export const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
   Version: '2012-10-17',
@@ -80,7 +81,7 @@ export function createLambdaRoute(
     );
   }
 
-  const lambdaFunction = new aws.lambda.Function(
+  const lambdaFunction = createLambdaFunction(
     config.name,
     {
       role: role.arn,
