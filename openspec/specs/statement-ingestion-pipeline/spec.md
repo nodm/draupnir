@@ -167,3 +167,10 @@ the commit. Consumers SHALL tolerate receiving the same outcome more than once.
 #### Scenario: Outcome is published only after commit
 - **WHEN** the database transaction for a file fails and is rolled back
 - **THEN** no outcome message is published for that attempt
+
+### Requirement: A waiting file is kept in the ingestion queue for 14 days
+The ingestion queue SHALL keep each uploaded file's message for 14 days, counted from its enqueue time, before the message expires unprocessed. A backlog shorter than that SHALL NOT lose any upload.
+
+#### Scenario: Backlog longer than the SQS default
+- **WHEN** an uploaded file's message has waited in the ingestion queue for 6 days because processing was backed up, and processing then resumes
+- **THEN** the file is processed and its outcome is recorded and reported like any other file
