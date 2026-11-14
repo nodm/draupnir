@@ -66,6 +66,14 @@ pulumi config set --secret google:clientSecret "<google-oauth-client-secret>"
 pulumi config set authDomainPrefix "<cognito-managed-login-domain-prefix>"
 ```
 
+`createAlerts` (`infra/lib/alerts.ts`) needs the address that gets spend and
+failure alerts. It is a secret, so it never appears in this public repository;
+see [Alerts](#alerts):
+
+```bash
+pulumi config set --secret alertEmail "<address>"
+```
+
 `google:clientId`/`google:clientSecret` come from a Google Cloud OAuth 2.0
 client (Web application type, with the Cognito domain's `/oauth2/idpresponse`
 callback URL registered) — not created by this Pulumi program. `authDomainPrefix`
@@ -93,6 +101,8 @@ and default to `localhost` values meant for local client development.
 `logRetentionDays` is optional and defaults to 30; see [Log retention](#log-retention).
 
 `uploadRetentionDays` is optional and defaults to 30; see [Upload retention](#upload-retention).
+
+`budgetMonthlyUsd` (default 20) and `anomalyMonitorArn` are optional; see [Alerts](#alerts).
 
 ## Deploying
 
@@ -235,3 +245,74 @@ undone. To keep a copy, back the bucket up first:
 ```bash
 aws s3 sync "s3://$(pulumi stack output uploadsBucketName)" ./uploads-backup
 ```
+
+## Alerts
+
+The guardrails above cap how fast the stack can spend; these alerts say when it
+does, and when something fails quietly. Everything goes to one address,
+`alertEmail` (required, secret). See
+[the change's design](../openspec/changes/add-spend-alarms/design.md).
+
+### Budget
+
+A monthly cost budget, `draupnir-<stack>-monthly`, covers **the whole AWS
+account**, not only this stack: everything in the account is billed to the same
+card. It emails `alertEmail` directly (no confirmation needed) when:
+
+| Alert          | At the default limit ($20) |
+| -------------- | -------------------------- |
+| actual 100 %   | $20                        |
+| actual 250 %   | $50                        |
+| forecast 100 % | $20                        |
+
+```bash
+pulumi config set budgetMonthlyUsd 40   # any positive amount; 0 or text fails infra:preview
+```
+
+Set it above the account's normal monthly spend (Billing → Bills), or the first
+alert arrives at once. Billing data lags by several hours, so this is a
+backstop, not real-time protection.
+
+### Cost anomalies
+
+A Cost Anomaly Detection subscription emails a daily summary of anomalies with a
+total impact of $5 or more. AWS allows one services monitor per account. If the
+account already has one (Billing and Cost Management → Cost Anomaly Detection →
+Cost monitors, type "AWS services"), reuse it instead of letting the stack
+create a second, which AWS refuses:
+
+```bash
+pulumi config set anomalyMonitorArn "arn:aws:ce::<account-id>:anomalymonitor/<id>"
+```
+
+Without the key, the stack creates `draupnir-<stack>-services`. Reusing by ARN
+leaves an existing monitor out of the stack, so `pulumi destroy` cannot delete it.
+
+### Queue alarms
+
+Four CloudWatch alarms publish to the SNS topic `draupnir-<stack>-alerts`
+(stack output `alertsTopicArn`), which emails `alertEmail`. **After the first
+deploy, click the link in the "AWS Notification - Subscription Confirmation"
+email**: until then these alarms reach nobody. Then test the path end to end
+(the next evaluation returns the alarm to OK by itself):
+
+```bash
+aws cloudwatch set-alarm-state --alarm-name draupnir-prod-ingestion-dlq-messages \
+  --state-value ALARM --state-reason test
+```
+
+| Alarm (`draupnir-<stack>-…`)   | Means                                                                                                                                                        | Look first                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingestion-dlq-messages`       | A statement file failed every processing attempt (an unexpected error, not a validation rejection) and was not imported.                                     | `aws logs tail /aws/lambda/draupnir/prod/ingest --since 2h`; the DLQ's count: `aws sqs get-queue-attributes --queue-url "$(pulumi stack output ingestionDlqUrl)" --attribute-names ApproximateNumberOfMessages` |
+| `bot-updates-dlq-messages`     | A Telegram message or button press failed 3 times and was dropped; that chat is unblocked again.                                                             | `aws logs tail /aws/lambda/draupnir/prod/bot-worker --since 2h`, then the DLQ steps in [docs/telegram-bot.md](../docs/telegram-bot.md) (Troubleshooting)                                                        |
+| `bot-outcomes-dlq-messages`    | A statement result could not be reported to the chat. The retention run retries it for 48 hours, so it may still arrive.                                     | `aws logs tail /aws/lambda/draupnir/prod/bot-worker --since 2h`                                                                                                                                                 |
+| `ingestion-oldest-message-age` | A statement file has waited in the ingestion queue for over an hour: processing is stuck or swamped (normal retries end in the DLQ within about 45 minutes). | `aws sqs get-queue-attributes --queue-url "$(pulumi stack output ingestionQueueUrl)" --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible`, then the `ingest` log                |
+
+The alarms send no "OK" email: SQS stops publishing metrics for a queue that has
+been idle for about 6 hours, so a dead-letter queue still holding a message
+would later read as OK. Treat each alarm email as "go and look"; the count
+command above says whether the message is still there.
+
+The ingestion queue keeps a waiting file's message for 14 days (the SQS
+maximum, instead of the 4-day default), so a backlog shorter than that loses no
+upload.

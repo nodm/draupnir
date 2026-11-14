@@ -4,6 +4,7 @@ import { createLambdaFunction } from './lambdaFunction';
 import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
 import {
   INGESTION_DLQ_RETENTION_DAYS,
+  INGESTION_QUEUE_RETENTION_DAYS,
   uploadRetentionDays,
 } from './uploadRetention';
 
@@ -145,6 +146,7 @@ export function createIngestionPipeline(
     'ingestion',
     {
       visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+      messageRetentionSeconds: INGESTION_QUEUE_RETENTION_DAYS * 24 * 60 * 60,
       redrivePolicy: pulumi.jsonStringify({
         deadLetterTargetArn: deadLetterQueue.arn,
         maxReceiveCount: MAX_RECEIVE_COUNT,
