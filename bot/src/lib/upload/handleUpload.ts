@@ -93,7 +93,7 @@ export async function handleDocument(
   }
 
   // An SEB export names its account in the title line and a Swedbank export on
-  // every row: use it when it points at exactly one account of that bank the
+  // every row: use it when it names exactly one IBAN and that is an account the
   // user owns, otherwise ask.
   const text = new TextDecoder().decode(bytes);
   const sebIbans = sebTitleIbans(text);
@@ -101,7 +101,9 @@ export async function handleDocument(
   const matches = ownAccounts.filter(
     (a) =>
       (a.bank === 'seb' && sebIbans.includes(a.iban)) ||
-      (a.bank === 'swedbank' && swedbank.includes(a.iban)),
+      (a.bank === 'swedbank' &&
+        swedbank.length === 1 &&
+        swedbank[0] === a.iban),
   );
   const pending = createPendingUploads(deps.client, deps.config, sub);
   const base = {

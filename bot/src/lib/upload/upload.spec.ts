@@ -429,6 +429,15 @@ describe('Swedbank file auto-selects its account', () => {
     expect(puts()).toEqual([]);
   });
 
+  it('asks when the file also names an IBAN that is not the user’s', async () => {
+    const { buttons } = await sendAndGetButtons(
+      'dave',
+      swedbankCsv(SWED_IBAN, 'LT999999999999999999'),
+    );
+    expect(buttons).toHaveLength(2);
+    expect(puts()).toEqual([]);
+  });
+
   it('does not auto-select an account of another bank with that IBAN', async () => {
     // bob owns revolut accounts only; a Swedbank-looking file must still ask.
     const { buttons } = await sendAndGetButtons(
