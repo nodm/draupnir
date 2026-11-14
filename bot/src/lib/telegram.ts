@@ -20,6 +20,9 @@ export class TelegramApiError extends Error {
 
 export interface SendMessageOptions {
   replyMarkup?: InlineKeyboardMarkup;
+  // 'HTML' marks the text as Telegram HTML (<b>, <code>, ...). Omitted, the
+  // text is sent as plain text, so existing messages are shown literally.
+  parseMode?: 'HTML';
 }
 
 export interface TelegramClient {
@@ -48,6 +51,20 @@ interface ApiResponse<T> {
 }
 
 const API = 'https://api.telegram.org';
+
+const isParseError = (error: unknown): boolean =>
+  error instanceof TelegramApiError &&
+  error.errorCode === 400 &&
+  /can.t parse entities/i.test(error.message);
+
+// The text a user would have seen had the markup been accepted: tags removed,
+// the three entities Telegram HTML needs decoded (&amp; last).
+export const htmlToPlainText = (html: string): string =>
+  html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 
 // A thin fetch wrapper over the few Bot API methods the bot uses. The token is
 // only ever placed in the request URL, never in an error message or log.
@@ -81,12 +98,28 @@ export function createTelegramClient(
   }
 
   return {
-    sendMessage: (chatId, text, options) =>
-      call<Message>('sendMessage', {
+    sendMessage: async (chatId, text, options) => {
+      const params = {
         chat_id: chatId,
         text,
         reply_markup: options?.replyMarkup,
-      }),
+      };
+      if (!options?.parseMode) return call<Message>('sendMessage', params);
+      try {
+        return await call<Message>('sendMessage', {
+          ...params,
+          parse_mode: options.parseMode,
+        });
+      } catch (error) {
+        // Escaping should make this unreachable; if Telegram still refuses
+        // the markup, a plain reply beats no reply. Any other error is real.
+        if (!isParseError(error)) throw error;
+        return call<Message>('sendMessage', {
+          ...params,
+          text: htmlToPlainText(text),
+        });
+      }
+    },
     editMessageReplyMarkup: async (chatId, messageId, replyMarkup) => {
       await call('editMessageReplyMarkup', {
         chat_id: chatId,

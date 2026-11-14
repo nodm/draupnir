@@ -41,7 +41,13 @@ export function createAccountsHandler(
           .catch(() => null),
       })),
     );
-    await ctx.telegram.sendMessage(ctx.chatId, formatAccountList(summaries));
+    const text = formatAccountList(summaries);
+    // The empty-list reply is plain text; only the listing is formatted.
+    await ctx.telegram.sendMessage(
+      ctx.chatId,
+      text,
+      accounts.length > 0 ? { parseMode: 'HTML' } : undefined,
+    );
   };
 }
 
@@ -56,7 +62,11 @@ async function sendCoverage(
     ctx.sub,
     account.id,
   );
-  await ctx.telegram.sendMessage(ctx.chatId, formatCoverage(account, coverage));
+  await ctx.telegram.sendMessage(
+    ctx.chatId,
+    formatCoverage(account, coverage),
+    { parseMode: 'HTML' },
+  );
 }
 
 // One account: show it. Several: ask which. The button carries the account id

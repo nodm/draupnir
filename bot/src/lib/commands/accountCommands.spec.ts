@@ -75,8 +75,16 @@ function chat(sub: string) {
     sub,
   };
   const lastText = () => sendMessage.mock.calls.at(-1)?.[1] as string;
+  const lastOptions = () => sendMessage.mock.calls.at(-1)?.[2];
   const lastMarkup = () => sendMessage.mock.calls.at(-1)?.[2]?.replyMarkup;
-  return { ctx, sendMessage, editMessageReplyMarkup, lastText, lastMarkup };
+  return {
+    ctx,
+    sendMessage,
+    editMessageReplyMarkup,
+    lastText,
+    lastOptions,
+    lastMarkup,
+  };
 }
 
 const query = { id: 'q', message: { message_id: 7 } } as CallbackQuery;
@@ -87,8 +95,11 @@ describe('/accounts', () => {
     await createAccountsHandler(deps)(t.ctx, '');
 
     const text = t.lastText();
-    expect(text).toContain('SEB main · SEB · …0001 · EUR · owner');
-    expect(text).toContain('Joint · Revolut · …0002 · EUR · viewer');
+    expect(text).toMatch(/<b>\d\. SEB main<\/b> \(owner\)/);
+    expect(text).toContain('SEB · <code>…0001</code> · EUR');
+    expect(text).toContain('Revolut · <code>…0002</code> · EUR');
+    expect(text).toContain('(viewer)');
+    expect(t.lastOptions()).toEqual({ parseMode: 'HTML' });
     expect(text).not.toContain('Not mine');
     expect(text).not.toContain('LT1000'); // never the full IBAN
   });
@@ -96,7 +107,7 @@ describe('/accounts', () => {
   it('shows the reconciled-up-to date, or that it is not reconciled yet', async () => {
     const t = chat('alice');
     await createAccountsHandler(deps)(t.ctx, '');
-    expect(t.lastText()).toContain('Reconciled up to 2026-03-31');
+    expect(t.lastText()).toContain('Reconciled up to <code>2026-03-31</code>');
     expect(t.lastText()).toContain('Not reconciled yet'); // Joint: nothing imported
   });
 
@@ -104,6 +115,7 @@ describe('/accounts', () => {
     const t = chat('nobody');
     await createAccountsHandler(deps)(t.ctx, '');
     expect(t.lastText()).toMatch(/\/newaccount/);
+    expect(t.lastOptions()).toBeUndefined();
   });
 });
 
@@ -113,11 +125,12 @@ describe('/coverage', () => {
     await createCoverageHandler(deps)(t.ctx, '');
 
     const text = t.lastText();
-    expect(text).toContain('2026-01-01 to 2026-01-31');
-    expect(text).toContain('2026-03-01 to 2026-03-31');
-    expect(text).toContain('Gaps:');
-    expect(text).toContain('2026-02-01 to 2026-02-28');
-    expect(text).toContain('Reconciled up to 2026-01-31');
+    expect(text).toContain('<code>2026-01-01 to 2026-01-31</code>');
+    expect(text).toContain('<code>2026-03-01 to 2026-03-31</code>');
+    expect(text).toContain('<b>Gaps</b>');
+    expect(text).toContain('<code>2026-02-01 to 2026-02-28</code>');
+    expect(text).toContain('Reconciled up to <code>2026-01-31</code>');
+    expect(t.lastOptions()).toEqual({ parseMode: 'HTML' });
   });
 
   it('says so when nothing has been imported', async () => {
@@ -136,8 +149,10 @@ describe('/coverage', () => {
       expect(Buffer.byteLength(b.callback_data)).toBeLessThanOrEqual(64);
     }
 
+    expect(t.lastOptions()).not.toHaveProperty('parseMode'); // the chooser
     await handleCoverageCallback(t.ctx, query, buttons[0].callback_data, deps);
     expect(t.lastText()).toContain('Coverage of');
+    expect(t.lastOptions()).toEqual({ parseMode: 'HTML' });
     expect(t.editMessageReplyMarkup).toHaveBeenCalledWith(1, 7); // chooser spent
   });
 
@@ -145,6 +160,7 @@ describe('/coverage', () => {
     const t = chat('alice');
     await handleCoverageCallback(t.ctx, query, 'cov:other', deps);
     expect(t.lastText()).toMatch(/not available/);
+    expect(t.lastOptions()).toBeUndefined();
     expect(t.lastText()).not.toContain('Not mine');
   });
 

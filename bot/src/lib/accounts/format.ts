@@ -7,6 +7,15 @@ const BANK_NAMES: Record<string, string> = {
   monobank: 'monobank',
 };
 
+// Telegram HTML needs only these three characters escaped. Everything dynamic
+// that goes into a formatted message passes through here.
+export const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+export const bold = (value: string): string => `<b>${escapeHtml(value)}</b>`;
+export const code = (value: string): string =>
+  `<code>${escapeHtml(value)}</code>`;
+
 export const bankName = (bank: string): string => BANK_NAMES[bank] ?? bank;
 
 // Only the last 4 characters: enough to tell accounts apart, not enough to
@@ -37,15 +46,24 @@ export function formatAccountList(all: AccountSummary[]): string {
     return 'You have no accounts yet. Create one with /newaccount.';
   }
   const summaries = all.slice(0, MAX_LISTED_ACCOUNTS);
-  const lines = summaries.flatMap(({ account, reconciledUpTo }, index) => [
-    `${index + 1}. ${account.displayName} · ${bankName(account.bank)} · ${maskIban(account.iban)} · ${account.currency} · ${account.role}`,
-    `   ${reconciledUpTo ? `Reconciled up to ${reconciledUpTo}` : 'Not reconciled yet'}`,
-  ]);
+  const blocks = summaries.map(({ account, reconciledUpTo }, index) =>
+    [
+      `${bold(`${index + 1}. ${account.displayName}`)} (${escapeHtml(account.role)})`,
+      [
+        escapeHtml(bankName(account.bank)),
+        code(maskIban(account.iban)),
+        escapeHtml(account.currency),
+      ].join(' · '),
+      reconciledUpTo
+        ? `Reconciled up to ${code(reconciledUpTo)}`
+        : 'Not reconciled yet',
+    ].join('\n'),
+  );
   return [
-    'Your accounts:',
-    ...lines,
+    bold('Your accounts'),
+    ...blocks,
     ...omitted(summaries.length, all.length),
-  ].join('\n');
+  ].join('\n\n');
 }
 
 function addDays(date: string, days: number): string {
@@ -55,16 +73,18 @@ function addDays(date: string, days: number): string {
 }
 
 const span = (from: string | null, to: string | null): string =>
-  from && to ? (from === to ? from : `${from} to ${to}`) : 'no dates';
+  from && to ? code(from === to ? from : `${from} to ${to}`) : 'no dates';
 
 export function formatCoverage(
   account: MemberAccount,
   coverage: Coverage,
 ): string {
-  const lines = [`Coverage of ${accountLabel(account)}`];
+  const lines = [
+    `Coverage of ${bold(account.displayName)} (${code(maskIban(account.iban))})`,
+  ];
 
   if (coverage.reconciledUpTo) {
-    lines.push(`Reconciled up to ${coverage.reconciledUpTo}.`);
+    lines.push(`Reconciled up to ${code(coverage.reconciledUpTo)}.`);
   } else if (coverage.periods.length === 0) {
     lines.push('Nothing has been imported yet.');
   } else {
@@ -76,7 +96,7 @@ export function formatCoverage(
   }
 
   if (coverage.periods.length > 0) {
-    lines.push('', 'Imported periods:');
+    lines.push('', bold('Imported periods'));
     // The latest periods matter most.
     const shown = coverage.periods.slice(-MAX_LISTED_PERIODS);
     lines.push(...omitted(shown.length, coverage.periods.length, 'earlier'));
@@ -98,11 +118,11 @@ export function formatCoverage(
       gaps.push(
         from && to && from <= to
           ? `• ${span(from, to)}: no statement covers these days`
-          : `• around ${before.to ?? '?'}: the balances do not match between two imports`,
+          : `• around ${code(before.to ?? '?')}: the balances do not match between two imports`,
       );
     } else if (link.continuity === 'unknown') {
       unknown.push(
-        `• between ${before.to ?? '?'} and ${after.from ?? '?'}: cannot tell whether anything is missing`,
+        `• between ${code(before.to ?? '?')} and ${code(after.from ?? '?')}: cannot tell whether anything is missing`,
       );
     }
   });
@@ -110,8 +130,8 @@ export function formatCoverage(
     ...items.slice(0, MAX_LISTED_PROBLEMS),
     ...omitted(MAX_LISTED_PROBLEMS, items.length),
   ];
-  if (gaps.length > 0) lines.push('', 'Gaps:', ...capped(gaps));
-  if (unknown.length > 0) lines.push('', 'Unclear:', ...capped(unknown));
+  if (gaps.length > 0) lines.push('', bold('Gaps'), ...capped(gaps));
+  if (unknown.length > 0) lines.push('', bold('Unclear'), ...capped(unknown));
 
   return lines.join('\n');
 }
