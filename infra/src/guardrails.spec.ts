@@ -1,4 +1,8 @@
 import * as pulumi from '@pulumi/pulumi';
+import {
+  authorizationServerMetadata,
+  protectedResourceMetadata,
+} from '../lib/mcpOAuthMetadata';
 
 // The whole program against recorded mocks, as in bot.spec.ts. Pins the cost
 // and capacity guardrails:
@@ -6,8 +10,12 @@ import * as pulumi from '@pulumi/pulumi';
 //   capped, and no function uses reserved concurrency (the account quota of 10
 //   equals AWS's unreserved floor, so none could be set);
 // - API throttles (mcp-server-api, mcp-oauth-discovery, user-authentication):
-//   every REST API stage has a `*/*` default, the MCP token and register
-//   overrides stay, and the MCP API is served only on its custom domain;
+//   every REST API stage has a `*/*` default, the MCP token, register,
+//   authorize and discovery overrides stay, and the MCP API is served only on
+//   its custom domain;
+// - discovery without a function (mcp-oauth-discovery): the four discovery
+//   routes are API Gateway MOCK integrations with the documents fixed at
+//   deploy time, and only authorize, token and register run the OAuth Lambda;
 // - token acceptance (user-authentication): the MCP API is the only API with a
 //   Cognito user pool authorizer, so a token issued to a client that an MCP
 //   client registered opens nothing else;
@@ -196,11 +204,17 @@ describe('API guardrails', () => {
         }),
     );
 
-  it('throttles the MCP stage by default and keeps the stricter token and register limits', () => {
+  it('throttles the MCP stage by default, with stricter limits on every unauthenticated route', () => {
+    const rare = { rate: 1, burst: 5 };
     expect(throttlesOf('mcp')).toEqual({
       '*/*': { rate: 10, burst: 20 },
       'token/POST': { rate: 5, burst: 10 },
-      'register/POST': { rate: 1, burst: 5 },
+      'register/POST': rare,
+      'authorize/GET': rare,
+      '.well-known/oauth-protected-resource/GET': rare,
+      '.well-known/oauth-protected-resource/mcp/GET': rare,
+      '.well-known/oauth-authorization-server/GET': rare,
+      '.well-known/openid-configuration/GET': rare,
     });
   });
 
@@ -228,6 +242,81 @@ describe('API guardrails', () => {
     const triggers = deployment?.inputs['triggers'] as Record<string, string>;
     const hashed = JSON.parse(triggers['redeployment'] as string) as unknown[];
     expect(hashed.at(-1)).toBe(true);
+  });
+});
+
+describe('OAuth discovery guardrails', () => {
+  // Same values the program builds the documents from: the mock user pool's id,
+  // `aws:region` and `mcpHost` from the config above.
+  const documents = {
+    protectedResource: protectedResourceMetadata({
+      origin: 'https://mcp.example.com',
+      userPoolId: 'users-id',
+      region: 'eu-north-1',
+    }),
+    authorizationServer: authorizationServerMetadata({
+      origin: 'https://mcp.example.com',
+      userPoolId: 'users-id',
+      region: 'eu-north-1',
+    }),
+  };
+  const discovery = [
+    ['protected-resource', documents.protectedResource],
+    ['protected-resource-mcp', documents.protectedResource],
+    ['authorization-server', documents.authorizationServer],
+    ['openid-configuration', documents.authorizationServer],
+  ] as const;
+  const integration = (key: string) =>
+    named('aws:apigateway/integration:Integration').find(
+      (i) => i.name === `mcp-oauth-${key}`,
+    );
+
+  it.each(discovery)(
+    'serves %s from a MOCK integration, not a function',
+    (key) => {
+      const found = integration(key);
+      expect(found?.inputs['type']).toBe('MOCK');
+      expect(found?.inputs['uri']).toBeUndefined();
+    },
+  );
+
+  it.each(discovery)(
+    'answers %s with the builder’s document and the JSON and cache headers',
+    (key, document) => {
+      const [response] = named(
+        'aws:apigateway/integrationResponse:IntegrationResponse',
+      ).filter((r) => r.name === `mcp-oauth-${key}`);
+      expect(response?.inputs).toMatchObject({
+        statusCode: '200',
+        responseTemplates: { 'application/json': JSON.stringify(document) },
+        responseParameters: {
+          'method.response.header.Content-Type': "'application/json'",
+          'method.response.header.Cache-Control': "'public, max-age=300'",
+        },
+      });
+      const [declared] = named(
+        'aws:apigateway/methodResponse:MethodResponse',
+      ).filter((r) => r.name === `mcp-oauth-${key}`);
+      expect(declared?.inputs).toMatchObject({
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Content-Type': true,
+          'method.response.header.Cache-Control': true,
+        },
+      });
+    },
+  );
+
+  it('integrates only authorize, token and register with the OAuth function', () => {
+    const viaFunction = named('aws:apigateway/integration:Integration')
+      .filter((i) => i.inputs['uri'] === 'arn:invoke:mcp-oauth')
+      .map((i) => i.name)
+      .sort();
+    expect(viaFunction).toEqual([
+      'mcp-oauth-authorize',
+      'mcp-oauth-register',
+      'mcp-oauth-token',
+    ]);
   });
 });
 

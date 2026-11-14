@@ -1,9 +1,7 @@
 import {
   CLIENT_NAME_PREFIX,
   MAX_CLIENTS,
-  authorizationServerMetadata,
   clientNameFor,
-  protectedResourceMetadata,
   registerClient,
   validateRedirectUris,
   type CognitoLike,
@@ -18,6 +16,7 @@ const config: OAuthConfig = {
 };
 
 const CLAUDE = 'https://claude.ai/api/mcp/auth_callback';
+const CLAUDE_COM = 'https://claude.com/api/mcp/auth_callback';
 const LOOPBACK = 'http://127.0.0.1:53682/callback';
 
 class FakeCognito implements CognitoLike {
@@ -60,42 +59,22 @@ class FakeCognito implements CognitoLike {
   }
 }
 
-describe('metadata', () => {
-  it('protected resource names the MCP endpoint and the origin as authorization server', () => {
-    expect(protectedResourceMetadata(config)).toMatchObject({
-      resource: 'https://mcp.example.test/mcp',
-      authorization_servers: ['https://mcp.example.test'],
-    });
-  });
-
-  it('authorization server metadata points at Cognito, S256, public clients and /register', () => {
-    const m = authorizationServerMetadata(config);
-    expect(m.issuer).toBe('https://mcp.example.test');
-    expect(m.authorization_endpoint).toBe('https://mcp.example.test/authorize');
-    expect(m.token_endpoint).toBe('https://mcp.example.test/token');
-    expect(m.jwks_uri).toBe(
-      'https://cognito-idp.eu-north-1.amazonaws.com/eu-north-1_POOL/.well-known/jwks.json',
-    );
-    expect(m.registration_endpoint).toBe('https://mcp.example.test/register');
-    expect(m.code_challenge_methods_supported).toEqual(['S256']);
-    expect(m.token_endpoint_auth_methods_supported).toEqual(['none']);
-    expect(m).not.toHaveProperty(
-      'authorization_response_iss_parameter_supported',
-    );
-  });
-});
-
 describe('validateRedirectUris', () => {
-  it.each([
-    [CLAUDE],
-    ['https://claude.com/api/mcp/auth_callback'],
-    [LOOPBACK],
-    ['http://localhost:8080/oauth/callback'],
-  ])('allows %s', (uri) => {
+  it.each([[CLAUDE], [CLAUDE_COM]])('allows %s', (uri) => {
     expect(validateRedirectUris([uri])).toEqual({ ok: true, uris: [uri] });
   });
 
+  it('allows both claude callbacks together', () => {
+    expect(validateRedirectUris([CLAUDE_COM, CLAUDE])).toEqual({
+      ok: true,
+      uris: [CLAUDE, CLAUDE_COM],
+    });
+  });
+
   it.each([
+    ['loopback 127.0.0.1', LOOPBACK],
+    ['loopback localhost', 'http://localhost:8080/oauth/callback'],
+    ['loopback 127.0.0.1 on another port', 'http://127.0.0.1:33419/callback'],
     ['another https host', 'https://evil.example/api/mcp/auth_callback'],
     ['claude path variant', 'https://claude.ai/api/mcp/other'],
     ['http non-loopback', 'http://example.com:8080/callback'],
@@ -121,12 +100,13 @@ describe('validateRedirectUris', () => {
     },
   );
 
-  it('refuses more than five URIs and dedupes before counting', () => {
-    const six = Array.from(
-      { length: 6 },
-      (_, i) => `http://localhost:${8000 + i}/cb`,
-    );
-    expect(validateRedirectUris(six)).toMatchObject({ ok: false });
+  it('refuses a third URI and dedupes before counting', () => {
+    expect(
+      validateRedirectUris([CLAUDE, CLAUDE_COM, 'https://claude.ai/other']),
+    ).toMatchObject({ ok: false, error: 'invalid_redirect_uri' });
+    expect(validateRedirectUris([CLAUDE, CLAUDE_COM, LOOPBACK])).toMatchObject({
+      ok: false,
+    });
     expect(validateRedirectUris([CLAUDE, CLAUDE])).toEqual({
       ok: true,
       uris: [CLAUDE],
@@ -134,8 +114,8 @@ describe('validateRedirectUris', () => {
   });
 
   it('sorts so the same set always names the same client', () => {
-    const a = validateRedirectUris([LOOPBACK, CLAUDE]);
-    const b = validateRedirectUris([CLAUDE, LOOPBACK]);
+    const a = validateRedirectUris([CLAUDE_COM, CLAUDE]);
+    const b = validateRedirectUris([CLAUDE, CLAUDE_COM]);
     expect(a).toEqual(b);
     expect(clientNameFor((a as { uris: string[] }).uris)).toMatch(
       new RegExp(`^${CLIENT_NAME_PREFIX}[0-9a-f]{16}$`),
@@ -179,10 +159,10 @@ describe('registerClient', () => {
     const cognito = new FakeCognito();
 
     const first = await registerClient(cognito, config, {
-      redirect_uris: [CLAUDE, LOOPBACK],
+      redirect_uris: [CLAUDE, CLAUDE_COM],
     });
     const second = await registerClient(cognito, config, {
-      redirect_uris: [LOOPBACK, CLAUDE],
+      redirect_uris: [CLAUDE_COM, CLAUDE],
     });
 
     expect(second.body['client_id']).toBe(first.body['client_id']);
@@ -200,6 +180,21 @@ describe('registerClient', () => {
     expect(result.body['error']).toBe('invalid_redirect_uri');
     expect(cognito.commands).toEqual([]);
   });
+
+  it.each([[LOOPBACK], ['http://localhost:33418/callback']])(
+    'creates nothing for the loopback URI %s',
+    async (uri) => {
+      const cognito = new FakeCognito();
+
+      const result = await registerClient(cognito, config, {
+        redirect_uris: [uri],
+      });
+
+      expect(result.status).toBe(400);
+      expect(result.body['error']).toBe('invalid_redirect_uri');
+      expect(cognito.commands).toEqual([]);
+    },
+  );
 
   it('treats a non-object body as missing redirect_uris', async () => {
     const result = await registerClient(new FakeCognito(), config, undefined);

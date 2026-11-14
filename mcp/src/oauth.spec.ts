@@ -116,28 +116,17 @@ describe('oauth handler routes', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // API Gateway serves the discovery documents itself (infra/lib/mcpApi.ts) and
+  // routes none of these to the function.
   it.each([
     '/.well-known/oauth-protected-resource',
     '/.well-known/oauth-protected-resource/mcp',
-  ])('serves protected resource metadata at %s', async (resource) => {
-    const res = await call(event('GET', resource));
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('application/json');
-    expect(JSON.parse(res.body)).toMatchObject({
-      resource: 'https://mcp.example.test/mcp',
-    });
-  });
-
-  it.each([
     '/.well-known/oauth-authorization-server',
     '/.well-known/openid-configuration',
-  ])('serves authorization server metadata at %s', async (resource) => {
+  ])('answers 404 for the removed discovery route %s', async (resource) => {
     const res = await call(event('GET', resource));
-    expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toMatchObject({
-      issuer: 'https://mcp.example.test',
-      registration_endpoint: 'https://mcp.example.test/register',
-    });
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'not_found' });
   });
 
   it('registers a client from a JSON body, including a base64 body', async () => {
