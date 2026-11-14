@@ -14,3 +14,5 @@ config:
   draupnir-infra:mcpHostedZone: nodm.name
   draupnir-infra:allowedTelegramUserIds:
     secure: v1:W8fI76PIhB8eCN28:zm1fsEsJvEn90cFgpLNXUOYinkJCNy+85N2LUb44BqVQBEI=
+  draupnir-infra:alertEmail:
+    secure: v1:oBVK7e+6sUsLDeT9:mFqCyTKWMop38mIIYMxAP9T0QvlAmZeNL7RP99RUT94c

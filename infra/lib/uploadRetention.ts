@@ -12,6 +12,14 @@ export const DEFAULT_UPLOAD_RETENTION_DAYS = 30;
 // its upload at the latest.
 export const INGESTION_DLQ_RETENTION_DAYS = 14;
 
+// The ingestion queue keeps a waiting file's message as long as SQS allows, so
+// a backlog shorter than that loses no upload (the SQS default is 4 days). A
+// dead-lettered message keeps its original enqueue time, so one that waited N
+// days before failing has 14 - N days left in the DLQ; on the normal path N is
+// under an hour, and the DLQ alarm fires on arrival. See
+// openspec/changes/add-spend-alarms/design.md (decision 6).
+export const INGESTION_QUEUE_RETENTION_DAYS = 14;
+
 // Returns the retention in days, or throws so that `pulumi preview` fails
 // before any resource changes.
 export function uploadRetentionDays(value: string | undefined): number {

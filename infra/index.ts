@@ -1,3 +1,4 @@
+import { createAlerts } from './lib/alerts';
 import { createAuroraCluster } from './lib/aurora';
 import { createBot } from './lib/bot';
 import { createBotQueues } from './lib/botQueues';
@@ -46,6 +47,13 @@ const bot = createBot(provider, {
   queues: botQueues,
   dependsOn: afterMigrations,
 });
+// Spend and failure alerts, emailed to `alertEmail`.
+const alerts = createAlerts(provider, {
+  ingestion: ingestionPipeline.queue,
+  ingestionDlq: ingestionPipeline.deadLetterQueue,
+  botUpdatesDlq: botQueues.updatesDlq,
+  botOutcomesDlq: botQueues.outcomesDlq,
+});
 
 export const userPoolId = authPool.userPool.id;
 export const userPoolArn = authPool.userPool.arn;
@@ -68,3 +76,4 @@ export const botUpdatesQueueUrl = botQueues.updates.url;
 export const botUpdatesDlqUrl = botQueues.updatesDlq.url;
 export const botOutcomesQueueUrl = botQueues.outcomes.url;
 export const botOutcomesDlqUrl = botQueues.outcomesDlq.url;
+export const alertsTopicArn = alerts.topic.arn;
