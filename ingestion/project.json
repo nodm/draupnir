@@ -12,9 +12,6 @@
         "outputPath": "dist/ingestion",
         "main": "ingestion/src/handler.ts",
         "additionalEntryPoints": [
-          "ingestion/src/whoami.ts",
-          "ingestion/src/accounts.ts",
-          "ingestion/src/presignedUpload.ts",
           "ingestion/src/rebuildAccount.ts"
         ],
         "tsConfig": "ingestion/tsconfig.lib.json",

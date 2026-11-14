@@ -34,9 +34,8 @@ import { validateStatementFile } from './validation/validateStatement';
 import { insertRawRows, newId, writeDerivation } from './statementWrites';
 
 // The Lambda buffers the whole object into memory — a bound here keeps an
-// oversized object from exhausting it. The presigned POST policy already makes
-// S3 refuse a larger API upload, and the bot refuses one before its PutObject;
-// this check is defence in depth for those and for any other writer.
+// oversized object from exhausting it. The bot refuses a larger file before its
+// PutObject; this check is defence in depth for it and for any other writer.
 const MAX_UPLOAD_SIZE_BYTES = MAX_STATEMENT_BYTES;
 
 // Waiting for another import's account lock must end before Data API's
@@ -519,8 +518,9 @@ export async function processStatementFile(
     throw new OversizedStatementFileError(objectSizeBytes);
   }
 
-  // Only the presigned-URL endpoint issues keys, and it checked owner
-  // membership first, so the `sub` in the key is the identity the worker acts as.
+  // Only the Telegram bot may write under uploads/ (its role is the only one
+  // with s3:PutObject there), and it checks owner membership before writing, so
+  // the `sub` in the key is the identity the worker acts as.
   const { uploaderSub, accountId } = parseObjectKey(key);
   const ctx: Context = {
     client: dataApiClient,
@@ -554,9 +554,9 @@ export async function processStatementFile(
       ),
   );
   // RLS hides an account from a caller who isn't a member, so "the uploader was
-  // removed" and "the account is gone" look the same here (as at the
-  // presigned-URL endpoint). Both are an acknowledged, unrecorded not-owner
-  // rejection, never a retry that would end in the DLQ.
+  // removed" and "the account is gone" look the same here. Both are an
+  // acknowledged, unrecorded not-owner rejection, never a retry that would end
+  // in the DLQ.
   if (accountRows.length === 0) {
     return unrecordedRejection(
       [
@@ -578,11 +578,10 @@ export async function processStatementFile(
   if (!object.Body) {
     throw new Error(`S3 object has no body: ${bucket}/${key}`);
   }
-  // The S3 event's object.size can be stale by the time this runs — the
-  // key is reusable until the presigned URL expires, so a small first
-  // upload could be overwritten with a large one before this Lambda picks
-  // up the event. Re-check the actual object's size, from this GetObject
-  // response itself, before buffering the body.
+  // The S3 event's object.size can be stale by the time this runs: a writer
+  // could replace a small object with a large one under the same key before
+  // this Lambda picks up the event. Re-check the actual object's size, from
+  // this GetObject response itself, before buffering the body.
   if (
     object.ContentLength !== undefined &&
     object.ContentLength > MAX_UPLOAD_SIZE_BYTES
@@ -602,7 +601,7 @@ export async function processStatementFile(
     s3Key: key,
   };
 
-  // The uploader may have lost ownership since the presigned URL was issued.
+  // The uploader may have lost ownership since the bot accepted the file.
   if (
     (await getMemberRole(
       dataApiClient,

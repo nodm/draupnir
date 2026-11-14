@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Lets an authenticated user upload a bank statement CSV without routing the file bytes
-through a Lambda, by issuing a presigned S3 POST scoped to that user and the account
-they selected, with the size limit enforced by S3 itself.
+Defines how an uploaded bank statement CSV enters the system: the Telegram bot stores
+it under `uploads/` in the uploads bucket, which starts ingestion with no further
+call, and the ingestion worker re-checks every object's size, whoever wrote it.
 
 ## Requirements
 

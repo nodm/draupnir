@@ -7,29 +7,13 @@ graph TB
   subgraph Auth["Cognito Auth (cognito.ts)"]
     UserPool["Cognito User Pool<br/>draupnir-users"]
     GoogleIdP["Google Identity Provider"]
-    UserPoolClient["User Pool Client<br/>draupnir-app"]
     Domain["User Pool Domain<br/>Managed Login"]
     PreSignUpFn["λ pre-sign-up-trigger"]
 
     UserPool --> GoogleIdP
-    UserPool --> UserPoolClient
     UserPool --> Domain
     UserPool -. invokes .-> PreSignUpFn
   end
-
-  subgraph API["API Gateway (ingestionApi.ts)"]
-    RestApi["REST API<br/>draupnir-ingestion (stage = stack)<br/>throttled 5 rps/burst 10 per method"]
-    Authorizer["Cognito Authorizer"]
-    WhoamiFn["λ whoami<br/>GET /whoami"]
-    AccountsFn["λ accounts<br/>POST /accounts"]
-    UploadFn["λ presigned-upload<br/>POST /uploads"]
-
-    RestApi --> Authorizer
-    RestApi --> WhoamiFn
-    RestApi --> AccountsFn
-    RestApi --> UploadFn
-  end
-  Authorizer -. validates JWT against .-> UserPool
 
   subgraph Ingestion["Ingestion Pipeline (ingestionPipeline.ts)"]
     UploadsBucket[("S3: uploads")]
@@ -68,8 +52,6 @@ graph TB
   MigrateFn -- "RDS Data API<br/>schema_migrations + DDL<br/>(master credential)" --> Cluster
   MigrateFn -. "reads, sets role password" .-> AppSecret
   MigrateInvocation -. "dependsOn: schema before code" .-> IngestFn
-  MigrateInvocation -. "dependsOn" .-> AccountsFn
-  MigrateInvocation -. "dependsOn" .-> UploadFn
 
   subgraph Bot["Telegram bot (bot.ts, botQueues.ts)"]
     BotApi["API Gateway draupnir-bot<br/>no authorizer, throttled<br/>POST /webhook · GET /telegram/callback"]
@@ -117,9 +99,6 @@ graph TB
   MigrateInvocation -. "dependsOn" .-> WorkerFn
   MigrateInvocation -. "dependsOn" .-> RetentionFn
 
-  UploadFn -. "presigns a POST policy (≤ 10 MiB) for" .-> UploadsBucket
-  UploadFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
-  AccountsFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   IngestFn -- "s3:GetObject" --> UploadsBucket
   IngestFn -- "RDS Data API<br/>(draupnir_app)" --> Cluster
   RebuildFn["λ rebuild-account<br/>manual invoke"] -- "RDS Data API<br/>(draupnir_app)" --> Cluster
@@ -129,8 +108,7 @@ graph TB
 
 - **No direct network path to Aurora.** Every DB-backed Lambda talks to the cluster exclusively through the RDS Data API's HTTPS endpoint (ADR-0003) — the security group has no ingress rules, and the VPC has no NAT/internet gateway.
 - **Aurora scales to zero** (`minCapacity: 0`, `secondsUntilAutoPause: 300`) — near-zero idle cost, at the price of a resume delay (seconds to ~1 minute) on the first request after idle. DB-backed API routes are given a 29s timeout (API Gateway's ceiling without a quota increase) to absorb this.
-- **Concurrency.** All Lambda functions share the account's concurrent-executions quota, which was **10** when read on 2026-11-13 (`aws lambda get-account-settings --region eu-north-1`). It is an AWS setting this repository does not control and does not pin: re-check it before relying on it. At 10, no more than 10 invocations run at once across every function, which also bounds spend, and AWS's own floor of 10 unreserved executions makes per-function reservations impossible. The three SQS event source mappings (`ingest`, `bot-updates`, `bot-outcomes`) each cap at 2 concurrent invocations (`QUEUE_MAX_CONCURRENCY`), so the queue consumers use at most 6 (the bot worker up to 4, since the cap is per mapping) and a backlog can't take every slot. The API-invoked functions have no concurrency cap of their own; instead every REST API stage has a request-rate default on each method (`*/*`): `draupnir-mcp` 10 rps/burst 20 (with `POST /token` at 5/10 and `POST /register` at 1/5), `draupnir-ingestion` 5/10 and `draupnir-bot` 10/20, and a request over the limit gets `429` without invoking anything. The limits are per method, so a stage's total is their sum (see `infra/README.md`, API guardrails). A flood at those rates on a slow route (for example `POST /mcp` while Aurora resumes) can still use all 10 executions and throttle everything, including the Cognito pre-sign-up trigger (which only matters for a first-time sign-up). `draupnir-mcp` is served only on `mcp.draupnir.nodm.name`; its `execute-api` endpoint is disabled. A throttled API call reaches the client as an error (API Gateway reports a Lambda throttle as 500), Telegram retries a throttled webhook call, and queue messages simply wait. If the quota changes, revisit the cap and the deferred per-function reservations (they need a quota of at least 27). Requirements: the `cost-guardrails` spec.
-- **`whoami`** is the one API route that doesn't touch Aurora or S3 — no DB/bucket environment variables, no extra IAM policy statements beyond basic Lambda execution.
+- **Concurrency.** All Lambda functions share the account's concurrent-executions quota, which was **10** when read on 2026-11-13 (`aws lambda get-account-settings --region eu-north-1`). It is an AWS setting this repository does not control and does not pin: re-check it before relying on it. At 10, no more than 10 invocations run at once across every function, which also bounds spend, and AWS's own floor of 10 unreserved executions makes per-function reservations impossible. The three SQS event source mappings (`ingest`, `bot-updates`, `bot-outcomes`) each cap at 2 concurrent invocations (`QUEUE_MAX_CONCURRENCY`), so the queue consumers use at most 6 (the bot worker up to 4, since the cap is per mapping) and a backlog can't take every slot. The API-invoked functions have no concurrency cap of their own; instead every REST API stage has a request-rate default on each method (`*/*`): `draupnir-mcp` 10 rps/burst 20 (with `POST /token` at 5/10 and `POST /register` at 1/5) and `draupnir-bot` 10/20, and a request over the limit gets `429` without invoking anything. The limits are per method, so a stage's total is their sum (see `infra/README.md`, API guardrails). A flood at those rates on a slow route (for example `POST /mcp` while Aurora resumes) can still use all 10 executions and throttle everything, including the Cognito pre-sign-up trigger (which only matters for a first-time sign-up). `draupnir-mcp` is served only on `mcp.draupnir.nodm.name`; its `execute-api` endpoint is disabled. A throttled API call reaches the client as an error (API Gateway reports a Lambda throttle as 500), Telegram retries a throttled webhook call, and queue messages simply wait. If the quota changes, revisit the cap and the deferred per-function reservations (they need a quota of at least 27). Requirements: the `cost-guardrails` spec.
 - **Schema before code.** `pulumi up` invokes `migrate-database` (the runner in `shared/src/lib/migrations`) before any DB-backed Lambda is created or updated; a failed migration fails the deploy. The Invocation re-runs when the migration bundle changes (it hashes the esbuild output, which inlines `MIGRATIONS`); the runner is idempotent, so a re-run with nothing pending is a no-op. Migrations are append-only — see the `db-migrations` spec.
 - **Two database credentials, and row-level security.** The master credential (AWS-managed secret) is read only by `migrate-database`; it owns the tables and so bypasses RLS. Every other Lambda uses the `draupnir_app` credential (a Pulumi-generated password in its own secret): that role owns nothing and has no `BYPASSRLS`. The runner creates the role and re-syncs its password from the secret on every run, before applying migrations. Policies on every account-scoped table check membership through `draupnir.is_member()`, which reads the caller from `app.sub`. Application code sets it per transaction with `withCaller(sub, fn)` (`set_config(..., true)`, so it can't leak across Data API's pooled sessions); with no identity set, every policy returns no rows. A new table must ship with policies — a guard test in `shared` fails otherwise.
 - **Rebuild is manual.** `rebuild-account` (no trigger, no HTTP route) re-derives one account's transactions from its raw rows: `aws lambda invoke --function-name <rebuildAccountFunctionName> --payload '{"sub":"<owner sub>","accountId":"<id>"}' --cli-binary-format raw-in-base64-out out.json`. With `"mode":"backfill"` in the payload it instead fills an existing account's order keys, running balances and balance in place without replacing rows ([ADR-0013](./adr/0013-stored-account-balances.md)).

@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted; partly superseded by [ADR-0009](./0009-telegram-interface.md)
+(2026-11-14). The upload no longer goes through a presigned URL from the
+primary app API: that API was removed in `remove-ingestion-api`, and the
+Telegram bot writes each statement to the uploads bucket itself. The flow from
+there (S3 event → SQS → ingestion Lambda, the DLQ, raw storage) is unchanged.
 
 ## Date
 

@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted
+Accepted; partly superseded by [ADR-0009](./0009-telegram-interface.md)
+(2026-11-14). The browser client (Amplify `signInWithRedirect`) was never
+built: ADR-0009 made the Telegram bot the only interface. The primary app's
+REST API and its `draupnir-app` client were removed in `remove-ingestion-api`.
+The user pool, Google federation, the pre-sign-up allowlist and the MCP
+authorizer still stand.
 
 ## Date
 

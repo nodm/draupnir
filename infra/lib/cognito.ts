@@ -18,7 +18,6 @@ const LAMBDA_BASIC_EXECUTION_POLICY_ARN =
 
 export interface AuthPool {
   userPool: aws.cognito.UserPool;
-  userPoolClient: aws.cognito.UserPoolClient;
   domain: aws.cognito.UserPoolDomain;
   googleIdentityProvider: aws.cognito.IdentityProvider;
 }
@@ -107,27 +106,6 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
     withProvider,
   );
 
-  const userPoolClient = new aws.cognito.UserPoolClient(
-    'app',
-    {
-      userPoolId: userPool.id,
-      name: 'draupnir-app',
-      generateSecret: false,
-      supportedIdentityProviders: ['Google'],
-      // Sign-in only ever happens via Managed Login's OAuth redirect; explicitly
-      // exclude native SRP/password InitiateAuth flows the default would allow.
-      explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
-      allowedOauthFlowsUserPoolClient: true,
-      allowedOauthFlows: ['code'],
-      allowedOauthScopes: ['openid', 'email', 'profile'],
-      callbackUrls: [
-        config.get('callbackUrl') ?? 'http://localhost:5173/callback',
-      ],
-      logoutUrls: [config.get('logoutUrl') ?? 'http://localhost:5173/'],
-    },
-    { provider, dependsOn: [googleIdentityProvider] },
-  );
-
   const domain = new aws.cognito.UserPoolDomain(
     'login',
     {
@@ -138,17 +116,8 @@ export function createAuthPool(provider: aws.Provider): AuthPool {
     withProvider,
   );
 
-  // CreateUserPoolClient doesn't assign a branding style by itself — Managed
-  // Login stays unusable for this client until one is attached explicitly.
-  new aws.cognito.ManagedLoginBranding(
-    'app',
-    {
-      userPoolId: userPool.id,
-      clientId: userPoolClient.id,
-      useCognitoProvidedValues: true,
-    },
-    { provider, dependsOn: [domain] },
-  );
-
-  return { userPool, userPoolClient, domain, googleIdentityProvider };
+  // App clients are created where they are used: `draupnir-telegram` in
+  // bot.ts and the MCP clients at registration (mcp/src/lib/oauth.ts), each
+  // with its own Managed Login branding.
+  return { userPool, domain, googleIdentityProvider };
 }

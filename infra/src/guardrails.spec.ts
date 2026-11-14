@@ -8,6 +8,9 @@ import * as pulumi from '@pulumi/pulumi';
 // - API throttles (mcp-server-api, mcp-oauth-discovery, user-authentication):
 //   every REST API stage has a `*/*` default, the MCP token and register
 //   overrides stay, and the MCP API is served only on its custom domain;
+// - token acceptance (user-authentication): the MCP API is the only API with a
+//   Cognito user pool authorizer, so a token issued to a client that an MCP
+//   client registered opens nothing else;
 // - log retention (cost-guardrails spec): every function writes to its own
 //   stack-owned log group with the configured retention (default 30 days);
 // - upload retention (statement-raw-storage, statement-ingestion-pipeline):
@@ -96,7 +99,6 @@ beforeAll(async () => {
   const { createDatabaseMigrations } = await import(
     '../lib/databaseMigrations'
   );
-  const { createIngestionApi } = await import('../lib/ingestionApi');
   const { createIngestionPipeline } = await import('../lib/ingestionPipeline');
   const { createMcpApi } = await import('../lib/mcpApi');
   const { createAwsProvider } = await import('../lib/provider');
@@ -118,13 +120,6 @@ beforeAll(async () => {
     aurora.appDbConfig,
     afterMigrations,
     queues.outcomes,
-  );
-  createIngestionApi(
-    authPool.userPool,
-    provider,
-    aurora.appDbConfig,
-    pipeline.uploadsBucket,
-    afterMigrations,
   );
   createMcpApi(authPool, provider, aurora.appDbConfig, afterMigrations);
   createBot(provider, {
@@ -209,19 +204,13 @@ describe('API guardrails', () => {
     });
   });
 
-  it('throttles the ingestion stage for two users', () => {
-    expect(throttlesOf('ingestion')).toEqual({
-      '*/*': { rate: 5, burst: 10 },
-    });
-  });
-
   it('keeps the bot stage throttle', () => {
     expect(throttlesOf('bot')).toEqual({ '*/*': { rate: 10, burst: 20 } });
   });
 
   it('gives every REST API a stage-wide default', () => {
     const apis = named('aws:apigateway/restApi:RestApi');
-    expect(apis.map((a) => a.name).sort()).toEqual(['bot', 'ingestion', 'mcp']);
+    expect(apis.map((a) => a.name).sort()).toEqual(['bot', 'mcp']);
     for (const api of apis) {
       expect(throttlesOf(api.name)['*/*'], api.name).toBeDefined();
     }
@@ -242,6 +231,30 @@ describe('API guardrails', () => {
   });
 });
 
+describe('token acceptance guardrails', () => {
+  // An authorizer with no audience check accepts tokens issued to any client of
+  // the pool, including the clients MCP clients register. One authorizer, on
+  // the MCP API (which accepts access tokens only), keeps those tokens there.
+  it('gives only the MCP API a Cognito user pool authorizer', () => {
+    const authorizers = named('aws:apigateway/authorizer:Authorizer');
+    expect(
+      authorizers.map((a) => [a.inputs['type'], a.inputs['restApi']]),
+    ).toEqual([['COGNITO_USER_POOLS', 'mcp-id']]);
+  });
+
+  it('protects every MCP route but the OAuth shim with that authorizer and an access-token scope', () => {
+    const protectedMethods = named('aws:apigateway/method:Method').filter(
+      (m) => m.inputs['authorization'] !== 'NONE',
+    );
+    expect(protectedMethods.map((m) => m.name)).toEqual(['mcp-post']);
+    expect(protectedMethods[0]?.inputs).toMatchObject({
+      restApi: 'mcp-id',
+      authorization: 'COGNITO_USER_POOLS',
+      authorizationScopes: ['openid'],
+    });
+  });
+});
+
 describe('log retention guardrails', () => {
   const functions = () => named('aws:lambda/function:Function');
   const logGroups = () => named('aws:cloudwatch/logGroup:LogGroup');
@@ -253,7 +266,6 @@ describe('log retention guardrails', () => {
         .sort(),
     ).toEqual(
       [
-        'accounts',
         'bot-callback',
         'bot-retention',
         'bot-webhook',
@@ -263,9 +275,7 @@ describe('log retention guardrails', () => {
         'mcp-oauth',
         'migrate-database',
         'pre-sign-up-trigger',
-        'presigned-upload',
         'rebuild-account',
-        'whoami',
       ].sort(),
     );
   });

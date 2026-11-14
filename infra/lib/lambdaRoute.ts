@@ -42,10 +42,8 @@ export interface LambdaRoute {
   integration: aws.apigateway.Integration;
 }
 
-// Shared shape for a new API Gateway route backed by its own Lambda function,
-// used by every endpoint added after `whoami` (kept as its original
-// hand-written block in ingestionApi.ts to avoid touching working,
-// already-deployed code) and, via `codePath`, by other apps' REST APIs (see
+// Shared shape for an API Gateway route backed by its own Lambda function,
+// behind a Cognito authorizer; `codePath` picks the app's bundle (see
 // `mcpApi.ts`).
 export function createLambdaRoute(
   config: LambdaRouteConfig,
