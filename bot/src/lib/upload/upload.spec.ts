@@ -11,10 +11,13 @@ import {
   type UploadDeps,
 } from './handleUpload';
 import { sebTitleIbans } from './sebHeader';
+import { swedbankIbans } from './swedbankHeader';
 
 const config = { resourceArn: 'a', secretArn: 'b', database: 'c' };
 const SEB_IBAN = 'LT100000000000000001';
 const SEB_OTHER = 'LT100000000000000002';
+const SWED_IBAN = 'LT100000000000000003';
+const SWED_OTHER = 'LT100000000000000004';
 
 let db: PGlite;
 let deps: UploadDeps;
@@ -27,11 +30,14 @@ beforeAll(async () => {
     INSERT INTO accounts (id, bank, iban, currency, display_name, opened_on, opening_balance_minor_units) VALUES
       ('seb1', 'seb', '${SEB_IBAN}', 'EUR', 'SEB main', '2024-01-01', 0),
       ('seb2', 'seb', '${SEB_OTHER}', 'EUR', 'SEB savings', '2024-01-01', 0),
+      ('swed1', 'swedbank', '${SWED_IBAN}', 'EUR', 'Swedbank main', '2024-01-01', 0),
+      ('swed2', 'swedbank', '${SWED_OTHER}', 'EUR', 'Swedbank savings', '2024-01-01', 0),
       ('rev1', 'revolut', 'LT200000000000000001', 'EUR', 'Revolut EUR', '2024-01-01', 0),
       ('rev2', 'revolut', 'LT200000000000000002', 'USD', 'Revolut USD', '2024-01-01', 0),
       ('shared1', 'revolut', 'LT300000000000000001', 'EUR', 'Shared', '2024-01-01', 0);
     INSERT INTO account_members (account_id, user_id, role) VALUES
       ('seb1', 'alice', 'owner'), ('seb2', 'alice', 'owner'),
+      ('swed1', 'dave', 'owner'), ('swed2', 'dave', 'owner'),
       ('rev1', 'bob', 'owner'), ('rev2', 'bob', 'owner'),
       ('shared1', 'carol', 'viewer'), ('shared1', 'bob', 'owner');
   `);
@@ -59,6 +65,12 @@ const REVOLUT_CSV =
   'Type,Product,Started Date\nCARD_PAYMENT,Current,2026-01-01\n';
 const sebCsv = (iban: string) =>
   `"SĄSKAITOS  (${iban}) IŠRAŠAS (UŽ LAIKOTARPĮ: 2026-08-01-2026-08-31)";\n"DOK NR.";"DATA";\n`;
+
+const swedbankCsv = (...ibans: string[]) =>
+  [
+    '"Sąskaitos Nr.","","Data","Gavėjas",',
+    ...ibans.map((i) => `"${i}","20","2026-01-13","","x",`),
+  ].join('\r\n') + '\r\n';
 
 function fakeTelegram(content: string) {
   const sendMessage = vi.fn().mockResolvedValue({});
@@ -381,6 +393,66 @@ describe('SEB file auto-selects its account', () => {
     );
     expect(buttons.length).toBeGreaterThan(0);
     expect(puts()).toEqual([]);
+  });
+});
+
+describe('Swedbank file auto-selects its account', () => {
+  it('imports without asking when the rows name exactly one owned Swedbank account', async () => {
+    const t = fakeTelegram(swedbankCsv(SWED_OTHER, SWED_OTHER));
+    await handleDocument(ctxFor('dave', t.telegram), message, doc(), deps);
+
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]?.Key).toMatch(
+      /^uploads\/dave\/swed2\/[0-9a-f-]{36}\.csv$/,
+    );
+    expect(t.sendMessage.mock.calls[0]?.[1]).toMatch(
+      /Importing into Swedbank savings/,
+    );
+    expect(t.sendMessage.mock.calls[0]?.[2]).toBeUndefined(); // no buttons
+  });
+
+  it('asks when the IBAN is not one of the user’s accounts', async () => {
+    const { buttons } = await sendAndGetButtons(
+      'dave',
+      swedbankCsv('LT999999999999999999'),
+    );
+    expect(buttons).toHaveLength(2);
+    expect(puts()).toEqual([]);
+  });
+
+  it('asks when the file names more than one owned account', async () => {
+    const { buttons } = await sendAndGetButtons(
+      'dave',
+      swedbankCsv(SWED_IBAN, SWED_OTHER),
+    );
+    expect(buttons).toHaveLength(2);
+    expect(puts()).toEqual([]);
+  });
+
+  it('does not auto-select an account of another bank with that IBAN', async () => {
+    // bob owns revolut accounts only; a Swedbank-looking file must still ask.
+    const { buttons } = await sendAndGetButtons(
+      'bob',
+      swedbankCsv('LT200000000000000001'),
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(puts()).toEqual([]);
+  });
+});
+
+describe('swedbankIbans', () => {
+  it('reads each row IBAN once, in order, tolerating a BOM', () => {
+    expect(
+      swedbankIbans(
+        '\uFEFF' +
+          swedbankCsv('LT1AAAAAAAAAA', 'LT2AAAAAAAAAA', 'LT1AAAAAAAAAA'),
+      ),
+    ).toEqual(['LT1AAAAAAAAAA', 'LT2AAAAAAAAAA']);
+  });
+
+  it('is empty for other banks’ files', () => {
+    expect(swedbankIbans(REVOLUT_CSV)).toEqual([]);
+    expect(swedbankIbans(sebCsv(SEB_IBAN))).toEqual([]);
   });
 });
 

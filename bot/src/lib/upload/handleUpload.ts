@@ -10,6 +10,7 @@ import { isCsvDocument, MAX_STATEMENT_BYTES } from './files';
 import { isPreconditionFailed, statementObjectKey } from './objectKey';
 import { createPendingUploads } from './pendingUploads';
 import { sebTitleIbans } from './sebHeader';
+import { swedbankIbans } from './swedbankHeader';
 
 export interface UploadDeps {
   client: RDSDataClient;
@@ -91,11 +92,16 @@ export async function handleDocument(
     return;
   }
 
-  // An SEB export names its account in the title line: use it when it points
-  // at exactly one account the user owns, otherwise ask.
-  const titleIbans = sebTitleIbans(new TextDecoder().decode(bytes));
+  // An SEB export names its account in the title line and a Swedbank export on
+  // every row: use it when it points at exactly one account of that bank the
+  // user owns, otherwise ask.
+  const text = new TextDecoder().decode(bytes);
+  const sebIbans = sebTitleIbans(text);
+  const swedbank = swedbankIbans(text);
   const matches = ownAccounts.filter(
-    (a) => a.bank === 'seb' && titleIbans.includes(a.iban),
+    (a) =>
+      (a.bank === 'seb' && sebIbans.includes(a.iban)) ||
+      (a.bank === 'swedbank' && swedbank.includes(a.iban)),
   );
   const pending = createPendingUploads(deps.client, deps.config, sub);
   const base = {

@@ -7,6 +7,7 @@ import {
   escapeHtml,
   formatAccountList,
   formatCoverage,
+  bankName,
   maskIban,
 } from './format';
 
@@ -28,6 +29,13 @@ const coverage = (over: Partial<Coverage>): Coverage => ({
   reconciledUpTo: null,
   connectsToOpening: 'unknown',
   ...over,
+});
+
+describe('bankName', () => {
+  it('names Swedbank and falls back to the raw id', () => {
+    expect(bankName('swedbank')).toBe('Swedbank');
+    expect(bankName('other')).toBe('other');
+  });
 });
 
 describe('maskIban', () => {
