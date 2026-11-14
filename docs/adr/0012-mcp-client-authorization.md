@@ -72,7 +72,7 @@ Cognito. It is not a full OAuth proxy.
   MCP API is reachable only on `mcp.draupnir.nodm.name`. Moving the other APIs to
   `draupnir.nodm.name` is a separate change.
 
-### Note, 2026-11-14 ([harden-mcp-oauth-endpoints](../../openspec/changes/harden-mcp-oauth-endpoints/design.md))
+### Note, 2026-11-14 ([harden-mcp-oauth-endpoints](../../openspec/changes/archive/2026-11-14-harden-mcp-oauth-endpoints/design.md))
 
 - **Loopback registration is dropped.** `/register` accepts only the claude.ai and claude.com
   callbacks. Any `http` loopback callback on any port created a new client, so anonymous callers
