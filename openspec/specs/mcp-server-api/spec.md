@@ -9,12 +9,12 @@ MCP tools/resources being implemented on top of it.
 
 ## Requirements
 
-### Requirement: MCP API requires the same Cognito authorizer as ingestion
+### Requirement: MCP API requires a Cognito authorizer on the user pool
 The `mcp` REST API SHALL attach a `COGNITO_USER_POOLS` authorizer backed by the
-same Cognito user pool `ingestion` uses, and SHALL accept an OAuth **access
-token** issued by that pool (the token MCP clients send). A request without a
-valid access token SHALL be rejected before reaching the Lambda handler with a
-`401` carrying the discovery challenge defined by `mcp-oauth-discovery`.
+stack's Cognito user pool, and SHALL accept an OAuth **access token** issued by
+that pool (the token MCP clients send). A request without a valid access token
+SHALL be rejected before reaching the Lambda handler with a `401` carrying the
+discovery challenge defined by `mcp-oauth-discovery`.
 
 #### Scenario: Request with a valid token issued by the shared pool is authorized
 - **WHEN** a request to the MCP endpoint carries a valid access token issued by the

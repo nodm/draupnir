@@ -63,35 +63,13 @@ the token's `sub` and `email` claims available to it.
 - **THEN** the handler executes and can read the token's `sub` and `email`
   claims
 
-### Requirement: Authenticated identity is retrievable via a whoami endpoint
+### Requirement: Only the MCP API accepts the user pool's bearer tokens
+The MCP API SHALL be the only API of the stack that accepts a bearer token issued by the user pool. It accepts access tokens only. Any other route that receives a user pool token SHALL verify that the token was issued to that route's own app client. For example, the Telegram sign-in callback checks the audience of the ID token it gets from its own code exchange. As a result, a token issued to a client that an MCP client registered SHALL grant no access beyond the MCP tools.
 
-The system SHALL expose an authenticated endpoint that returns the caller's
-own identity claims, proving the token-to-claims path end-to-end without
-depending on any user-owned data resource.
+#### Scenario: No other API has a user pool authorizer
+- **WHEN** the stack is built
+- **THEN** exactly one REST API has a Cognito user pool authorizer, and it is the MCP API
 
-#### Scenario: Authenticated whoami request returns caller identity
-
-- **WHEN** an authenticated user makes a request to the whoami endpoint
-- **THEN** the response contains that user's `sub` and `email`, matching the
-  claims from their token
-
-#### Scenario: Unauthenticated whoami request is rejected
-
-- **WHEN** a request to the whoami endpoint is made without a valid token
-- **THEN** the request is rejected before reaching the whoami handler
-
-### Requirement: Every ingestion API method has a default throttle
-The `ingestion` REST API stage SHALL apply a default throttle of 5 requests per
-second with a burst of 10 to every method, sized for its two users. The limit
-SHALL apply to each method separately. A request over the limit SHALL be answered
-`429` by API Gateway before the Cognito authorizer or any handler runs.
-
-#### Scenario: Normal use stays under the limit
-- **WHEN** a signed-in user calls `whoami`, creates an account and requests a few
-  upload URLs in a row
-- **THEN** no request is throttled
-
-#### Scenario: A flood is throttled before authorization
-- **WHEN** requests to an ingestion route, with or without a token, arrive faster
-  than 5 per second beyond a burst of 10
-- **THEN** the excess requests are answered `429` and no handler runs for them
+#### Scenario: A registered MCP client's ID token opens nothing
+- **WHEN** an ID token issued to a client registered through the MCP registration endpoint is sent to any route of the stack
+- **THEN** the route refuses it: the MCP endpoint refuses ID tokens, and no other route accepts tokens issued to that client
