@@ -1,6 +1,6 @@
 // How long every Lambda function's CloudWatch log group keeps events. Without
 // a managed group, Lambda's auto-created one never expires. See
-// openspec/changes/set-lambda-log-retention/design.md (decisions 1-3).
+// openspec/changes/archive/2026-11-14-set-lambda-log-retention/design.md (decisions 1-3).
 
 export const LOG_RETENTION_CONFIG_KEY = 'draupnir-infra:logRetentionDays';
 export const DEFAULT_LOG_RETENTION_DAYS = 30;

@@ -178,7 +178,7 @@ any function without one.
 
 Log format is plain text with no level filtering. JSON format with a WARN level
 was considered and deferred; see
-[the change's design](../openspec/changes/set-lambda-log-retention/design.md),
+[the change's design](../openspec/changes/archive/2026-11-14-set-lambda-log-retention/design.md),
 decision 5.
 
 ### One-off cleanup of the old log groups

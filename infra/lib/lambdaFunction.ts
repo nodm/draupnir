@@ -6,7 +6,7 @@ import { logRetentionDays } from './logRetention';
 // log group, owned by the stack and with the configured retention, so no
 // function falls back to Lambda's auto-created group that never expires.
 // guardrails.spec.ts fails for any function without one. See
-// openspec/changes/set-lambda-log-retention/design.md (decisions 1-4).
+// openspec/changes/archive/2026-11-14-set-lambda-log-retention/design.md (decisions 1-4).
 export function createLambdaFunction(
   name: string,
   args: Omit<aws.lambda.FunctionArgs, 'loggingConfig'>,
