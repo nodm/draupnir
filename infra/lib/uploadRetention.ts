@@ -1,7 +1,7 @@
 // How long the uploads bucket keeps an uploaded statement file. Nothing reads
 // an upload after its outcome is committed; the only later reader is a redrive
 // from the ingestion DLQ, so an upload must outlive its dead-letter message.
-// See openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md
+// See openspec/changes/archive/2026-11-14-expire-uploads-and-enforce-size-at-s3/design.md
 // (decisions 1-3).
 
 export const UPLOAD_RETENTION_CONFIG_KEY = 'draupnir-infra:uploadRetentionDays';
