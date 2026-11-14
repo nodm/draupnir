@@ -43,7 +43,7 @@ the creator becomes an owner in the same step. Written by `createAccount` in `sh
 | Column                        | Type        | Null | Notes                                                      |
 | ----------------------------- | ----------- | ---- | ---------------------------------------------------------- |
 | `id`                          | text        | no   | Primary key.                                               |
-| `bank`                        | text        | no   | `seb`, `revolut` or `monobank` (check constraint).         |
+| `bank`                        | text        | no   | `seb`, `revolut`, `monobank` or `swedbank` (check constraint). |
 | `iban`                        | text        | no   | Unique across all accounts, canonical form (no spaces).    |
 | `currency`                    | text        | no   | Account currency, ISO 4217 code.                           |
 | `display_name`                | text        | no   | The name the owner gave it, up to 60 characters in chat.   |
@@ -137,7 +137,7 @@ Every CSV row as received, so transactions can be re-derived without the origina
 | `row_number`          | integer | no   | 1-based position in the data rows of the file.                  |
 | `bank`                | text    | no   |                                                                 |
 | `format_version`      | text    | no   | For example `seb-v1`.                                           |
-| `bank_transaction_id` | text    | yes  | The bank's own id, when the format has one (SEB does).          |
+| `bank_transaction_id` | text    | yes  | The bank's own id, when the format has one (SEB, Swedbank do). |
 | `payload`             | jsonb   | no   | The whole row, header name to string value, exactly as written. |
 
 - Unique `(file_id, row_number)` and `(id, account_id)`; index on `account_id`.
@@ -159,7 +159,7 @@ The common, derived, rebuildable layer: what queries and the assistant use.
 | `description`                 | text        | no   | Normalized (trimmed, lower-cased); the original text is in `raw_rows.payload`.    |
 | `fee_minor_units`             | bigint      | no   | Default 0.                                                                        |
 | `balance_after_minor_units`   | bigint      | yes  | Only when the bank gives a running balance.                                       |
-| `dedup_key`                   | text        | no   | `seb:<bank id>` where the bank has an id, otherwise a hash plus occurrence index. |
+| `dedup_key`                   | text        | no   | `seb:<bank id>` / `swedbank:<record no.>` where the bank has an id, otherwise a hash plus occurrence index. |
 | `original_currency`           | text        | yes  | Foreign-currency details; set together with `original_amount_minor_units`.        |
 | `original_amount_minor_units` | bigint      | yes  |                                                                                   |
 | `fx_fee_minor_units`          | bigint      | yes  | Set together with `fx_fee_percent`.                                               |
