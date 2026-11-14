@@ -5,6 +5,7 @@ import type { AuthPool } from './cognito';
 import { BOT_WORKER_TIMEOUT_SECONDS, type BotQueues } from './botQueues';
 import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
+import { createLambdaFunction } from './lambdaFunction';
 import {
   LAMBDA_ASSUME_ROLE_POLICY,
   LAMBDA_BASIC_EXECUTION_POLICY_ARN,
@@ -219,7 +220,7 @@ export function createBot(provider: aws.Provider, inputs: BotInputs): Bot {
       afterMigrations?: boolean;
     },
   ) =>
-    new aws.lambda.Function(
+    createLambdaFunction(
       name,
       {
         role: role.arn,

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import {
   LAMBDA_ASSUME_ROLE_POLICY,
@@ -71,7 +72,7 @@ export function createDatabaseMigrations(
   );
 
   // No VPC: reaches Aurora only through RDS Data API (ADR-0003).
-  const migrateFunction = new aws.lambda.Function(
+  const migrateFunction = createLambdaFunction(
     'migrate-database',
     {
       role: role.arn,

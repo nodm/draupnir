@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 import type { AuthPool } from './cognito';
 import { dataApiPolicyStatements, type DbConfig } from './ingestionPipeline';
 import {
@@ -142,7 +143,7 @@ export function createMcpApi(
     },
     withProvider,
   );
-  const oauthFunction = new aws.lambda.Function(
+  const oauthFunction = createLambdaFunction(
     'mcp-oauth',
     {
       role: oauthRole.arn,

@@ -7,7 +7,9 @@ import * as pulumi from '@pulumi/pulumi';
 //   equals AWS's unreserved floor, so none could be set);
 // - API throttles (mcp-server-api, mcp-oauth-discovery, user-authentication):
 //   every REST API stage has a `*/*` default, the MCP token and register
-//   overrides stay, and the MCP API is served only on its custom domain.
+//   overrides stay, and the MCP API is served only on its custom domain;
+// - log retention (cost-guardrails spec): every function writes to its own
+//   stack-owned log group with the configured retention (default 30 days).
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -218,5 +220,53 @@ describe('API guardrails', () => {
     const triggers = deployment?.inputs['triggers'] as Record<string, string>;
     const hashed = JSON.parse(triggers['redeployment'] as string) as unknown[];
     expect(hashed.at(-1)).toBe(true);
+  });
+});
+
+describe('log retention guardrails', () => {
+  const functions = () => named('aws:lambda/function:Function');
+  const logGroups = () => named('aws:cloudwatch/logGroup:LogGroup');
+
+  it('knows every function in the program', () => {
+    expect(
+      functions()
+        .map((f) => f.name)
+        .sort(),
+    ).toEqual(
+      [
+        'accounts',
+        'bot-callback',
+        'bot-retention',
+        'bot-webhook',
+        'bot-worker',
+        'ingest',
+        'mcp',
+        'mcp-oauth',
+        'migrate-database',
+        'pre-sign-up-trigger',
+        'presigned-upload',
+        'rebuild-account',
+        'whoami',
+      ].sort(),
+    );
+  });
+
+  // Any function, however it is constructed, must point at a managed group:
+  // otherwise Lambda creates /aws/lambda/<name> with retention "Never expire".
+  it('sends every function’s logs to its own group with 30-day retention', () => {
+    for (const f of functions()) {
+      const expected = `/aws/lambda/draupnir/prod/${f.name}`;
+      expect(f.inputs['loggingConfig'], f.name).toEqual({
+        logFormat: 'Text',
+        logGroup: expected,
+      });
+      const group = logGroups().find((g) => g.inputs['name'] === expected);
+      expect(group, expected).toBeDefined();
+      expect(group?.inputs['retentionInDays'], expected).toBe(30);
+    }
+  });
+
+  it('creates no log group that is not a function’s', () => {
+    expect(logGroups()).toHaveLength(functions().length);
   });
 });

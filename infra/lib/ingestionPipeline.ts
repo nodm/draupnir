@@ -1,5 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import { createLambdaFunction } from './lambdaFunction';
 import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
 
 const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
@@ -185,7 +186,7 @@ export function createIngestionPipeline(
     withProvider,
   );
 
-  const ingestFunction = new aws.lambda.Function(
+  const ingestFunction = createLambdaFunction(
     'ingest',
     {
       role: role.arn,
@@ -232,7 +233,7 @@ export function createIngestionPipeline(
     withProvider,
   );
 
-  const rebuildFunction = new aws.lambda.Function(
+  const rebuildFunction = createLambdaFunction(
     'rebuild-account',
     {
       role: rebuildRole.arn,

@@ -232,9 +232,10 @@ If the immediate deletion of a statement fails, the scheduled run tries once mor
 
 ## Troubleshooting
 
-Find a function's log group with
-`aws lambda list-functions --query "Functions[?starts_with(FunctionName,'bot-')].FunctionName" --output text`,
-then `aws logs tail /aws/lambda/<name> --since 1h`.
+Each function logs to `/aws/lambda/draupnir/prod/<function>`, kept for 30 days
+(`infra/README.md`, Log retention): for example
+`aws logs tail /aws/lambda/draupnir/prod/bot-webhook --since 1h`, with `bot-callback`,
+`bot-worker` or `bot-retention` in place of `bot-webhook`.
 
 | Symptom                                         | Likely cause and check                                                                                                                                                                       |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

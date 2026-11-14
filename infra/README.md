@@ -90,6 +90,8 @@ pnpm exec nx run bot:set-webhook      # `bot:delete-webhook` undoes it
 `callbackUrl`/`logoutUrl` are optional (`pulumi config set callbackUrl "..."`)
 and default to `localhost` values meant for local client development.
 
+`logRetentionDays` is optional and defaults to 30; see [Log retention](#log-retention).
+
 ## Deploying
 
 Use the Nx targets, not bare `pulumi preview`/`pulumi up` — the Pulumi program
@@ -146,3 +148,59 @@ Not used: AWS WAF. A web ACL with a rate-based rule could limit each IP
 separately, so one caller couldn't use up a method's limit for everyone, but it
 has its own monthly charge plus per-rule and per-request charges. It is the next
 step if a flood ever locks the users out.
+
+## Log retention
+
+Every Lambda function writes to its own log group, created by this stack with a
+retention period, so logs are never kept forever (Lambda's auto-created
+`/aws/lambda/<function-name>` groups never expire). The groups are named
+`/aws/lambda/draupnir/<stack>/<function>`, using the function's Pulumi name
+rather than its random-suffixed physical name:
+
+```bash
+aws logs tail /aws/lambda/draupnir/prod/bot-worker --since 1h
+aws logs describe-log-groups --log-group-name-prefix /aws/lambda/draupnir/prod/ \
+  --query 'logGroups[].[logGroupName,retentionInDays]' --output table
+```
+
+The retention comes from `logRetentionDays` (default 30 days):
+
+```bash
+pulumi config set logRetentionDays 14
+```
+
+It must be a period CloudWatch Logs accepts: 1, 3, 5, 7, 14, 30, 60, 90, 120,
+150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288 or 3653. Any
+other value (including 0, "never expire") fails `infra:preview`. Changing it
+updates the groups in place. New functions get a group automatically through
+`createLambdaFunction` (`lib/lambdaFunction.ts`); a guardrail test fails for
+any function without one.
+
+Log format is plain text with no level filtering. JSON format with a WARN level
+was considered and deferred; see
+[the change's design](../openspec/changes/archive/2026-11-14-set-lambda-log-retention/design.md),
+decision 5.
+
+### One-off cleanup of the old log groups
+
+After the first deploy with managed log groups, the old auto-created groups stop
+receiving events but keep everything they hold, forever. Once new events show up
+in the `/aws/lambda/draupnir/prod/` groups, delete the old groups of this
+stack's functions. Take the names from the stack state, never from a prefix,
+because the account may hold other functions' groups. Run from `infra/`, review
+the printed list, then replace `echo` with the delete command:
+
+```bash
+for fn in $(pulumi stack export | jq -r '.deployment.resources[]
+    | select(.type == "aws:lambda/function:Function") | .outputs.name'); do
+  group="/aws/lambda/$fn"
+  aws logs describe-log-groups --log-group-name-prefix "$group" \
+    --query "logGroups[?logGroupName=='$group'].logGroupName" --output text | grep -q . \
+    && echo aws logs delete-log-group --log-group-name "$group"
+done
+```
+
+To keep the last month of history instead, run
+`aws logs put-retention-policy --log-group-name "$group" --retention-in-days 30`
+on each, and delete the emptied groups later. The loop prints nothing once the
+cleanup is done.
