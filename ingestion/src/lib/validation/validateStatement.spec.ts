@@ -515,9 +515,9 @@ describe('validateStatementFile — PrivatBank', () => {
   });
 
   it("rejects another bank's export", () => {
-    expect(
-      reasons(validateStatementFile('monobank', uah, IBAN))[0]?.code,
-    ).toBe('unrecognized-format');
+    expect(reasons(validateStatementFile('monobank', uah, IBAN))[0]?.code).toBe(
+      'unrecognized-format',
+    );
   });
 
   it('rejects a bad amount, naming the row', () => {
@@ -586,5 +586,39 @@ describe('validateStatementFile — PrivatBank', () => {
       reasons(validateStatementFile('privatbank', join(swapped), IBAN))[0]
         ?.code,
     ).toBe('balance-chain-broken');
+  });
+
+  it.each(['24:00:00', '12:60:00', '12:00:60'])(
+    'rejects an out-of-range time %s',
+    (time) => {
+      const csv = uah.replace('26.10.2026 09:04:41', `26.10.2026 ${time}`);
+
+      expect(
+        reasons(validateStatementFile('privatbank', csv, IBAN))[0]?.message,
+      ).toContain('Дата');
+    },
+  );
+
+  it('rejects a negative transaction-currency amount', () => {
+    const csv = uah.replace(';25000;UAH;57015,18', ';-25000;UAH;57015,18');
+    const result = reasons(validateStatementFile('privatbank', csv, IBAN));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        row: 1,
+        message: expect.stringContaining('Сума в валюті транзакції'),
+      }),
+    ]);
+  });
+
+  it('rejects extra metadata in the title line', () => {
+    const csv = uah.replace(
+      '05.11.2026;;;;;;;;;',
+      '05.11.2026;unexpected;;;;;;;;',
+    );
+
+    expect(
+      reasons(validateStatementFile('privatbank', csv, IBAN))[0]?.code,
+    ).toBe('unrecognized-format');
   });
 });

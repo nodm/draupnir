@@ -48,7 +48,11 @@ const decimal = (value: string): number => parseFloat(value.replace(',', '.'));
 export function readPrivatbankTable(fileContents: string): Table {
   const lines = parseCsv(fileContents.replace(/^\uFEFF/, ''), ';');
   const [title, headers, ...rows] = lines;
-  if (!title || !PRIVATBANK_TITLE.test((title[0] ?? '').trim())) {
+  if (
+    !title ||
+    !PRIVATBANK_TITLE.test((title[0] ?? '').trim()) ||
+    title.slice(1).some((cell) => cell.trim() !== '')
+  ) {
     throw new UnrecognizedFormatError('missing PrivatBank period title line');
   }
   if (!headers) {

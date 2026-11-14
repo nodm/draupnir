@@ -382,6 +382,11 @@ const commaMoney = (label: string) =>
     .string()
     .regex(/^-?\d+(,\d+)?$/, `${label} must be a decimal like 12,50`)
     .refine(isSafeAmount, `${label} is out of range`);
+const unsignedCommaMoney = (label: string) =>
+  z
+    .string()
+    .regex(/^\d+(,\d+)?$/, `${label} must be a non-negative decimal like 12,50`)
+    .refine(isSafeAmount, `${label} is out of range`);
 const currencyCode = (label: string) =>
   z.string().regex(/^[A-Z]{3}$/, `${label} must be a currency code`);
 
@@ -390,8 +395,8 @@ const privatbankRow = z
     Дата: z
       .string()
       .regex(
-        /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}$/,
-        'Дата must be DD.MM.YYYY HH:MM:SS',
+        /^\d{2}\.\d{2}\.\d{4} ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/,
+        'Дата must be DD.MM.YYYY HH:MM:SS with a valid time',
       )
       .refine(isRealDottedDatePart, `Дата ${NOT_A_DATE}`),
     Категорія: z.string(),
@@ -399,7 +404,7 @@ const privatbankRow = z
     'Опис операції': z.string(),
     'Сума в валюті картки': commaMoney('Сума в валюті картки'),
     'Валюта картки': currencyCode('Валюта картки'),
-    'Сума в валюті транзакції': commaMoney('Сума в валюті транзакції'),
+    'Сума в валюті транзакції': unsignedCommaMoney('Сума в валюті транзакції'),
     'Валюта транзакції': currencyCode('Валюта транзакції'),
     'Залишок на кінець періоду': commaMoney('Залишок на кінець періоду'),
     'Валюта залишку': currencyCode('Валюта залишку'),
