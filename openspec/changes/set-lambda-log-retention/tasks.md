@@ -31,6 +31,6 @@
 ## 6. Deploy and one-off cleanup (manual, by the maintainer)
 
 - [x] 6.1 Re-read `AWSLambdaBasicExecutionRole` (`aws iam get-policy-version`, design.md Decision 1) and confirm that the log actions are allowed on `Resource: "*"`. If they are not, add a scoped log policy in `createLambdaFunction` before deploying.
-- [ ] 6.2 Run `pnpm exec nx run infra:preview` and confirm 13 LogGroup creates and 13 Function in-place updates, with no replacements. Then run `pnpm exec nx run infra:up`.
-- [ ] 6.3 Exercise the bot and the API, then confirm with `aws logs describe-log-groups --log-group-name-prefix /aws/lambda/draupnir/prod/` that there are 13 groups with retention 30 and that new events arrive (for example, `aws logs tail /aws/lambda/draupnir/prod/bot-webhook --since 10m`).
-- [ ] 6.4 Run the cleanup loop from design.md (Migration Plan step 4) with `echo`, review the 13 old `/aws/lambda/<physical-name>` groups, then delete them (or set their retention to 30 to keep recent history). Verify that the loop then prints nothing.
+- [x] 6.2 Run `pnpm exec nx run infra:preview` and confirm 13 LogGroup creates and 13 Function in-place updates, with no replacements. Then run `pnpm exec nx run infra:up`.
+- [x] 6.3 Exercise the bot and the API, then confirm with `aws logs describe-log-groups --log-group-name-prefix /aws/lambda/draupnir/prod/` that there are 13 groups with retention 30 and that new events arrive (for example, `aws logs tail /aws/lambda/draupnir/prod/bot-webhook --since 10m`).
+- [x] 6.4 Run the cleanup loop from design.md (Migration Plan step 4) with `echo`, review the 13 old `/aws/lambda/<physical-name>` groups, then delete them (or set their retention to 30 to keep recent history). Verify that the loop then prints nothing.
