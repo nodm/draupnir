@@ -34,6 +34,7 @@ const coverage = (over: Partial<Coverage>): Coverage => ({
 describe('bankName', () => {
   it('names Swedbank and falls back to the raw id', () => {
     expect(bankName('swedbank')).toBe('Swedbank');
+    expect(bankName('privatbank')).toBe('PrivatBank');
     expect(bankName('other')).toBe('other');
   });
 });

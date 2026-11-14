@@ -18,6 +18,7 @@ import { m0017 } from './0017-transactions-indexes';
 import { m0018 } from './0018-account-balances';
 import { m0019 } from './0019-sparse-retention-schedule';
 import { m0020 } from './0020-add-swedbank-bank';
+import { m0021 } from './0021-add-privatbank-bank';
 import type { Migration } from './migration';
 
 // Append-only, ascending by id. Never edit or remove an applied migration.
@@ -42,4 +43,5 @@ export const MIGRATIONS: readonly Migration[] = [
   m0018,
   m0019,
   m0020,
+  m0021,
 ];

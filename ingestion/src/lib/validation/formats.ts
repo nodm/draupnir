@@ -358,11 +358,85 @@ const swedbankV1: FormatVersion = {
   schemaInput: (payload) => payload,
 };
 
+// ---- PrivatBank ----
+
+// Line 1 of the export is a title stating the period; line 2 is this header.
+export const PRIVATBANK_HEADERS = [
+  'Дата',
+  'Категорія',
+  'Картка',
+  'Опис операції',
+  'Сума в валюті картки',
+  'Валюта картки',
+  'Сума в валюті транзакції',
+  'Валюта транзакції',
+  'Залишок на кінець періоду',
+  'Валюта залишку',
+] as const;
+
+export const PRIVATBANK_TITLE =
+  /^Історія операцій за період \d{2}\.\d{2}\.\d{4} - \d{2}\.\d{2}\.\d{4}$/;
+
+const commaMoney = (label: string) =>
+  z
+    .string()
+    .regex(/^-?\d+(,\d+)?$/, `${label} must be a decimal like 12,50`)
+    .refine(isSafeAmount, `${label} is out of range`);
+const unsignedCommaMoney = (label: string) =>
+  z
+    .string()
+    .regex(/^\d+(,\d+)?$/, `${label} must be a non-negative decimal like 12,50`)
+    .refine(isSafeAmount, `${label} is out of range`);
+const currencyCode = (label: string) =>
+  z.string().regex(/^[A-Z]{3}$/, `${label} must be a currency code`);
+
+const privatbankRow = z
+  .object({
+    Дата: z
+      .string()
+      .regex(
+        /^\d{2}\.\d{2}\.\d{4} ([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/,
+        'Дата must be DD.MM.YYYY HH:MM:SS with a valid time',
+      )
+      .refine(isRealDottedDatePart, `Дата ${NOT_A_DATE}`),
+    Категорія: z.string(),
+    Картка: nonEmpty('Картка'),
+    'Опис операції': z.string(),
+    'Сума в валюті картки': commaMoney('Сума в валюті картки'),
+    'Валюта картки': currencyCode('Валюта картки'),
+    'Сума в валюті транзакції': unsignedCommaMoney('Сума в валюті транзакції'),
+    'Валюта транзакції': currencyCode('Валюта транзакції'),
+    'Залишок на кінець періоду': commaMoney('Залишок на кінець періоду'),
+    'Валюта залишку': currencyCode('Валюта залишку'),
+  })
+  .superRefine((row, ctx) => {
+    // The balance chain is kept in the card currency.
+    if (row['Валюта залишку'] !== row['Валюта картки']) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['Валюта залишку'],
+        message: 'Валюта залишку must equal Валюта картки',
+      });
+    }
+  });
+
+const privatbankV1: FormatVersion = {
+  bank: 'privatbank',
+  version: 'privatbank-v1',
+  delimiter: ';',
+  matchesHeaders: (headers) =>
+    headers.length === PRIVATBANK_HEADERS.length &&
+    PRIVATBANK_HEADERS.every((h, i) => headers[i] === h),
+  rowSchema: privatbankRow,
+  schemaInput: (payload) => payload,
+};
+
 const FORMATS: Record<Bank, readonly FormatVersion[]> = {
   seb: [sebV1],
   revolut: [revolutV1],
   monobank: [monobankV1],
   swedbank: [swedbankV1],
+  privatbank: [privatbankV1],
 };
 
 export function detectFormat(
