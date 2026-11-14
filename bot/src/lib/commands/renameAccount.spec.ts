@@ -112,6 +112,7 @@ function user(sub: string, opts: { failSendTo?: number } = {}) {
     return found.callback_data;
   };
   return {
+    ctx,
     to,
     lastText,
     button,
@@ -127,6 +128,29 @@ const link = (sub: string, telegramUserId: number) =>
   );
 
 describe('/renameaccount', () => {
+  it('still renames, and says so, when the member lookup fails', async () => {
+    await world({ second: false });
+    const real = deps.client;
+    const failing = {
+      ...deps,
+      client: {
+        send: (command: { input?: { sql?: string } }) =>
+          command.input?.sql?.includes(
+            'SELECT user_id, role FROM account_members',
+          )
+            ? Promise.reject(new Error('db down'))
+            : real.send(command as never),
+      } as unknown as typeof real,
+    };
+    const alice = user('alice');
+    await createRenameHandler(failing)(alice.ctx, '');
+    await handleRenameText(alice.ctx, 'Salary', failing);
+
+    expect(await nameOf('a1')).toBe('Salary');
+    expect(alice.lastText()).toMatch(/Renamed "Main" to "Salary"\./);
+    expect(alice.lastText()).toMatch(/member lookup failed/);
+  });
+
   it('lets an owner of several accounts pick one and rename it, telling a linked viewer', async () => {
     await world();
     await link('bob', 2201);

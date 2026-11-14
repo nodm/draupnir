@@ -101,11 +101,14 @@ async function notifyMembers(
   oldName: string,
   newName: string,
 ): Promise<string> {
-  const members = (
-    await listMembers(deps.client, deps.config, ctx.sub, accountId).catch(
-      () => [],
-    )
-  ).filter((m) => m.userId !== ctx.sub);
+  let members;
+  try {
+    members = (
+      await listMembers(deps.client, deps.config, ctx.sub, accountId)
+    ).filter((m) => m.userId !== ctx.sub);
+  } catch {
+    return ' Other members could not be notified (member lookup failed).';
+  }
   if (members.length === 0) return '';
   const text = `${await whoIs(ctx, deps.directory)} renamed the account "${oldName}" to "${newName}".`;
   const results: Tell[] = [];
