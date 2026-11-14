@@ -19,4 +19,4 @@
 
 - [x] 4.1 Update `docs/telegram-bot.md` if it shows sample `/accounts` or `/coverage` output; verify with `grep -n "Reconciled up to" docs` that no stale sample remains
 - [x] 4.2 Run `pnpm exec nx run-many -t lint test -p bot` plus `tsc --noEmit` on `bot/tsconfig.lib.json` and `bot/tsconfig.spec.json` (bot has no typecheck target) and `pnpm exec openspec validate format-account-replies --strict`; both pass
-- [ ] 4.3 After deploy, send `/accounts` and `/coverage` from a real phone and check bold names, monospace IBAN/dates, and a blank line between accounts
+- [x] 4.3 After deploy, send `/accounts` and `/coverage` from a real phone and check bold names, monospace IBAN/dates, and a blank line between accounts
