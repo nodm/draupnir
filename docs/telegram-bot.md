@@ -179,14 +179,14 @@ last 10 minutes. `/unlink` disconnects the chat again (you must link again to us
 
 ### Accounts
 
-| Command       | What it does                                                                                                                     |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `/accounts`   | Lists your accounts: bank, last 4 characters of the IBAN, currency, your role, and the date its history is reconciled up to.     |
-| `/newaccount` | Asks bank (buttons), IBAN, currency, name, the date you know the balance, and that balance, then a summary to confirm.           |
-| `/coverage`   | Imported periods, gaps, and the "reconciled up to" date for an account (asks which one if you have several).                     |
-| `/share`      | Owners only. Pick the account, send the person's Google email, pick **viewer** (read) or **owner**. They are told in their chat. |
-| `/unshare`    | Owners only. Pick the account, then the person to remove (you can remove yourself if another owner remains). They are told.      |
-| `/cancel`     | Abandons the question the bot is asking. Questions also lapse after an hour with no answer.                                      |
+| Command       | What it does                                                                                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/accounts`   | Lists your accounts: bank, last 4 characters of the IBAN, currency, your role, its balance, and the date its history is reconciled up to. |
+| `/newaccount` | Asks bank (buttons), IBAN, currency, name, the date you know the balance, and that balance, then a summary to confirm.                    |
+| `/coverage`   | Imported periods, gaps, and the "reconciled up to" date for an account (asks which one if you have several).                              |
+| `/share`      | Owners only. Pick the account, send the person's Google email, pick **viewer** (read) or **owner**. They are told in their chat.          |
+| `/unshare`    | Owners only. Pick the account, then the person to remove (you can remove yourself if another owner remains). They are told.               |
+| `/cancel`     | Abandons the question the bot is asking. Questions also lapse after an hour with no answer.                                               |
 
 Notes:
 

@@ -17,6 +17,9 @@ const account: MemberAccount = {
   currency: 'EUR',
   displayName: 'SEB main',
   role: 'owner',
+  balanceMinorUnits: 106950,
+  balanceAsOf: '2026-08-29',
+  balanceReconciled: true,
 };
 
 const coverage = (over: Partial<Coverage>): Coverage => ({
@@ -59,16 +62,39 @@ describe('formatAccountList', () => {
         [
           '<b>1. SEB main</b> (owner)',
           'SEB · <code>…1000</code> · EUR',
+          'Balance <code>1069.50 EUR</code> as of <code>2026-08-29</code>',
           'Reconciled up to <code>2026-03-31</code>',
         ].join('\n'),
         [
           '<b>2. Other</b> (viewer)',
           'SEB · <code>…1000</code> · EUR',
+          'Balance <code>1069.50 EUR</code> as of <code>2026-08-29</code>',
           'Not reconciled yet',
         ].join('\n'),
       ].join('\n\n'),
     );
     expect(text).not.toContain('LT12');
+  });
+
+  it('formats balance by currency, sign and reconciled flag', () => {
+    const text = formatAccountList([
+      {
+        account: { ...account, currency: 'JPY', balanceMinorUnits: 1500 },
+        reconciledUpTo: null,
+      },
+      {
+        account: {
+          ...account,
+          balanceMinorUnits: -2000,
+          balanceReconciled: false,
+        },
+        reconciledUpTo: null,
+      },
+    ]);
+    expect(text).toContain('Balance <code>1500 JPY</code> as of');
+    expect(text).toContain(
+      'Balance <code>-20.00 EUR</code> as of <code>2026-08-29</code> (not reconciled)',
+    );
   });
 
   it('shows markup characters in a name literally', () => {

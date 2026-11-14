@@ -1,4 +1,4 @@
-import type { Coverage } from 'shared';
+import { formatMinorUnits, type Coverage } from 'shared';
 import type { MemberAccount } from '../memberAccounts';
 
 const BANK_NAMES: Record<string, string> = {
@@ -21,6 +21,11 @@ export const bankName = (bank: string): string => BANK_NAMES[bank] ?? bank;
 // Only the last 4 characters: enough to tell accounts apart, not enough to
 // leave a full IBAN sitting in the chat.
 export const maskIban = (iban: string): string => `…${iban.slice(-4)}`;
+
+export const formatBalance = (account: MemberAccount): string =>
+  `Balance ${code(`${formatMinorUnits(account.balanceMinorUnits, account.currency)} ${account.currency}`)} as of ${code(account.balanceAsOf)}${
+    account.balanceReconciled ? '' : ' (not reconciled)'
+  }`;
 
 export const accountLabel = (account: MemberAccount): string =>
   `${account.displayName} (${maskIban(account.iban)})`;
@@ -54,6 +59,7 @@ export function formatAccountList(all: AccountSummary[]): string {
         code(maskIban(account.iban)),
         escapeHtml(account.currency),
       ].join(' · '),
+      formatBalance(account),
       reconciledUpTo
         ? `Reconciled up to ${code(reconciledUpTo)}`
         : 'Not reconciled yet',
