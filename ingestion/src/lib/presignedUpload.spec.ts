@@ -1,13 +1,8 @@
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { S3Client } from '@aws-sdk/client-s3';
 import { AccountNotFoundError, createPresignedUpload } from './presignedUpload';
 import { UnauthenticatedError } from './auth';
 import type { DataApiConfig } from 'shared';
-
-vi.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: vi.fn(),
-}));
 
 const dataApiConfig: DataApiConfig = {
   resourceArn: 'arn:aws:rds:eu-north-1:123:cluster:test',
@@ -43,15 +38,26 @@ function rowsResponse(rows: unknown[]) {
   return { formattedRecords: JSON.stringify(rows) };
 }
 
-const s3Client = {} as S3Client;
+// The real signer, offline: static fake credentials and a fixed region, so the
+// test checks the policy S3 will enforce rather than arguments to a mock.
+const s3Client = new S3Client({
+  region: 'eu-north-1',
+  credentials: { accessKeyId: 'AKIDTEST', secretAccessKey: 'secret' },
+});
+
+type PolicyCondition = Record<string, string> | (string | number)[];
+
+function decodePolicy(fields: Record<string, string>): {
+  expiration: string;
+  conditions: PolicyCondition[];
+} {
+  return JSON.parse(
+    Buffer.from(fields['Policy'] as string, 'base64').toString('utf8'),
+  );
+}
 
 describe('createPresignedUpload', () => {
-  beforeEach(() => {
-    vi.mocked(getSignedUrl).mockReset();
-    vi.mocked(getSignedUrl).mockResolvedValue('https://s3.example/presigned');
-  });
-
-  it('issues a presigned URL scoped to the caller sub and the owned account', async () => {
+  it('issues a presigned POST scoped to the caller sub and the owned account', async () => {
     const send = vi.fn().mockResolvedValue(rowsResponse([{ role: 'owner' }]));
 
     const result = await createPresignedUpload(
@@ -63,9 +69,12 @@ describe('createPresignedUpload', () => {
       { accountId: 'acc-1' },
     );
 
-    expect(result.url).toBe('https://s3.example/presigned');
-    expect(result.key).toMatch(/^uploads\/user-123\/acc-1\/[0-9a-f-]+\.csv$/);
-    expect(result.headers).toEqual({ 'If-None-Match': '*' });
+    expect(Object.keys(result).sort()).toEqual(['fields', 'url']);
+    expect(result.url).toContain('draupnir-uploads');
+    expect(result.fields['key']).toMatch(
+      /^uploads\/user-123\/acc-1\/[0-9a-f-]+\.csv$/,
+    );
+    expect(result.fields['Content-Type']).toBe('text/csv');
 
     const [command] = send.mock.calls[0];
     const params = Object.fromEntries(
@@ -77,12 +86,37 @@ describe('createPresignedUpload', () => {
     expect(params['accountId']).toEqual({ stringValue: 'acc-1' });
     expect(params['userId']).toEqual({ stringValue: 'user-123' });
     expect(command.input.sql).toContain('account_members');
+  });
 
-    const [, putCommand] = vi.mocked(getSignedUrl).mock.calls[0] as [
-      unknown,
-      { input: { IfNoneMatch?: string } },
-    ];
-    expect(putCommand.input.IfNoneMatch).toBe('*');
+  it('signs a policy that limits size, key, content type and lifetime', async () => {
+    const send = vi.fn().mockResolvedValue(rowsResponse([{ role: 'owner' }]));
+    const before = Date.now();
+
+    const { fields } = await createPresignedUpload(
+      fakeDataApiClient(send),
+      dataApiConfig,
+      s3Client,
+      bucketConfig,
+      { sub: 'user-123' },
+      { accountId: 'acc-1' },
+    );
+
+    const policy = decodePolicy(fields);
+    expect(policy.conditions).toContainEqual([
+      'content-length-range',
+      1,
+      10 * 1024 * 1024,
+    ]);
+    expect(policy.conditions).toContainEqual({ key: fields['key'] });
+    expect(policy.conditions).toContainEqual({ bucket: 'draupnir-uploads' });
+    expect(policy.conditions).toContainEqual([
+      'eq',
+      '$Content-Type',
+      'text/csv',
+    ]);
+    const expiresInMs = Date.parse(policy.expiration) - before;
+    expect(expiresInMs).toBeGreaterThan(14 * 60 * 1000);
+    expect(expiresInMs).toBeLessThan(16 * 60 * 1000);
   });
 
   it('rejects when the caller has no sub claim', async () => {
@@ -114,7 +148,6 @@ describe('createPresignedUpload', () => {
         { accountId: 'shared-with-me' },
       ),
     ).rejects.toThrow(AccountNotFoundError);
-    expect(getSignedUrl).not.toHaveBeenCalled();
   });
 
   it('rejects an account the caller is not a member of', async () => {
@@ -130,7 +163,6 @@ describe('createPresignedUpload', () => {
         { accountId: 'someone-elses-account' },
       ),
     ).rejects.toThrow(AccountNotFoundError);
-    expect(getSignedUrl).not.toHaveBeenCalled();
   });
 
   it('rejects a nonexistent account', async () => {

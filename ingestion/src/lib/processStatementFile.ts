@@ -10,6 +10,7 @@ import {
   getMemberRole,
   isOutcomeMessage,
   loadSegments,
+  MAX_STATEMENT_BYTES,
   memberPredicate,
   recomputeAccountBalance,
   withCaller,
@@ -33,11 +34,10 @@ import { validateStatementFile } from './validation/validateStatement';
 import { insertRawRows, newId, writeDerivation } from './statementWrites';
 
 // The Lambda buffers the whole object into memory — a bound here keeps an
-// oversized upload from exhausting it. Generous for a CSV bank statement (even
-// a multi-year export is a few MB of text at most), since a presigned PUT URL
-// can't itself carry a size limit the way a presigned POST policy's
-// content-length-range can.
-const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+// oversized object from exhausting it. The presigned POST policy already makes
+// S3 refuse a larger API upload, and the bot refuses one before its PutObject;
+// this check is defence in depth for those and for any other writer.
+const MAX_UPLOAD_SIZE_BYTES = MAX_STATEMENT_BYTES;
 
 // Waiting for another import's account lock must end before Data API's
 // 45-second statement limit; a timeout is an unexpected error (retry → DLQ).

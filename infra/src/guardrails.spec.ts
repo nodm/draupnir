@@ -9,7 +9,10 @@ import * as pulumi from '@pulumi/pulumi';
 //   every REST API stage has a `*/*` default, the MCP token and register
 //   overrides stay, and the MCP API is served only on its custom domain;
 // - log retention (cost-guardrails spec): every function writes to its own
-//   stack-owned log group with the configured retention (default 30 days).
+//   stack-owned log group with the configured retention (default 30 days);
+// - upload retention (statement-raw-storage, statement-ingestion-pipeline):
+//   uploads expire after 30 days, abandoned multipart uploads after 1 day,
+//   and the ingestion DLQ keeps messages for 14 days.
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -125,7 +128,9 @@ beforeAll(async () => {
   });
   // Resources register asynchronously; wait until every one has.
   await pulumi.runtime.disconnect();
-});
+  // Building the whole program takes ~6s alone; well past vitest's 10s hook
+  // default when other projects' tests share a small machine's CPUs.
+}, 60_000);
 
 describe('account concurrency guardrails', () => {
   it('caps every SQS mapping at two concurrent invocations', () => {
@@ -268,5 +273,46 @@ describe('log retention guardrails', () => {
 
   it('creates no log group that is not a function’s', () => {
     expect(logGroups()).toHaveLength(functions().length);
+  });
+});
+
+describe('upload retention guardrails', () => {
+  type Rule = Record<string, unknown>;
+  const lifecycleRules = (): Rule[] => {
+    const configs = named(
+      'aws:s3/bucketLifecycleConfiguration:BucketLifecycleConfiguration',
+    ).filter((c) => c.inputs['bucket'] === 'uploads-id');
+    expect(configs).toHaveLength(1);
+    return (configs[0] as Recorded).inputs['rules'] as Rule[];
+  };
+
+  it('expires uploads after 30 days and noncurrent versions after 1 day', () => {
+    const rule = lifecycleRules().find(
+      (r) =>
+        (r['filter'] as Rule | undefined)?.['prefix'] === 'uploads/' &&
+        r['expiration'] !== undefined,
+    );
+    expect(rule?.['status']).toBe('Enabled');
+    expect(rule?.['expiration']).toEqual({ days: 30 });
+    expect(rule?.['noncurrentVersionExpiration']).toEqual({
+      noncurrentDays: 1,
+    });
+  });
+
+  it('aborts incomplete multipart uploads after 1 day', () => {
+    const rule = lifecycleRules().find(
+      (r) => r['abortIncompleteMultipartUpload'] !== undefined,
+    );
+    expect(rule?.['status']).toBe('Enabled');
+    expect(rule?.['abortIncompleteMultipartUpload']).toEqual({
+      daysAfterInitiation: 1,
+    });
+  });
+
+  it('keeps ingestion dead letters for 14 days, less than the upload retention', () => {
+    const [dlq] = named('aws:sqs/queue:Queue').filter(
+      (q) => q.name === 'ingestion-dlq',
+    );
+    expect(dlq?.inputs['messageRetentionSeconds']).toBe(14 * 24 * 60 * 60);
   });
 });

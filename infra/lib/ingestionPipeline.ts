@@ -2,6 +2,10 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 import { createLambdaFunction } from './lambdaFunction';
 import { QUEUE_MAX_CONCURRENCY } from './concurrencyLimits';
+import {
+  INGESTION_DLQ_RETENTION_DAYS,
+  uploadRetentionDays,
+} from './uploadRetention';
 
 const LAMBDA_ASSUME_ROLE_POLICY = JSON.stringify({
   Version: '2012-10-17',
@@ -94,7 +98,48 @@ export function createIngestionPipeline(
 
   const uploadsBucket = new aws.s3.Bucket('uploads', {}, withProvider);
 
-  const deadLetterQueue = new aws.sqs.Queue('ingestion-dlq', {}, withProvider);
+  // Bounded retention for every uploaded statement, from either upload path.
+  // Nothing reads an upload after its outcome is committed; a DLQ redrive is
+  // the only later reader, so the expiry must outlive the DLQ (enforced by
+  // uploadRetentionDays). Lifecycle deletions are not ObjectCreated events, so
+  // they never reach the ingestion queue. See
+  // openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md (decisions 1-3).
+  new aws.s3.BucketLifecycleConfiguration(
+    'uploads',
+    {
+      bucket: uploadsBucket.id,
+      rules: [
+        {
+          id: 'expire-uploads',
+          status: 'Enabled',
+          filter: { prefix: 'uploads/' },
+          expiration: {
+            days: uploadRetentionDays(
+              new pulumi.Config().get('uploadRetentionDays'),
+            ),
+          },
+          // Inert while versioning is off; keeps retention bounded if it is
+          // ever turned on, when expiration only adds a delete marker.
+          noncurrentVersionExpiration: { noncurrentDays: 1 },
+        },
+        {
+          id: 'abort-incomplete-multipart-uploads',
+          status: 'Enabled',
+          filter: {},
+          abortIncompleteMultipartUpload: { daysAfterInitiation: 1 },
+        },
+      ],
+    },
+    withProvider,
+  );
+
+  // A dead-lettered file stays reprocessable for the whole window; the SQS
+  // default of 4 days is made explicit at the maximum.
+  const deadLetterQueue = new aws.sqs.Queue(
+    'ingestion-dlq',
+    { messageRetentionSeconds: INGESTION_DLQ_RETENTION_DAYS * 24 * 60 * 60 },
+    withProvider,
+  );
 
   const queue = new aws.sqs.Queue(
     'ingestion',

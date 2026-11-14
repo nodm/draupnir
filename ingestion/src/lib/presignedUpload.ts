@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { RDSDataClient } from '@aws-sdk/client-rds-data';
-import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { S3Client } from '@aws-sdk/client-s3';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { requireSub } from './auth';
-import { getMemberRole, type DataApiConfig } from 'shared';
+import { getMemberRole, MAX_STATEMENT_BYTES, type DataApiConfig } from 'shared';
 
-const PRESIGNED_URL_TTL_SECONDS = 900;
+const PRESIGNED_POST_TTL_SECONDS = 900;
+const CONTENT_TYPE = 'text/csv';
 
 export class AccountNotFoundError extends Error {
   constructor() {
@@ -18,13 +19,12 @@ export interface PresignedUploadInput {
   accountId: string;
 }
 
+// A presigned POST: the client sends a multipart/form-data POST to `url` with
+// every entry of `fields` as a form field and the file last, as `file`. The
+// object key is `fields.key`.
 export interface PresignedUpload {
   url: string;
-  key: string;
-  // IfNoneMatch is signed into the URL's SigV4 signature, so the caller's
-  // PUT must send this exact header or S3 rejects it as a signature
-  // mismatch rather than accepting the upload.
-  headers: { 'If-None-Match': string };
+  fields: Record<string, string>;
 }
 
 export interface UploadsBucketConfig {
@@ -63,22 +63,22 @@ export async function createPresignedUpload(
 
   const key = `uploads/${sub}/${input.accountId}/${randomUUID()}.csv`;
 
-  const url = await getSignedUrl(
-    s3Client,
-    new PutObjectCommand({
-      Bucket: bucketConfig.bucket,
-      Key: key,
-      ContentType: 'text/csv',
-      // Each key is a fresh random UUID, so the only way it's ever written
-      // twice is the same presigned URL being replayed within its TTL. A
-      // second write would silently replace the first upload's content
-      // before its S3 notification is processed, losing that file. This
-      // conditional-write header makes S3 reject any PUT to a key that
-      // already exists, turning that race into a client-visible 412 instead.
-      IfNoneMatch: '*',
-    }),
-    { expiresIn: PRESIGNED_URL_TTL_SECONDS },
-  );
+  // The signed policy pins the bucket and exact key (added by the SDK), the
+  // content type, and the size: S3 refuses an empty or oversized file before
+  // storing anything. POST Object has no conditional write, so a replay of this
+  // form within its TTL overwrites the object instead of getting a 412; the
+  // worker still records one outcome per key. See
+  // openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md (decision 5).
+  const { url, fields } = await createPresignedPost(s3Client, {
+    Bucket: bucketConfig.bucket,
+    Key: key,
+    Fields: { 'Content-Type': CONTENT_TYPE },
+    Conditions: [
+      ['content-length-range', 1, MAX_STATEMENT_BYTES],
+      ['eq', '$Content-Type', CONTENT_TYPE],
+    ],
+    Expires: PRESIGNED_POST_TTL_SECONDS,
+  });
 
-  return { url, key, headers: { 'If-None-Match': '*' } };
+  return { url, fields };
 }

@@ -40,6 +40,13 @@ Three storage layers plus membership-based access:
 3. **Derived common table** (`transactions`): rebuildable from raw rows; linked to every
    raw row it came from through `transaction_sources`; unique on `(account_id, dedup_key)`.
 
+> **Amendment (2026-11-14), layer 1:** the original CSV is no longer kept indefinitely.
+> Objects under `uploads/` expire after `uploadRetentionDays` (default 30 days), long
+> enough to inspect a file and to reprocess it from the ingestion DLQ (14-day retention).
+> Raw rows are the durable, lossless record; only the file's exact bytes and its header
+> column order are lost once the object expires, and nothing reads either. See
+> [expire-uploads-and-enforce-size-at-s3](../../openspec/changes/expire-uploads-and-enforce-size-at-s3/design.md).
+
 Access is by `account_members` (`owner` | `viewer`), replacing `owner_user_id` columns and
 `share_grants`. Every account-scoped table carries its own `account_id`, so row-level
 policies are a uniform membership check.

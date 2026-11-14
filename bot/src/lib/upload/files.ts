@@ -1,9 +1,9 @@
 import type { Document } from '@grammyjs/types';
 
 // Telegram lets bots download up to 20 MB; ingestion rejects anything over
-// 10 MB (MAX_UPLOAD_SIZE_BYTES in ingestion), so refuse that here instead of
-// uploading a file the pipeline would throw on.
-export const MAX_STATEMENT_BYTES = 10 * 1024 * 1024;
+// MAX_STATEMENT_BYTES (shared), so refuse that here instead of uploading a file
+// the pipeline would throw on.
+export { MAX_STATEMENT_BYTES } from 'shared';
 
 const CSV_MIME_TYPES = new Set([
   'text/csv',
