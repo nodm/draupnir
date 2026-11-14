@@ -31,6 +31,12 @@ import {
   UNSHARE_ACCOUNT_PREFIX,
   UNSHARE_MEMBER_PREFIX,
 } from './lib/commands/share';
+import {
+  createRenameHandler,
+  handleRenameCallback,
+  handleRenameText,
+  RENAME_ACCOUNT_PREFIX,
+} from './lib/commands/renameAccount';
 import { createUnlinkHandler } from './lib/commands/unlink';
 import { loadLinkConfigFromEnv } from './lib/linking/config';
 import { createLinkStore } from './lib/linking/linkStore';
@@ -111,6 +117,8 @@ export const handler: SQSHandler = async (event) => {
   };
   const onSharingCallback: Routes['onCallback'] = (ctx, query, data) =>
     handleSharingCallback(ctx, query, data, sharing);
+  const onRenameCallback: Routes['onCallback'] = (ctx, query, data) =>
+    handleRenameCallback(ctx, query, data, sharing);
   const onNewAccountCallback: Routes['onCallback'] = (ctx, query, data) =>
     handleNewAccountCallback(ctx, query, data, accountDeps);
   const routes = createRoutes({
@@ -124,6 +132,7 @@ export const handler: SQSHandler = async (event) => {
       cancel: createCancelHandler(accountDeps),
       share: createShareHandler(sharing),
       unshare: createUnshareHandler(sharing),
+      renameaccount: createRenameHandler(sharing),
     },
     onDocument: (ctx, message, document) =>
       handleDocument(ctx, message, document, upload),
@@ -131,6 +140,7 @@ export const handler: SQSHandler = async (event) => {
     onText: async (ctx, text) => {
       if (await handleNewAccountText(ctx, text, accountDeps)) return;
       if (await handleSharingText(ctx, text, sharing)) return;
+      if (await handleRenameText(ctx, text, sharing)) return;
       await ctx.telegram.sendMessage(ctx.chatId, HELP_TEXT);
     },
     callbacks: {
@@ -144,6 +154,7 @@ export const handler: SQSHandler = async (event) => {
       [SHARE_ROLE_PREFIX]: onSharingCallback,
       [UNSHARE_ACCOUNT_PREFIX]: onSharingCallback,
       [UNSHARE_MEMBER_PREFIX]: onSharingCallback,
+      [RENAME_ACCOUNT_PREFIX]: onRenameCallback,
     },
   });
 
