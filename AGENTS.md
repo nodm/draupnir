@@ -86,6 +86,9 @@ bank, `shared/src/lib/transactionsSchema.ts`, `bot/src/lib/accounts/format.ts`,
 - Branches `nodm/<name>`; Conventional Commits; PR template has a security checklist.
 - Prettier skips `openspec/` and tool-generated skills/commands (`.prettierignore`); don't
   format them by hand either.
+- CI is GitHub Actions only; Nx Cloud is not connected. Don't use the nx plugin's Nx Cloud
+  skills (`nx:monitor-ci`, `nx:nx-cloud-*`) or its `ci-monitor-subagent`; check CI with
+  `gh pr checks` / `gh run view`.
 
 ## Docs
 
