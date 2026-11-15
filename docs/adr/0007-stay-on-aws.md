@@ -57,8 +57,9 @@ database later.
   NAT gateway, and no Lambda is in the VPC. Real monthly bill (Cost Explorer, before
   tax): **about $2.50 / month** in Sep–Oct 2026, Aurora $0.20–0.40 of it; the rest is
   fixed (KMS $1, Route 53 $0.50, Secrets Manager $0.40–0.64). In Nov 2026 Aurora rose
-  to about $0.45 / day because the bot retention sweep ran hourly and kept the
-  cluster awake around the clock; running it every 12 hours (#74) brought Aurora back
+  to about $0.45 / day because the bot retention sweep ran hourly, waking the cluster
+  24 times a day (about 91% of November's Aurora cost); running it every 12 hours
+  (#74) brought Aurora back
   to about $1 / month. One wake (measured 2026-11-15) lasts about 9 minutes, runs at
   the 1 ACU maximum while resuming, and costs about 0.11 ACU-hours (about $0.016), so
   the Aurora bill is set by how often anything wakes it, not by query volume.
