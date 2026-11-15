@@ -19,7 +19,9 @@ function createTableStatement(name: string) {
 }
 
 function columnNames(table: string): string[] {
-  return createTableStatement(table).columns.map((c) => c.name.name);
+  return createTableStatement(table).columns.flatMap((c) =>
+    c.kind === 'column' ? [c.name.name] : [],
+  );
 }
 
 describe('migration 0002 DDL', () => {

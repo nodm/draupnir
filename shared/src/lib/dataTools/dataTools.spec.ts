@@ -199,13 +199,9 @@ describe('list_accounts', () => {
 
   it('shows a viewer the same balance, date and flag as the owner', async () => {
     const pick = async (sub: string) =>
-      ((await listAccounts.run(ctxFor(sub), {})) as Record<string, unknown>[])
-        .filter((a) => a['id'] === 'A1')
-        .map((a) => [
-          a['balanceMinorUnits'],
-          a['balanceAsOf'],
-          a['balanceReconciled'],
-        ]);
+      (await listAccounts.run(ctxFor(sub), {}))
+        .filter((a) => a.id === 'A1')
+        .map((a) => [a.balanceMinorUnits, a.balanceAsOf, a.balanceReconciled]);
 
     expect(await pick('bob')).toEqual(await pick('alice'));
   });
@@ -507,12 +503,12 @@ describe('summarize_transactions', () => {
   });
 
   it('puts description group keys under untrusted', async () => {
-    const result = (await summarizeTransactions.run(ctxFor('dana'), {
+    const result = await summarizeTransactions.run(ctxFor('dana'), {
       from: '2026-01-01',
       to: '2026-03-31',
       groupBy: 'description',
       text: 'rent',
-    })) as { groups: Record<string, unknown>[] };
+    });
 
     expect(result.groups).toHaveLength(2);
     for (const g of result.groups) {
