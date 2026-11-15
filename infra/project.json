@@ -79,6 +79,16 @@
         "command": "pulumi destroy --yes",
         "cwd": "infra"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "tsc --noEmit -p infra/tsconfig.json",
+          "tsc --noEmit -p infra/tsconfig.spec.json"
+        ],
+        "parallel": false
+      }
     }
   }
 }
