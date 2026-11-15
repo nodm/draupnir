@@ -2,33 +2,31 @@ schema: spec-driven
 githubCopilot:
   cloudAgent: false
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Shown to AI when creating artifacts. Full agent rules: AGENTS.md.
+context: |
+  Draupnir: personal finance tool for two users. Bank statement CSVs arrive through a
+  Telegram bot, land in S3, are imported by an SQS-triggered Lambda into Aurora PostgreSQL
+  (RDS Data API, row-level security), and are exposed to Claude by a remote MCP server.
+  Stack: TypeScript, Nx + pnpm monorepo (shared lib; ingestion, bot, mcp, infra apps),
+  AWS Lambda on Node.js 24, Pulumi (stack prod, eu-north-1), Vitest with pglite for DB tests.
+  Constraints:
+  - Prod holds real bank data that cannot be re-created. Migrations are additive and
+    backward compatible; nothing may replace or wipe Aurora, the buckets or the queues.
+  - The user deploys (`infra:preview`, then `infra:up`) from an up-to-date main.
+  - Account Lambda concurrency is 10 in total; cost guardrails and alarms exist.
+  - Every DB access is scoped to the caller (withCaller + RLS); new tables need RLS.
+  Docs that changes keep current: docs/data-model.md (enforced by a test),
+  docs/architecture.md, docs/telegram-bot.md, infra/README.md, docs/adr/.
+  Writing style: plain, short sentences; dates absolute (YYYY-MM-DD); measured facts state
+  when and how they were read.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  proposal:
+    - When an option was considered and dropped, list it under "Deliberately not done" with the reason
+    - State prod impact (data migration, deploy order, anything replaced) or say there is none
+  design:
+    - For a schema change, say how it stays backward compatible with code already deployed
+    - For an infra change, name the resources `infra:preview` must show as created or updated, and that none are replaced
+  tasks:
+    - Include the doc updates the change needs (see context) as their own tasks
+    - The prod deploy is one task, run by the user, and starts with reading `infra:preview`
