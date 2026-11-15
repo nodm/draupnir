@@ -98,9 +98,7 @@ describe('privatbank parseStatement', () => {
   });
 
   it('gives identical rows at different times distinct keys', () => {
-    const rows = normalized(eur).filter(
-      (r) => r.amountMinorUnits === -20000,
-    );
+    const rows = normalized(eur).filter((r) => r.amountMinorUnits === -20000);
 
     expect(rows).toHaveLength(2);
     expect(rows[0]?.dedupKey).not.toBe(rows[1]?.dedupKey);
