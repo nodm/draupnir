@@ -26,8 +26,10 @@ pnpm exec nx test ingestion                          # one project
 pnpm exec nx format:write --all                      # format; CI runs format:check --all
 ```
 
-- Database tests run real migrations in pglite (in-memory Postgres). If they time out
-  when many projects run at once, add `--parallel=1`.
+- Database tests run real migrations in pglite (in-memory Postgres, CPU-heavy). `test`
+  targets never run alongside other tasks (`parallelism: false` in `nx.json`), because
+  several projects' pglite workers at once overload the CPU and setup hooks time out.
+  Keep it that way.
 - Run `pulumi` commands from `infra/`, and only through the Nx targets
   (`infra:preview`); they build the Lambda bundles first.
 
