@@ -23,6 +23,7 @@ Every app may depend only on `shared` (enforced by `@nx/enforce-module-boundarie
 pnpm exec nx run-many -t lint typecheck test build   # whole repo
 pnpm exec nx affected -t lint typecheck test build   # what CI runs on PRs
 pnpm exec nx test ingestion                          # one project
+pnpm exec nx format:write --all                      # format; CI runs format:check --all
 ```
 
 - Database tests run real migrations in pglite (in-memory Postgres). If they time out
@@ -81,7 +82,8 @@ bank, `shared/src/lib/transactionsSchema.ts`, `bot/src/lib/accounts/format.ts`,
 - Feature work goes through OpenSpec: `/opsx:propose` → `/opsx:apply` → `/opsx:archive`.
   Current specs: `openspec/specs/`; active changes: `openspec/changes/`.
 - Branches `nodm/<name>`; Conventional Commits; PR template has a security checklist.
-- Don't run Prettier over `openspec/`.
+- Prettier skips `openspec/` and tool-generated skills/commands (`.prettierignore`); don't
+  format them by hand either.
 
 ## Docs
 

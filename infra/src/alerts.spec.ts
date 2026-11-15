@@ -106,9 +106,7 @@ describe('createAlerts with non-default config', () => {
   });
 
   it('reuses the configured anomaly monitor instead of creating one', () => {
-    expect(named('aws:costexplorer/anomalyMonitor:AnomalyMonitor')).toEqual(
-      [],
-    );
+    expect(named('aws:costexplorer/anomalyMonitor:AnomalyMonitor')).toEqual([]);
     const subscriptions = named(
       'aws:costexplorer/anomalySubscription:AnomalySubscription',
     );

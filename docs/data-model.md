@@ -40,19 +40,19 @@ How the bot uses its tables: [telegram-bot.md](./telegram-bot.md) and
 One bank account. Created through `draupnir.create_account` (there is no insert policy), so
 the creator becomes an owner in the same step. Written by `createAccount` in `shared`.
 
-| Column                        | Type        | Null | Notes                                                      |
-| ----------------------------- | ----------- | ---- | ---------------------------------------------------------- |
-| `id`                          | text        | no   | Primary key.                                               |
+| Column                        | Type        | Null | Notes                                                                        |
+| ----------------------------- | ----------- | ---- | ---------------------------------------------------------------------------- |
+| `id`                          | text        | no   | Primary key.                                                                 |
 | `bank`                        | text        | no   | `seb`, `revolut`, `monobank`, `swedbank` or `privatbank` (check constraint). |
-| `iban`                        | text        | no   | Unique across all accounts, canonical form (no spaces).    |
-| `currency`                    | text        | no   | Account currency, ISO 4217 code.                           |
-| `display_name`                | text        | no   | The name the owner gave it, up to 60 characters in chat.   |
-| `opened_on`                   | date        | no   | The date `opening_balance_minor_units` is the balance on.  |
-| `opening_balance_minor_units` | bigint      | no   | Starting point statements are reconciled against.          |
-| `created_at`                  | timestamptz | no   | Default `now()`.                                           |
-| `balance_minor_units`         | bigint      | no   | Opening balance plus every transaction's amount minus fee. |
-| `balance_as_of`               | date        | no   | The day the balance last changed (`opened_on` if never).   |
-| `balance_reconciled`          | boolean     | no   | History continuous from the opening balance.               |
+| `iban`                        | text        | no   | Unique across all accounts, canonical form (no spaces).                      |
+| `currency`                    | text        | no   | Account currency, ISO 4217 code.                                             |
+| `display_name`                | text        | no   | The name the owner gave it, up to 60 characters in chat.                     |
+| `opened_on`                   | date        | no   | The date `opening_balance_minor_units` is the balance on.                    |
+| `opening_balance_minor_units` | bigint      | no   | Starting point statements are reconciled against.                            |
+| `created_at`                  | timestamptz | no   | Default `now()`.                                                             |
+| `balance_minor_units`         | bigint      | no   | Opening balance plus every transaction's amount minus fee.                   |
+| `balance_as_of`               | date        | no   | The day the balance last changed (`opened_on` if never).                     |
+| `balance_reconciled`          | boolean     | no   | History continuous from the opening balance.                                 |
 
 - Access: select for any member; update and delete for owners.
 - The three balance columns are recomputed by every import and rebuild, never incremented. A trigger starts a new account at its opening balance, as of `opened_on`, reconciled.
@@ -137,7 +137,7 @@ Every CSV row as received, so transactions can be re-derived without the origina
 | `row_number`          | integer | no   | 1-based position in the data rows of the file.                  |
 | `bank`                | text    | no   |                                                                 |
 | `format_version`      | text    | no   | For example `seb-v1`.                                           |
-| `bank_transaction_id` | text    | yes  | The bank's own id, when the format has one (SEB, Swedbank do). |
+| `bank_transaction_id` | text    | yes  | The bank's own id, when the format has one (SEB, Swedbank do).  |
 | `payload`             | jsonb   | no   | The whole row, header name to string value, exactly as written. |
 
 - Unique `(file_id, row_number)` and `(id, account_id)`; index on `account_id`.
@@ -149,25 +149,25 @@ Every CSV row as received, so transactions can be re-derived without the origina
 
 The common, derived, rebuildable layer: what queries and the assistant use.
 
-| Column                        | Type        | Null | Notes                                                                             |
-| ----------------------------- | ----------- | ---- | --------------------------------------------------------------------------------- |
-| `id`                          | text        | no   | Primary key.                                                                      |
-| `account_id`                  | text        | no   | References `accounts(id)`.                                                        |
-| `posted_date`                 | date        | no   |                                                                                   |
-| `amount_minor_units`          | bigint      | no   | Signed: credits positive, debits negative.                                        |
-| `currency`                    | text        | no   |                                                                                   |
-| `description`                 | text        | no   | Normalized (trimmed, lower-cased); the original text is in `raw_rows.payload`.    |
-| `fee_minor_units`             | bigint      | no   | Default 0.                                                                        |
-| `balance_after_minor_units`   | bigint      | yes  | Only when the bank gives a running balance.                                       |
+| Column                        | Type        | Null | Notes                                                                                                                                                         |
+| ----------------------------- | ----------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                          | text        | no   | Primary key.                                                                                                                                                  |
+| `account_id`                  | text        | no   | References `accounts(id)`.                                                                                                                                    |
+| `posted_date`                 | date        | no   |                                                                                                                                                               |
+| `amount_minor_units`          | bigint      | no   | Signed: credits positive, debits negative.                                                                                                                    |
+| `currency`                    | text        | no   |                                                                                                                                                               |
+| `description`                 | text        | no   | Normalized (trimmed, lower-cased); the original text is in `raw_rows.payload`.                                                                                |
+| `fee_minor_units`             | bigint      | no   | Default 0.                                                                                                                                                    |
+| `balance_after_minor_units`   | bigint      | yes  | Only when the bank gives a running balance.                                                                                                                   |
 | `dedup_key`                   | text        | no   | `seb:<bank id>` / `swedbank:<record no.>` where the bank has an id, otherwise a hash plus occurrence index (PrivatBank's hash also includes the time of day). |
-| `original_currency`           | text        | yes  | Foreign-currency details; set together with `original_amount_minor_units`.        |
-| `original_amount_minor_units` | bigint      | yes  |                                                                                   |
-| `fx_fee_minor_units`          | bigint      | yes  | Set together with `fx_fee_percent`.                                               |
-| `fx_fee_percent`              | numeric     | yes  |                                                                                   |
-| `created_at`                  | timestamptz | no   | Default `now()`.                                                                  |
-| `occurred_at`                 | timestamptz | yes  | When the balance changed (Revolut completion time); order key, read as UTC.       |
-| `source_seq`                  | integer     | yes  | Position in the source file's chronological order; second order key.              |
-| `running_balance_minor_units` | bigint      | yes  | Account balance right after this row, for every bank (not the bank's own figure). |
+| `original_currency`           | text        | yes  | Foreign-currency details; set together with `original_amount_minor_units`.                                                                                    |
+| `original_amount_minor_units` | bigint      | yes  |                                                                                                                                                               |
+| `fx_fee_minor_units`          | bigint      | yes  | Set together with `fx_fee_percent`.                                                                                                                           |
+| `fx_fee_percent`              | numeric     | yes  |                                                                                                                                                               |
+| `created_at`                  | timestamptz | no   | Default `now()`.                                                                                                                                              |
+| `occurred_at`                 | timestamptz | yes  | When the balance changed (Revolut completion time); order key, read as UTC.                                                                                   |
+| `source_seq`                  | integer     | yes  | Position in the source file's chronological order; second order key.                                                                                          |
+| `running_balance_minor_units` | bigint      | yes  | Account balance right after this row, for every bank (not the bank's own figure).                                                                             |
 
 - Order is `(occurred_at, source_seq, dedup_key, id)` (`dedup_key` breaks ties between files, stable across rebuilds); indexed with `account_id` first.
 - Unique `(account_id, dedup_key)` (what makes re-imports safe) and `(id, account_id)`.
