@@ -59,8 +59,9 @@ database later.
   fixed (KMS $1, Route 53 $0.50, Secrets Manager $0.40–0.64). In Nov 2026 Aurora rose
   to about $0.45 / day because the bot retention sweep ran hourly and kept the
   cluster awake around the clock; running it every 12 hours (#74) brought Aurora back
-  to about $2 / month. Each wake costs about 0.25 ACU-hours (about $0.035), so the
-  Aurora bill is set by how often anything wakes it, not by query volume.
+  to about $1 / month. One wake (measured 2026-11-15) lasts about 9 minutes, runs at
+  the 1 ACU maximum while resuming, and costs about 0.11 ACU-hours (about $0.016), so
+  the Aurora bill is set by how often anything wakes it, not by query volume.
 - **Supabase pros:** RLS with JWT wiring out of the box, Google auth built in, plain
   Postgres, low lock-in. **Cons:** free tier has no backups, projects pause after 7
   days of inactivity, Pro is $25/mo, no SLA on free.
