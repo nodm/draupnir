@@ -54,8 +54,15 @@ database later.
   (VPC, IAM, Data API, Cognito, Lambda, Pulumi). Moving to Supabase/Cloudflare
   discards that without a compensating gain.
 - **Cost is already near zero.** Aurora scales to zero after 300s idle, there is no
-  NAT gateway, and no Lambda is in the VPC. Real monthly bill (Cost Explorer):
-  **TODO(Dmytro): fill in `€__ / month`** — the revisit threshold below depends on it.
+  NAT gateway, and no Lambda is in the VPC. Real monthly bill (Cost Explorer, before
+  tax): **about $2.50 / month** in Sep–Oct 2026, Aurora $0.20–0.40 of it; the rest is
+  fixed (KMS $1, Route 53 $0.50, Secrets Manager $0.40–0.64). In Nov 2026 Aurora rose
+  to about $0.45 / day because the bot retention sweep ran hourly, waking the cluster
+  24 times a day (about 91% of November's Aurora cost); running it every 12 hours
+  (#74) brought Aurora back
+  to about $1 / month. One wake (measured 2026-11-15) lasts about 9 minutes, runs at
+  the 1 ACU maximum while resuming, and costs about 0.11 ACU-hours (about $0.016), so
+  the Aurora bill is set by how often anything wakes it, not by query volume.
 - **Supabase pros:** RLS with JWT wiring out of the box, Google auth built in, plain
   Postgres, low lock-in. **Cons:** free tier has no backups, projects pause after 7
   days of inactivity, Pro is $25/mo, no SLA on free.
@@ -75,6 +82,8 @@ database later.
 
 ## Action Items
 
-- [ ] Fill in the real monthly bill from Cost Explorer in Trade-off Analysis.
-- [ ] Revisit if the SAA learning goal ends, or the monthly bill exceeds an agreed
-      threshold (set one when the bill above is filled in).
+- [x] Fill in the real monthly bill from Cost Explorer in Trade-off Analysis.
+- [ ] Revisit if the SAA learning goal ends, or Aurora exceeds $5 / month for two
+      months in a row.
+- [ ] Every new scheduled job that touches the database: check its cadence against
+      the cost of a wake (above).
