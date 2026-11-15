@@ -15,7 +15,6 @@ export default [
           ],
           ignoredDependencies: [
             '@types/aws-lambda',
-            '@cucumber/cucumber',
             // test-only (pglite-backed specs); never bundled into a Lambda
             '@electric-sql/pglite',
           ],
