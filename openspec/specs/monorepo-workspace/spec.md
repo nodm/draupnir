@@ -94,17 +94,3 @@ Every generated project SHALL run its unit tests through Vitest via its nx `test
   `infra`
 - **THEN** Vitest executes and reports a pass (zero tests is an acceptable pass for the
   empty stub)
-
-### Requirement: Cucumber/Gherkin BDD is scoped to ingestion
-`.feature` files under Cucumber SHALL execute only against projects tagged
-`scope:ingestion`; running the BDD target against a non-ingestion project SHALL be a no-op
-or unavailable target, not a failure.
-
-#### Scenario: BDD target exists for ingestion
-- **WHEN** a developer runs the ingestion project's `bdd` (or equivalent Cucumber) target
-- **THEN** Cucumber executes against `.feature` files scoped to that project and reports a
-  pass
-
-#### Scenario: BDD target is absent elsewhere
-- **WHEN** a developer inspects the `mcp`, `shared`, or `infra` project's targets
-- **THEN** no Cucumber/BDD target is configured for those projects
