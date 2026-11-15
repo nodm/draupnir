@@ -2,23 +2,26 @@
 
 ## Purpose
 
-Gives every pull request an automated install/lint/type-check/build/test gate so a boundary
-violation, type error or broken stub is caught in CI, not after merge.
+Gives every pull request an automated install/format/lint/type-check/build/test gate so a
+boundary violation, type error, unformatted file or broken stub is caught in CI, not after
+merge.
 
 ## Requirements
 
 ### Requirement: CI runs install, lint, build, and test on every PR
 The GitHub Actions workflow SHALL trigger on pull requests and run, in order: dependency
-install, lint (via `nx affected -t lint`), type-check (via `nx affected -t typecheck`), build
-(via `nx affected -t build`), and test (via `nx affected -t test`). The workflow SHALL fail if
-any step fails. Every project SHALL have a `typecheck` target that checks both its source and
-its spec files without emitting output.
+install, a formatting check of the whole repository (via `nx format:check --all`), lint (via
+`nx affected -t lint`), type-check (via `nx affected -t typecheck`), build (via
+`nx affected -t build`), and test (via `nx affected -t test`). The workflow SHALL fail if any
+step fails. Every project SHALL have a `typecheck` target that checks both its source and its
+spec files without emitting output. The formatting check SHALL skip only the paths listed in
+`.prettierignore`.
 
 #### Scenario: Trivial PR passes CI
 - **WHEN** a pull request is opened that only touches the generated stub projects with no
   boundary violations
-- **THEN** the workflow run completes with install, lint, type-check, build, and test all
-  reporting success
+- **THEN** the workflow run completes with install, formatting check, lint, type-check, build,
+  and test all reporting success
 
 #### Scenario: Boundary violation fails CI
 - **WHEN** a pull request introduces a disallowed cross-scope import (e.g. `scope:mcp`
@@ -34,3 +37,8 @@ its spec files without emitting output.
 - **WHEN** a pull request changes `shared` in a way that breaks the types of a project that
   depends on it
 - **THEN** that dependent project's type-check runs in the same workflow and fails
+
+#### Scenario: Unformatted file fails CI
+- **WHEN** a pull request adds or changes a file outside `.prettierignore` that is not
+  formatted, including one outside any project (e.g. under `docs/`)
+- **THEN** the workflow's formatting check fails and the overall run is reported as failed
