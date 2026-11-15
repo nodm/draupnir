@@ -1,8 +1,8 @@
 {
   "name": "draupnir",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Personal finance tool: bank statements via a Telegram bot into Aurora, read by Claude over MCP",
   "scripts": {
     "openspec": "openspec"
   },
