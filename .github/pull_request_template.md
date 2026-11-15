@@ -1,8 +1,8 @@
 ## Checklist
 
-- [ ] Any new query against a user-owned table applies the ownership/grant
-      predicate (`shared`'s `ownershipPredicate`, see ADR-0002) — no query
-      against `owner_user_id`-bearing rows skips it
+- [ ] Any new query against member-owned rows applies the membership
+      predicate (`shared`'s `memberPredicate`, see ADR-0008) — no query
+      against account-scoped rows skips it
 - [ ] Any new table has `ENABLE ROW LEVEL SECURITY` and policies in its
       migration (a guard test fails otherwise); every `SECURITY DEFINER`
       function pins `search_path = pg_catalog, pg_temp`, schema-qualifies its
