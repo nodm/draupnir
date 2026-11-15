@@ -6,4 +6,4 @@
 
 ## 2. Archive
 
-- [ ] 2.1 After merge, archive the change and set the main spec's Purpose to the current layout; verify `openspec validate monorepo-workspace --type spec` passes
+- [x] 2.1 After merge, archive the change and set the main spec's Purpose to the current layout; verify `openspec validate monorepo-workspace --type spec` passes
