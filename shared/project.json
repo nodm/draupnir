@@ -23,6 +23,16 @@
       "options": {
         "coverage.reportsDirectory": "../coverage/shared"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "tsc --noEmit -p shared/tsconfig.lib.json",
+          "tsc --noEmit -p shared/tsconfig.spec.json"
+        ],
+        "parallel": false
+      }
     }
   }
 }

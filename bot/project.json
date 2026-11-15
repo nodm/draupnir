@@ -38,6 +38,16 @@
       "options": {
         "command": "node bot/scripts/webhook.mjs --delete"
       }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "tsc --noEmit -p bot/tsconfig.lib.json",
+          "tsc --noEmit -p bot/tsconfig.spec.json"
+        ],
+        "parallel": false
+      }
     }
   }
 }

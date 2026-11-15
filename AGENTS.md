@@ -20,9 +20,9 @@ Every app may depend only on `shared` (enforced by `@nx/enforce-module-boundarie
 ## Commands
 
 ```bash
-pnpm exec nx run-many -t lint test build   # whole repo
-pnpm exec nx affected -t lint test build   # what CI runs on PRs
-pnpm exec nx test ingestion                # one project
+pnpm exec nx run-many -t lint typecheck test build   # whole repo
+pnpm exec nx affected -t lint typecheck test build   # what CI runs on PRs
+pnpm exec nx test ingestion                          # one project
 ```
 
 - Database tests run real migrations in pglite (in-memory Postgres). If they time out

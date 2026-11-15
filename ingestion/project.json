@@ -11,9 +11,7 @@
       "options": {
         "outputPath": "dist/ingestion",
         "main": "ingestion/src/handler.ts",
-        "additionalEntryPoints": [
-          "ingestion/src/rebuildAccount.ts"
-        ],
+        "additionalEntryPoints": ["ingestion/src/rebuildAccount.ts"],
         "tsConfig": "ingestion/tsconfig.lib.json",
         "assets": ["ingestion/*.md"],
         "platform": "node",
@@ -28,6 +26,16 @@
       "options": {
         "command": "cucumber-js features/**/*.feature --require features/step_definitions/**/*.cjs",
         "cwd": "ingestion"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "tsc --noEmit -p ingestion/tsconfig.lib.json",
+          "tsc --noEmit -p ingestion/tsconfig.spec.json"
+        ],
+        "parallel": false
       }
     }
   }
