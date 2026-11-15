@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check formatting
+        run: pnpm exec nx format:check --all
+
       - name: Lint affected projects
         run: pnpm exec nx affected -t lint
 
