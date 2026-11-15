@@ -1,4 +1,26 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(./-temp-/**)",
+      "Bash(*infra:destroy*)",
+      "Bash(*nx destroy infra*)",
+      "Bash(*infra:reset-data*)",
+      "Bash(*nx reset-data infra*)",
+      "Bash(*reset-data.sh*)",
+      "Bash(pulumi destroy*)",
+      "Bash(*pulumi destroy*)"
+    ],
+    "ask": [
+      "Bash(*infra:up*)",
+      "Bash(*nx up infra*)",
+      "Bash(pulumi up*)",
+      "Bash(*pulumi up*)",
+      "Bash(aws rds-data execute-statement*)",
+      "Bash(aws rds-data batch-execute-statement*)",
+      "Bash(aws s3 rm*)",
+      "Bash(aws s3api delete-object*)"
+    ]
+  },
   "extraKnownMarketplaces": {
     "nx-claude-plugins": {
       "source": {
